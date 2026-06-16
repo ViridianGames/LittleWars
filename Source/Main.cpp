@@ -74,8 +74,8 @@ int main(int argv, char** argc)
 	// Create global objects
 	g_drawScale = g_Engine->m_ScreenHeight / g_Engine->m_RenderHeight;
 
-	g_font = make_shared<Font>(LoadFontEx("Fonts/babyblocks.ttf", 9, NULL, 0));
-	g_smallFont = make_shared<Font>(LoadFontEx("Fonts/littleleague.ttf", 9, NULL, 0));
+	g_font = make_shared<Font>(LoadFontEx("Fonts/softsquare.ttf", 9, NULL, 0));
+	g_smallFont = make_shared<Font>(LoadFontEx("Fonts/littleleague.ttf", 7, NULL, 0));
 
    // Create and register our example state
    TitleState* titleState = new TitleState();

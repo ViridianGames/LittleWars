@@ -39,6 +39,9 @@ void TitleState::Update()
 void TitleState::Draw()
 {
 	DrawRectangle(0, 0, g_Engine->m_RenderWidth, g_Engine->m_RenderHeight, BLUE);
-	DrawOutlinedText(g_smallFont, "Hello!", {0, 0}, g_smallFont->baseSize, 1, WHITE);
+	//DrawTextEx(*g_font, "Hello!", {0, 0}, g_font->baseSize, 1, WHITE);
+	DrawOutlinedText(g_font, "Hello!", {0, 0}, g_font->baseSize, 1, WHITE);
+
+	DrawOutlinedText(g_smallFont, "Hello!", {0, 20}, g_smallFont->baseSize, 1, WHITE);
 
 }

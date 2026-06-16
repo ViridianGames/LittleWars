@@ -63,8 +63,8 @@ void Engine::Init(const std::string &configfile)
 
 	HideCursor(); // We'll use our own.
 
-	m_renderTarget = LoadRenderTexture(g_Engine->m_RenderWidth, g_Engine->m_RenderHeight);
-	SetTextureFilter(m_renderTarget.texture, RL_TEXTURE_FILTER_ANISOTROPIC_4X);
+	m_renderTarget = LoadRenderTexture(static_cast<int>(m_RenderWidth), static_cast<int>(m_RenderHeight));
+	SetTextureFilter(m_renderTarget.texture, TEXTURE_FILTER_POINT);
 
 	Log("Done with Engine::Init()");
 }
@@ -134,19 +134,19 @@ void Engine::Draw()
 {
 	if (m_useVirtualResolution)
 	{
-		BeginDrawing();
-
 		BeginTextureMode(m_renderTarget);
-		ClearBackground({ 0, 0, 0, 0 });
+		ClearBackground(BLACK);
 		g_ResourceManager->Draw();
 		g_StateMachine->Draw();
 		g_ScriptingSystem->Draw();
 		g_InputSystem->Draw();
 		EndTextureMode();
 
+		BeginDrawing();
+		ClearBackground(BLACK);
 		DrawTexturePro(m_renderTarget.texture,
-			{ 0, 0, float(m_renderTarget.texture.width), float(m_renderTarget.texture.height) },
-			{ 0, float(m_ScreenHeight), float(m_ScreenWidth), -float(m_ScreenHeight) },
+			{ 0, 0, m_RenderWidth, -m_RenderHeight },
+			{ 0, 0, m_ScreenWidth, m_ScreenHeight },
 			{ 0, 0 }, 0, WHITE);
 		EndDrawing();
 	}
