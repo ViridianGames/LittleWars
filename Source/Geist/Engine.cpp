@@ -10,6 +10,8 @@
 #include <fstream>
 #include <chrono>
 
+#include "rlgl.h"
+
 using namespace std;
 using namespace std::chrono;
 
@@ -61,11 +63,18 @@ void Engine::Init(const std::string &configfile)
 
 	HideCursor(); // We'll use our own.
 
+	m_renderTarget = LoadRenderTexture(g_Engine->m_RenderWidth, g_Engine->m_RenderHeight);
+	SetTextureFilter(m_renderTarget.texture, RL_TEXTURE_FILTER_ANISOTROPIC_4X);
+
 	Log("Done with Engine::Init()");
 }
 
 void Engine::Shutdown()
 {
+	UnloadRenderTexture(m_renderTarget);
+
+	g_SoundSystem->Shutdown();
+	g_ScriptingSystem->Shutdown();
 	g_StateMachine->Shutdown();
 	g_ResourceManager->Shutdown();
 	g_InputSystem->Shutdown();
@@ -123,13 +132,34 @@ void Engine::Update()
 
 void Engine::Draw()
 {
-	BeginDrawing();
-	ClearBackground(BLACK);
-	g_ResourceManager->Draw();
-	g_StateMachine->Draw();
-	g_ScriptingSystem->Draw();
-	g_InputSystem->Draw();
-	EndDrawing();
+	if (m_useVirtualResolution)
+	{
+		BeginDrawing();
+
+		BeginTextureMode(m_renderTarget);
+		ClearBackground({ 0, 0, 0, 0 });
+		g_ResourceManager->Draw();
+		g_StateMachine->Draw();
+		g_ScriptingSystem->Draw();
+		g_InputSystem->Draw();
+		EndTextureMode();
+
+		DrawTexturePro(m_renderTarget.texture,
+			{ 0, 0, float(m_renderTarget.texture.width), float(m_renderTarget.texture.height) },
+			{ 0, float(m_ScreenHeight), float(m_ScreenWidth), -float(m_ScreenHeight) },
+			{ 0, 0 }, 0, WHITE);
+		EndDrawing();
+	}
+	else
+	{
+		BeginDrawing();
+		ClearBackground(BLACK);
+		g_ResourceManager->Draw();
+		g_StateMachine->Draw();
+		g_ScriptingSystem->Draw();
+		g_InputSystem->Draw();
+		EndDrawing();
+	}
 }
 
 int64_t Engine::GameTimeInMS()

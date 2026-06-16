@@ -17,6 +17,7 @@
 #include <chrono>
 #include "Object.h"
 #include "Config.h"
+#include "raylib.h"
 
 class Engine : public Object
 {
@@ -34,6 +35,7 @@ public:
 		, m_RenderHeight(0.0f)
 		, m_ScreenWidth(0.0f)
 		, m_ScreenHeight(0.0f)
+	, m_useVirtualResolution(false)
 	{}
 
 	virtual void Init() { Init(std::string("")); }
@@ -89,8 +91,9 @@ public:
 
 	double        m_averageUpdate;     //  The average duration of an update, used to detect lag.
 
+	float         m_useVirtualResolution;  // Use a render texture to render to renderheight/renderwidth, then scale to screenwidth/screenheight
 
-
+	RenderTexture2D m_renderTarget;
 };
 
 #endif

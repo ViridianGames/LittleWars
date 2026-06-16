@@ -3,7 +3,7 @@
 #include "Geist/Engine.h"
 #include "Geist/Globals.h"
 
-#include "LWGlobals.h"
+#include "GameGlobals.h"
 
 using namespace std;
 

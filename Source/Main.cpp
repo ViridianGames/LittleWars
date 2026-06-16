@@ -16,7 +16,7 @@
 #include <filesystem>
 
 #include "llimits.h"
-#include "LWGlobals.h"
+#include "GameGlobals.h"
 
 #include "rlgl.h"
 
@@ -69,6 +69,13 @@ int main(int argv, char** argc)
 
    // Initialize with configuration file
    g_Engine->Init("engine.cfg");
+	g_Engine->m_useVirtualResolution = true;
+
+	// Create global objects
+	g_drawScale = g_Engine->m_ScreenHeight / g_Engine->m_RenderHeight;
+
+	g_font = make_shared<Font>(LoadFontEx("Fonts/babyblocks.ttf", 9, NULL, 0));
+	g_smallFont = make_shared<Font>(LoadFontEx("Fonts/littleleague.ttf", 9, NULL, 0));
 
    // Create and register our example state
    TitleState* titleState = new TitleState();

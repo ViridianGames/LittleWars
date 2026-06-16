@@ -4,10 +4,6 @@
 
 using namespace std;
 
-// Globals for cursor drawing (defined here for both projects)
-Texture* g_Cursor = nullptr;
-float g_DrawScale = 1.0f;
-
 void StateMachine::Init(const std::string& configfile)
 {
 	Log("Starting StateMachine::Init");
@@ -76,12 +72,6 @@ void StateMachine::Draw()
 		{
 			// Only draw the topmost state
 			topState->Draw();
-		}
-
-		// Draw cursor if the topmost state wants it
-		if (topState->m_DrawCursor && g_Cursor)
-		{
-			DrawTextureEx(*g_Cursor, { float(GetMouseX()), float(GetMouseY()) }, 0, g_DrawScale, WHITE);
 		}
 	}
 }

@@ -170,7 +170,7 @@ set(SOURCES
 
         Source/CastleDesignState.cpp
         Source/CombatState.cpp
-        Source/LWGlobals.cpp
+        Source/GameGlobals.cpp
         Source/Main.cpp
         Source/MainState.cpp
         Source/OptionsState.cpp
