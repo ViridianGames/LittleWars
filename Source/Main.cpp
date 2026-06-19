@@ -17,6 +17,9 @@
 
 #include "llimits.h"
 #include "GameGlobals.h"
+#include "LittlePeopleSprites.h"
+#include "RegionView.h"
+#include "TerrainTextures.h"
 
 #include "rlgl.h"
 
@@ -69,13 +72,16 @@ int main(int argv, char** argc)
 
    // Initialize with configuration file
    g_Engine->Init("engine.cfg");
-	g_Engine->m_useVirtualResolution = true;
 
 	// Create global objects
-	g_drawScale = g_Engine->m_ScreenHeight / g_Engine->m_RenderHeight;
+	g_drawScale = g_Engine->GetInputScale();
 
 	g_font = make_shared<Font>(LoadFontEx("Fonts/softsquare.ttf", 9, NULL, 0));
 	g_smallFont = make_shared<Font>(LoadFontEx("Fonts/littleleague.ttf", 7, NULL, 0));
+
+	InitTerrainTextures();
+	InitLittlePeopleSprites();
+	g_RegionView.Init();
 
    // Create and register our example state
    TitleState* titleState = new TitleState();
@@ -112,6 +118,8 @@ int main(int argv, char** argc)
    }
 
    // Cleanup
+   ShutdownLittlePeopleSprites();
+   ShutdownTerrainTextures();
    g_Engine->Shutdown();
 
    return 0;

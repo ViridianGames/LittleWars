@@ -195,3 +195,19 @@ int StateMachine::GetPreviousState()
 {
 	return m_PreviousState;
 }
+
+bool StateMachine::ShouldDrawCursor() const
+{
+	if (m_StateStack.empty())
+	{
+		return true;
+	}
+
+	const auto stateIt = m_StateMap.find(get<0>(m_StateStack[0]));
+	if (stateIt == m_StateMap.end())
+	{
+		return true;
+	}
+
+	return stateIt->second->m_DrawCursor;
+}

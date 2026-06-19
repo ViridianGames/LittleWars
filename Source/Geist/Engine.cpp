@@ -45,6 +45,8 @@ void Engine::Init(const std::string &configfile)
 	m_ScreenWidth = m_EngineConfig.GetNumber("h_res");
 	m_ScreenHeight = m_EngineConfig.GetNumber("v_res");
 
+	m_useVirtualResolution = m_EngineConfig.GetNumber("use_virtual_resolution") != 0;
+
 	//  Initialize Raylib and the screen.
 	std::string windowTitle = m_EngineConfig.GetString("name");
 	SetConfigFlags(FLAG_VSYNC_HINT);
@@ -65,12 +67,14 @@ void Engine::Init(const std::string &configfile)
 
 	m_renderTarget = LoadRenderTexture(static_cast<int>(m_RenderWidth), static_cast<int>(m_RenderHeight));
 	SetTextureFilter(m_renderTarget.texture, TEXTURE_FILTER_POINT);
+	LoadMouseCursor();
 
 	Log("Done with Engine::Init()");
 }
 
 void Engine::Shutdown()
 {
+	UnloadMouseCursor();
 	UnloadRenderTexture(m_renderTarget);
 
 	g_SoundSystem->Shutdown();
@@ -140,6 +144,7 @@ void Engine::Draw()
 		g_StateMachine->Draw();
 		g_ScriptingSystem->Draw();
 		g_InputSystem->Draw();
+		DrawMouseCursor(true);
 		EndTextureMode();
 
 		BeginDrawing();
@@ -158,8 +163,74 @@ void Engine::Draw()
 		g_StateMachine->Draw();
 		g_ScriptingSystem->Draw();
 		g_InputSystem->Draw();
+		DrawMouseCursor(false);
 		EndDrawing();
 	}
+}
+
+float Engine::GetInputScale() const
+{
+	if (!m_useVirtualResolution || m_RenderHeight <= 0.0f)
+	{
+		return 1.0f;
+	}
+
+	return m_ScreenHeight / m_RenderHeight;
+}
+
+void Engine::LoadMouseCursor()
+{
+	const std::string cursorPath = m_EngineConfig.GetString("mouse_cursor");
+	if (cursorPath.empty())
+	{
+		return;
+	}
+
+	m_MouseCursor = LoadTexture(cursorPath.c_str());
+	if (m_MouseCursor.id == 0)
+	{
+		Log("Engine: Failed to load mouse cursor texture: " + cursorPath);
+		return;
+	}
+
+	SetTextureFilter(m_MouseCursor, TEXTURE_FILTER_POINT);
+	m_HasMouseCursor = true;
+	m_MouseCursorHotspotX = static_cast<int>(m_EngineConfig.GetNumber("mouse_cursor_hotspot_x"));
+	m_MouseCursorHotspotY = static_cast<int>(m_EngineConfig.GetNumber("mouse_cursor_hotspot_y"));
+}
+
+void Engine::UnloadMouseCursor()
+{
+	if (!m_HasMouseCursor)
+	{
+		return;
+	}
+
+	UnloadTexture(m_MouseCursor);
+	m_MouseCursor = Texture2D{};
+	m_HasMouseCursor = false;
+}
+
+void Engine::DrawMouseCursor(bool useRenderCoordinates)
+{
+	if (!m_HasMouseCursor || !g_StateMachine->ShouldDrawCursor() || !IsCursorOnScreen())
+	{
+		return;
+	}
+
+	Vector2 mouse = GetMousePosition();
+	if (useRenderCoordinates)
+	{
+		const float inputScale = GetInputScale();
+		mouse.x /= inputScale;
+		mouse.y /= inputScale;
+	}
+
+	DrawTexture(
+		m_MouseCursor,
+		static_cast<int>(mouse.x) - m_MouseCursorHotspotX,
+		static_cast<int>(mouse.y) - m_MouseCursorHotspotY,
+		WHITE);
 }
 
 int64_t Engine::GameTimeInMS()

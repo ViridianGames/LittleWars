@@ -44,6 +44,7 @@ public:
 	virtual void Draw();
 
 	void CaptureScreenshot();
+	float GetInputScale() const;
 
 	Config m_EngineConfig;
 	bool m_Done;
@@ -93,6 +94,16 @@ public:
 	bool          m_useVirtualResolution = false;  // Render to renderheight/renderwidth, then scale to screenwidth/screenheight
 
 	RenderTexture2D m_renderTarget;
+
+private:
+	void LoadMouseCursor();
+	void DrawMouseCursor(bool useRenderCoordinates);
+	void UnloadMouseCursor();
+
+	bool m_HasMouseCursor = false;
+	Texture2D m_MouseCursor{};
+	int m_MouseCursorHotspotX = 0;
+	int m_MouseCursorHotspotY = 0;
 };
 
 #endif

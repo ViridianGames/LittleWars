@@ -1,13 +1,20 @@
- Tue Jun 16 12:25:23 2026.570 Starting Engine::Init()
- Tue Jun 16 12:25:23 2026.570 Starting StateMachine::Init
- Tue Jun 16 12:25:23 2026.570 Leaving StateMachine::Init
- Tue Jun 16 12:25:23 2026.570 Starting InputSystem::Init()
- Tue Jun 16 12:25:23 2026.570 Done With InputSystem::Init()
- Tue Jun 16 12:25:23 2026.722 Done with Engine::Init()
- Tue Jun 16 12:25:23 2026.722 Created state TitleState with ID 0
- Tue Jun 16 12:25:23 2026.722 Created state SetupGameState with ID 5
- Tue Jun 16 12:25:23 2026.722 Created state CastleDesignState with ID 4
- Tue Jun 16 12:25:23 2026.722 Created state MainState with ID 1
- Tue Jun 16 12:25:23 2026.722 Created state CombatState with ID 3
- Tue Jun 16 12:25:23 2026.722 Created state OptionsState with ID 2
- Tue Jun 16 12:25:23 2026.722 StateMachine: Transitioning to state TitleState, ID 0
+ Fri Jun 19 09:22:24 2026.034 Starting Engine::Init()
+ Fri Jun 19 09:22:24 2026.035 Starting StateMachine::Init
+ Fri Jun 19 09:22:24 2026.035 Leaving StateMachine::Init
+ Fri Jun 19 09:22:24 2026.035 Starting InputSystem::Init()
+ Fri Jun 19 09:22:24 2026.035 Done With InputSystem::Init()
+ Fri Jun 19 09:22:24 2026.322 Done with Engine::Init()
+ Fri Jun 19 09:22:24 2026.323 Loading texture Images/terrain.png
+ Fri Jun 19 09:22:24 2026.323 Texture ID: 7, Width: 64, Height: 64
+ Fri Jun 19 09:22:24 2026.323 Load successful.
+ Fri Jun 19 09:22:24 2026.323 Loading texture Images/littlepeople.png
+ Fri Jun 19 09:22:24 2026.324 Texture ID: 8, Width: 196, Height: 176
+ Fri Jun 19 09:22:24 2026.324 Load successful.
+ Fri Jun 19 09:22:24 2026.324 Created state TitleState with ID 0
+ Fri Jun 19 09:22:24 2026.324 Created state SetupGameState with ID 5
+ Fri Jun 19 09:22:24 2026.324 Created state CastleDesignState with ID 4
+ Fri Jun 19 09:22:24 2026.324 Created state MainState with ID 1
+ Fri Jun 19 09:22:24 2026.324 Created state CombatState with ID 3
+ Fri Jun 19 09:22:24 2026.324 Created state OptionsState with ID 2
+ Fri Jun 19 09:22:24 2026.324 StateMachine: Transitioning to state TitleState, ID 0
+ Fri Jun 19 09:22:26 2026.781 StateMachine: Transitioning to state MainState, ID 1

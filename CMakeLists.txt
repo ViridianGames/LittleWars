@@ -171,10 +171,15 @@ set(SOURCES
         Source/CastleDesignState.cpp
         Source/CombatState.cpp
         Source/GameGlobals.cpp
+        Source/LittlePeopleSprites.cpp
         Source/Main.cpp
         Source/MainState.cpp
+        Source/OverworldMap.cpp
         Source/OptionsState.cpp
+        Source/RegionTerrainMesh.cpp
+        Source/RegionView.cpp
         Source/SetupGameState.cpp
+        Source/TerrainTextures.cpp
         Source/TitleState.cpp
 )
 

@@ -16,6 +16,12 @@ public:
 
     void OnEnter() override;
     void OnExit() override;
+
+private:
+    void HandleMapSelection();
+    void DrawCountyInfo(int panelX, int panelY, int panelWidth) const;
+
+    int m_SelectedRegionId = -1;
 };
 
 #endif
