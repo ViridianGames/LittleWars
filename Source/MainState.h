@@ -1,7 +1,7 @@
 #ifndef _MAINSTATE_H_
 #define _MAINSTATE_H_
 
-#include "Geist/State.h"
+#include "../Geist/Source/State.h"
 
 class MainState : public State
 {

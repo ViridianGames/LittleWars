@@ -8,7 +8,7 @@
 #include "SetupGameState.h"
 #include "TitleState.h"
 #include "raylib.h"
-#include "Geist/RNG.h"
+#include "../Geist/Source/RNG.h"
 
 #include <memory>
 #include <string>
@@ -39,6 +39,15 @@ inline std::unique_ptr<RNG> g_nonVitalRNG;
 
 inline std::shared_ptr<Font> g_font;
 inline std::shared_ptr<Font> g_smallFont;
+
+// Load fonts at an integer multiple of the draw size so downscaling stays crisp.
+inline float g_fontDrawSize = 9.0f;
+inline float g_smallFontDrawSize = 7.0f;
+constexpr int FONT_TEXTURE_LOAD_SIZE = 36;       // g_fontDrawSize * 4
+constexpr int SMALL_FONT_TEXTURE_LOAD_SIZE = 28; // g_smallFontDrawSize * 4
+
+void InitGameFonts();
+void ShutdownGameFonts();
 
 void DrawOutlinedText(std::shared_ptr<Font> font, const std::string& text, Vector2 position, float fontSize, int spacing, Color color);
 

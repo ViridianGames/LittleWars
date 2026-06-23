@@ -1,8 +1,8 @@
 #include "TerrainTextures.h"
 
-#include "Geist/Config.h"
-#include "Geist/Globals.h"
-#include "Geist/ResourceManager.h"
+#include "../Geist/Source/Config.h"
+#include "../Geist/Source/Globals.h"
+#include "../Geist/Source/ResourceManager.h"
 
 namespace
 {

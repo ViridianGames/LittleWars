@@ -1,7 +1,7 @@
 #ifndef _TITLESTATE_H_
 #define _TITLESTATE_H_
 
-#include "Geist/State.h"
+#include "../Geist/Source/State.h"
 
 class TitleState : public State
 {

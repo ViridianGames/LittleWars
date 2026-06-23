@@ -4,7 +4,7 @@
 #include <cstring>
 #include <vector>
 
-#include "Geist/Primitives.h"
+#include "../Geist/Source/Primitives.h"
 #include "TerrainTextures.h"
 #include "raymath.h"
 

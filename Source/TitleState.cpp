@@ -1,8 +1,8 @@
 #include <string>
 #include <iomanip>
-#include "Geist/Engine.h"
-#include "Geist/Globals.h"
-#include "Geist/StateMachine.h"
+#include "../Geist/Source/Engine.h"
+#include "../Geist/Source/Globals.h"
+#include "../Geist/Source/StateMachine.h"
 
 #include "GameGlobals.h"
 
@@ -50,11 +50,11 @@ void TitleState::Update()
 void TitleState::Draw()
 {
 	DrawRectangle(0, 0, g_Engine->m_RenderWidth, g_Engine->m_RenderHeight, BLUE);
-	//DrawTextEx(*g_font, "Hello!", {0, 0}, g_font->baseSize, 1, WHITE);
-	DrawOutlinedText(g_font, "Hello!", {0, 0}, g_font->baseSize, 1, WHITE);
+	//DrawTextEx(*g_font, "Hello!", {0, 0}, g_fontDrawSize, 1, WHITE);
+	DrawOutlinedText(g_font, "Hello!", {0, 0}, g_fontDrawSize, 1, WHITE);
 
-	DrawOutlinedText(g_smallFont, "Hello!", {0, 20}, g_smallFont->baseSize, 1, WHITE);
-	DrawOutlinedText(g_smallFont, "C: combat test", {0, 36}, g_smallFont->baseSize, 1, WHITE);
-	DrawOutlinedText(g_smallFont, "M: main map", {0, 52}, g_smallFont->baseSize, 1, WHITE);
+	DrawOutlinedText(g_smallFont, "Hello!", {0, 20}, g_smallFontDrawSize, 1, WHITE);
+	DrawOutlinedText(g_smallFont, "C: combat test", {0, 36}, g_smallFontDrawSize, 1, WHITE);
+	DrawOutlinedText(g_smallFont, "M: main map", {0, 52}, g_smallFontDrawSize, 1, WHITE);
 
 }

@@ -1,7 +1,7 @@
 #ifndef _CASTLEDESIGNSTATE_H_
 #define _CASTLEDESIGNSTATE_H_
 
-#include "Geist/State.h"
+#include "../Geist/Source/State.h"
 
 class CastleDesignState : public State
 {

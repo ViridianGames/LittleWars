@@ -1,7 +1,7 @@
 #ifndef _OVERWORLDMAP_H_
 #define _OVERWORLDMAP_H_
 
-#include "Geist/RNG.h"
+#include "../Geist/Source/RNG.h"
 
 #include <vector>
 
@@ -37,6 +37,7 @@ struct OverworldRegionData
 };
 
 const char* CountyResourceName(CountyResource resource);
+char CountyResourceMarker(CountyResource resource);
 
 class OverworldMap
 {

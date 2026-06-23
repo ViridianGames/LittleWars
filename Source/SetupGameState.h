@@ -1,7 +1,7 @@
 #ifndef _SETUPGAMESTATE_H_
 #define _SETUPGAMESTATE_H_
 
-#include "Geist/State.h"
+#include "../Geist/Source/State.h"
 
 class SetupGameState : public State
 {

@@ -1,7 +1,7 @@
 #include <string>
 #include <iomanip>
-#include "Geist/Engine.h"
-#include "Geist/Globals.h"
+#include "../Geist/Source/Engine.h"
+#include "../Geist/Source/Globals.h"
 
 #include "GameGlobals.h"
 

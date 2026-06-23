@@ -1,7 +1,7 @@
 #ifndef _COMBATSTATE_H_
 #define _COMBATSTATE_H_
 
-#include "Geist/State.h"
+#include "../Geist/Source/State.h"
 
 class CombatState : public State
 {

@@ -1,8 +1,7 @@
 #include <string>
-#include <iomanip>
-#include "Geist/Engine.h"
-#include "Geist/Globals.h"
-#include "Geist/StateMachine.h"
+#include "../Geist/Source/Engine.h"
+#include "../Geist/Source/Globals.h"
+#include "../Geist/Source/StateMachine.h"
 
 #include "GameGlobals.h"
 #include "OverworldMap.h"
@@ -108,9 +107,9 @@ void MainState::DrawCountyInfo(int panelX, int panelY, int panelWidth) const
     if (m_SelectedRegionId < 0)
     {
         DrawOutlinedText(g_font, "County", Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 4) },
-            g_font->baseSize, 1, WHITE);
+            g_fontDrawSize, 1, WHITE);
         DrawOutlinedText(g_smallFont, "Click a county on the map", Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 20) },
-            g_smallFont->baseSize, 1, Color{ 200, 200, 200, 255 });
+            g_smallFontDrawSize, 1, Color{ 200, 200, 200, 255 });
         return;
     }
 
@@ -122,7 +121,7 @@ void MainState::DrawCountyInfo(int panelX, int panelY, int panelWidth) const
 
     const string title = "County " + to_string(region->m_Id);
     DrawOutlinedText(g_font, title, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 4) },
-        g_font->baseSize, 1, Color{ 255, 230, 90, 255 });
+        g_fontDrawSize, 1, Color{ 255, 230, 90, 255 });
 
     const string resourceText = string("Resource: ") + CountyResourceName(region->m_Resource);
     const string ownerText = string("Owner: ") + OwnerName(region->m_OwnerId);
@@ -131,15 +130,15 @@ void MainState::DrawCountyInfo(int panelX, int panelY, int panelWidth) const
     const string neighborText = "Neighbors: " + to_string(region->m_AdjacentRegionIds.size());
 
     DrawOutlinedText(g_smallFont, resourceText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 18) },
-        g_smallFont->baseSize, 1, WHITE);
+        g_smallFontDrawSize, 1, WHITE);
     DrawOutlinedText(g_smallFont, ownerText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 30) },
-        g_smallFont->baseSize, 1, WHITE);
+        g_smallFontDrawSize, 1, WHITE);
     DrawOutlinedText(g_smallFont, castleText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 42) },
-        g_smallFont->baseSize, 1, WHITE);
+        g_smallFontDrawSize, 1, WHITE);
     DrawOutlinedText(g_smallFont, sizeText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 54) },
-        g_smallFont->baseSize, 1, Color{ 180, 180, 180, 255 });
+        g_smallFontDrawSize, 1, Color{ 180, 180, 180, 255 });
     DrawOutlinedText(g_smallFont, neighborText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 66) },
-        g_smallFont->baseSize, 1, Color{ 180, 180, 180, 255 });
+        g_smallFontDrawSize, 1, Color{ 180, 180, 180, 255 });
 }
 
 void MainState::Update()
@@ -173,17 +172,13 @@ void MainState::Draw()
     const int mapRight = kMapDrawX + (OVERWORLD_MAP_SIZE * kMapPixelsPerCell);
     const int panelX = mapRight + 8;
     const int panelWidth = static_cast<int>(g_Engine->m_RenderWidth) - panelX - 4;
-    const int infoY = kMapDrawY;
-    const int graphY = infoY + kCountyInfoHeight + 6;
-    const int graphHeight = static_cast<int>(g_Engine->m_RenderHeight) - graphY - 18;
+    DrawCountyInfo(panelX, kMapDrawY, panelWidth);
 
-    DrawCountyInfo(panelX, infoY, panelWidth);
-
-    DrawOutlinedText(g_smallFont, "Adjacency", Vector2{ static_cast<float>(panelX), static_cast<float>(graphY - 12) },
-        g_smallFont->baseSize, 1, Color{ 180, 180, 180, 255 });
-
-    g_OverworldMap.DrawAdjacencyGraph(panelX, graphY, panelWidth, graphHeight, m_SelectedRegionId);
+    const string regionTotalText = "Regions: " + to_string(g_OverworldMap.GetRegions().size());
+    DrawOutlinedText(g_smallFont, regionTotalText,
+        Vector2{ static_cast<float>(panelX), static_cast<float>(kMapDrawY + kCountyInfoHeight + 2) },
+        g_smallFontDrawSize, 1, Color{ 180, 180, 180, 255 });
 
     DrawOutlinedText(g_smallFont, "R: new map  Esc: title", Vector2{ 4.0f, static_cast<float>(g_Engine->m_RenderHeight - 14.0f) },
-        g_smallFont->baseSize, 1, WHITE);
+        g_smallFontDrawSize, 1, WHITE);
 }

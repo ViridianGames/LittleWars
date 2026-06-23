@@ -7,18 +7,63 @@
 #include <string>
 #include <vector>
 
-#include "Geist/Globals.h"
-#include "Geist/IO.h"
-#include "Geist/Logging.h"
+#include "../Geist/Source/Globals.h"
+#include "../Geist/Source/IO.h"
+#include "../Geist/Source/Logging.h"
 
 #include "GameGlobals.h"
 
 #include "Engine.h"
 #include "raylib.h"
+#include "rlgl.h"
 
 using namespace std;
 
 GameDatabase g_GameDatabase;
+
+namespace
+{
+    void PreparePixelFont(Font& font)
+    {
+        if (font.texture.id == 0)
+        {
+            return;
+        }
+
+        SetTextureFilter(font.texture, TEXTURE_FILTER_POINT);
+    }
+
+    void DrawGameText(Font& font, const char* text, Vector2 position, float fontSize, int spacing, Color color)
+    {
+        rlDrawRenderBatchActive();
+        SetTextureFilter(font.texture, TEXTURE_FILTER_POINT);
+        DrawTextEx(font, text, position, fontSize, spacing, color);
+    }
+}
+
+void InitGameFonts()
+{
+    g_font = make_shared<Font>(LoadFontEx("Fonts/softsquare.ttf", FONT_TEXTURE_LOAD_SIZE, nullptr, 0));
+    PreparePixelFont(*g_font);
+
+    g_smallFont = make_shared<Font>(LoadFontEx("Fonts/littleleague.ttf", SMALL_FONT_TEXTURE_LOAD_SIZE, nullptr, 0));
+    PreparePixelFont(*g_smallFont);
+}
+
+void ShutdownGameFonts()
+{
+    if (g_font)
+    {
+        UnloadFont(*g_font);
+        g_font.reset();
+    }
+
+    if (g_smallFont)
+    {
+        UnloadFont(*g_smallFont);
+        g_smallFont.reset();
+    }
+}
 
 namespace
 {
@@ -188,15 +233,20 @@ namespace
 
 void DrawOutlinedText(std::shared_ptr<Font> font, const std::string& text, Vector2 position, float fontSize, int spacing, Color color)
 {
-	DrawTextEx(*font, text.c_str(), Vector2{ position.x + 1, position.y + 1 }, fontSize, spacing, Color{ 0, 0, 0, color.a });
-	DrawTextEx(*font, text.c_str(), Vector2{ position.x, position.y + 1 }, fontSize, spacing, Color{ 0, 0, 0, color.a });
-	DrawTextEx(*font, text.c_str(), Vector2{ position.x - 1, position.y - 1 }, fontSize, spacing, Color{ 0, 0, 0, color.a });
-	DrawTextEx(*font, text.c_str(), Vector2{ position.x, position.y - 1 }, fontSize, spacing, Color{ 0, 0, 0, color.a });
-	DrawTextEx(*font, text.c_str(), Vector2{ position.x + 1, position.y - 1 }, fontSize, spacing, Color{ 0, 0, 0, color.a });
-	DrawTextEx(*font, text.c_str(), Vector2{ position.x + 1, position.y }, fontSize, spacing, Color{ 0, 0, 0, color.a });
-	DrawTextEx(*font, text.c_str(), Vector2{ position.x - 1, position.y + 1 }, fontSize, spacing, Color{ 0, 0, 0, color.a });
-	DrawTextEx(*font, text.c_str(), Vector2{ position.x - 1, position.y }, fontSize, spacing, Color{ 0, 0, 0, color.a });
-	DrawTextEx(*font, text.c_str(), position, fontSize, spacing, color);
+	if (!font)
+	{
+		return;
+	}
+
+	const int x = static_cast<int>(floorf(position.x + 0.5f));
+	const int y = static_cast<int>(floorf(position.y + 0.5f));
+	const Color outline = Color{ 0, 0, 0, color.a };
+
+	DrawGameText(*font, text.c_str(), Vector2{ static_cast<float>(x - 1), static_cast<float>(y) }, fontSize, spacing, outline);
+	DrawGameText(*font, text.c_str(), Vector2{ static_cast<float>(x + 1), static_cast<float>(y) }, fontSize, spacing, outline);
+	DrawGameText(*font, text.c_str(), Vector2{ static_cast<float>(x), static_cast<float>(y - 1) }, fontSize, spacing, outline);
+	DrawGameText(*font, text.c_str(), Vector2{ static_cast<float>(x), static_cast<float>(y + 1) }, fontSize, spacing, outline);
+	DrawGameText(*font, text.c_str(), Vector2{ static_cast<float>(x), static_cast<float>(y) }, fontSize, spacing, color);
 }
 
 void DrawParagraph(std::shared_ptr<Font> font, const std::string& text, Vector2 position, float maxwidth, float fontSize, int spacing, Color color, bool outlined)
@@ -274,7 +324,7 @@ void DrawConsole()
 
 		if (elapsed < 10)
 		{
-			DrawOutlinedText(g_smallFont, (*node).m_String.c_str(), Vector2{ 0, float(counter * (g_smallFont->baseSize + 2)) }, g_smallFont->baseSize, 1, (*node).m_Color);
+			DrawOutlinedText(g_smallFont, (*node).m_String.c_str(), Vector2{ 0, float(counter * (g_smallFontDrawSize + 2)) }, g_smallFontDrawSize, 1, (*node).m_Color);
 
 		}
 		++counter;

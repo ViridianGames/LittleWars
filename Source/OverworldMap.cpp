@@ -1,11 +1,13 @@
 #include "OverworldMap.h"
 
+#include "GameGlobals.h"
+
 #include <algorithm>
 #include <cmath>
 #include <queue>
 #include <unordered_set>
 
-#include "Geist/RNG.h"
+#include "../Geist/Source/RNG.h"
 #include "raylib.h"
 
 OverworldMap g_OverworldMap;
@@ -107,6 +109,40 @@ const char* CountyResourceName(CountyResource resource)
         return "Wood";
     default:
         return "Unknown";
+    }
+}
+
+char CountyResourceMarker(CountyResource resource)
+{
+    switch (resource)
+    {
+    case CountyResource::Food:
+        return 'F';
+    case CountyResource::Gold:
+        return 'G';
+    case CountyResource::Iron:
+        return 'I';
+    case CountyResource::Wood:
+        return 'W';
+    default:
+        return '?';
+    }
+}
+
+Color OwnerBorderColor(int ownerId)
+{
+    switch (ownerId)
+    {
+    case 0:
+        return Color{ 80, 140, 255, 255 };
+    case 1:
+        return Color{ 220, 60, 60, 255 };
+    case 2:
+        return Color{ 230, 170, 40, 255 };
+    case 3:
+        return Color{ 180, 80, 220, 255 };
+    default:
+        return Color{ 255, 255, 255, 255 };
     }
 }
 
@@ -454,12 +490,29 @@ void OverworldMap::BuildAdjacency()
 
 void OverworldMap::AssignRegionResources(RNG& rng)
 {
-    for (OverworldRegionData& region : m_Regions)
+    if (m_Regions.empty())
+    {
+        return;
+    }
+
+    struct RegionTerrainStats
     {
         int clearCount = 0;
         int treeCount = 0;
         int marshCount = 0;
         int mountainNearby = 0;
+    };
+
+    std::vector<RegionTerrainStats> terrainStats(m_Regions.size());
+
+    for (OverworldRegionData& region : m_Regions)
+    {
+        if (region.m_Id < 0 || region.m_Id >= static_cast<int>(terrainStats.size()))
+        {
+            continue;
+        }
+
+        RegionTerrainStats& stats = terrainStats[static_cast<size_t>(region.m_Id)];
 
         for (int y = 0; y < OVERWORLD_MAP_SIZE; ++y)
         {
@@ -473,45 +526,129 @@ void OverworldMap::AssignRegionResources(RNG& rng)
                 const OverworldCellType type = GetCell(x, y);
                 if (type == OW_CLEAR)
                 {
-                    ++clearCount;
+                    ++stats.clearCount;
                 }
                 else if (type == OW_TREES)
                 {
-                    ++treeCount;
+                    ++stats.treeCount;
                 }
                 else if (type == OW_MARSH)
                 {
-                    ++marshCount;
+                    ++stats.marshCount;
                 }
 
                 if (GetCell(x + 1, y) == OW_MOUNTAIN || GetCell(x - 1, y) == OW_MOUNTAIN
                     || GetCell(x, y + 1) == OW_MOUNTAIN || GetCell(x, y - 1) == OW_MOUNTAIN)
                 {
-                    ++mountainNearby;
+                    ++stats.mountainNearby;
                 }
             }
         }
+    }
 
-        if (treeCount >= clearCount && treeCount >= marshCount)
+    std::vector<bool> assigned(m_Regions.size(), false);
+
+    auto firstUnassignedIndex = [&assigned]() -> int
+    {
+        for (size_t i = 0; i < assigned.size(); ++i)
         {
-            region.m_Resource = CountyResource::Wood;
+            if (!assigned[static_cast<size_t>(i)])
+            {
+                return static_cast<int>(i);
+            }
         }
-        else if (marshCount >= clearCount)
+
+        return -1;
+    };
+
+    auto pickBestRegion = [&](auto scoreForRegion) -> int
+    {
+        int bestIndex = -1;
+        int bestScore = -1;
+
+        for (size_t i = 0; i < m_Regions.size(); ++i)
         {
-            region.m_Resource = CountyResource::Food;
+            if (assigned[i])
+            {
+                continue;
+            }
+
+            const int score = scoreForRegion(static_cast<int>(i));
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestIndex = static_cast<int>(i);
+            }
         }
-        else if (mountainNearby > region.m_CellCount / 4)
+
+        if (bestIndex >= 0)
         {
-            region.m_Resource = CountyResource::Iron;
+            return bestIndex;
         }
-        else if (rng.Random(100) < 25)
+
+        return firstUnassignedIndex();
+    };
+
+    auto assignResource = [&](int regionIndex, CountyResource resource)
+    {
+        if (regionIndex < 0 || regionIndex >= static_cast<int>(m_Regions.size()))
         {
-            region.m_Resource = CountyResource::Gold;
+            return;
         }
-        else
+
+        m_Regions[static_cast<size_t>(regionIndex)].m_Resource = resource;
+        assigned[static_cast<size_t>(regionIndex)] = true;
+    };
+
+    auto rollWeightedResource = [&rng]() -> CountyResource
+    {
+        const int roll = rng.Random(100);
+        if (roll < 50)
         {
-            region.m_Resource = CountyResource::Food;
+            return CountyResource::Food;
         }
+        if (roll < 78)
+        {
+            return CountyResource::Wood;
+        }
+        if (roll < 93)
+        {
+            return CountyResource::Iron;
+        }
+
+        return CountyResource::Gold;
+    };
+
+    if (static_cast<int>(m_Regions.size()) >= 4)
+    {
+        assignResource(pickBestRegion([&](int regionIndex) -> int
+        {
+            return terrainStats[static_cast<size_t>(regionIndex)].treeCount;
+        }), CountyResource::Wood);
+
+        assignResource(pickBestRegion([&](int regionIndex) -> int
+        {
+            return terrainStats[static_cast<size_t>(regionIndex)].mountainNearby;
+        }), CountyResource::Iron);
+
+        assignResource(pickBestRegion([&](int regionIndex) -> int
+        {
+            const RegionTerrainStats& stats = terrainStats[static_cast<size_t>(regionIndex)];
+            return stats.marshCount + stats.clearCount;
+        }), CountyResource::Food);
+
+        const int goldIndex = firstUnassignedIndex();
+        assignResource(goldIndex, CountyResource::Gold);
+    }
+
+    for (size_t i = 0; i < m_Regions.size(); ++i)
+    {
+        if (assigned[i])
+        {
+            continue;
+        }
+
+        m_Regions[i].m_Resource = rollWeightedResource();
     }
 }
 
@@ -583,7 +720,8 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell) const
 
     const int mapPixelWidth = OVERWORLD_MAP_SIZE * pixelsPerCell;
     const int mapPixelHeight = OVERWORLD_MAP_SIZE * pixelsPerCell;
-    const int borderThickness = std::max(1, pixelsPerCell / 2);
+    constexpr int kRegionBorderWidth = 2;
+    const Color outerBorderColor = Color{ 48, 48, 56, 255 };
 
     auto RegionTint = [](int regionId) -> Color
     {
@@ -612,34 +750,126 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell) const
         }
     }
 
-    const Color borderColor = Color{ 245, 245, 210, 255 };
+    auto BorderColorForRegion = [this](int regionId) -> Color
+    {
+        if (regionId < 0)
+        {
+            return OwnerBorderColor(-1);
+        }
+
+        const OverworldRegionData* region = GetRegion(regionId);
+        if (!region)
+        {
+            return OwnerBorderColor(-1);
+        }
+
+        return OwnerBorderColor(region->m_OwnerId);
+    };
+
+    auto IsCountyCell = [this](int cellX, int cellY) -> bool
+    {
+        return GetRegionId(cellX, cellY) >= 0;
+    };
+
     for (int cellY = 0; cellY < OVERWORLD_MAP_SIZE; ++cellY)
     {
         for (int cellX = 0; cellX < OVERWORLD_MAP_SIZE; ++cellX)
         {
             const int regionId = GetRegionId(cellX, cellY);
+            const int pixelX = x + (cellX * pixelsPerCell);
+            const int pixelY = y + (cellY * pixelsPerCell);
 
             if (cellX + 1 < OVERWORLD_MAP_SIZE)
             {
                 const int rightRegionId = GetRegionId(cellX + 1, cellY);
-                if (regionId != rightRegionId)
+                if (IsCountyCell(cellX, cellY) && IsCountyCell(cellX + 1, cellY) && regionId != rightRegionId)
                 {
-                    const int lineX = x + ((cellX + 1) * pixelsPerCell) - borderThickness;
-                    const int lineY = y + (cellY * pixelsPerCell);
-                    DrawRectangle(lineX, lineY, borderThickness, pixelsPerCell, borderColor);
+                    const int boundaryX = x + ((cellX + 1) * pixelsPerCell);
+                    DrawRectangle(boundaryX - 1, pixelY, kRegionBorderWidth, pixelsPerCell, outerBorderColor);
                 }
             }
 
             if (cellY + 1 < OVERWORLD_MAP_SIZE)
             {
                 const int downRegionId = GetRegionId(cellX, cellY + 1);
-                if (regionId != downRegionId)
+                if (IsCountyCell(cellX, cellY) && IsCountyCell(cellX, cellY + 1) && regionId != downRegionId)
                 {
-                    const int lineX = x + (cellX * pixelsPerCell);
-                    const int lineY = y + ((cellY + 1) * pixelsPerCell) - borderThickness;
-                    DrawRectangle(lineX, lineY, pixelsPerCell, borderThickness, borderColor);
+                    const int boundaryY = y + ((cellY + 1) * pixelsPerCell);
+                    DrawRectangle(pixelX, boundaryY - 1, pixelsPerCell, kRegionBorderWidth, outerBorderColor);
                 }
             }
+        }
+    }
+
+    for (int cellY = 0; cellY < OVERWORLD_MAP_SIZE; ++cellY)
+    {
+        for (int cellX = 0; cellX < OVERWORLD_MAP_SIZE; ++cellX)
+        {
+            const int regionId = GetRegionId(cellX, cellY);
+            if (regionId < 0)
+            {
+                continue;
+            }
+
+            const Color borderColor = BorderColorForRegion(regionId);
+            const int pixelX = x + (cellX * pixelsPerCell);
+            const int pixelY = y + (cellY * pixelsPerCell);
+
+            if (cellX + 1 < OVERWORLD_MAP_SIZE)
+            {
+                const int rightRegionId = GetRegionId(cellX + 1, cellY);
+                if (IsCountyCell(cellX + 1, cellY) && regionId != rightRegionId)
+                {
+                    const int boundaryX = x + ((cellX + 1) * pixelsPerCell);
+                    DrawRectangle(boundaryX - 1, pixelY, 1, pixelsPerCell, borderColor);
+                }
+            }
+
+            if (cellY + 1 < OVERWORLD_MAP_SIZE)
+            {
+                const int downRegionId = GetRegionId(cellX, cellY + 1);
+                if (IsCountyCell(cellX, cellY + 1) && regionId != downRegionId)
+                {
+                    const int boundaryY = y + ((cellY + 1) * pixelsPerCell);
+                    DrawRectangle(pixelX, boundaryY - 1, pixelsPerCell, 1, borderColor);
+                }
+            }
+
+            if (cellX > 0)
+            {
+                const int leftRegionId = GetRegionId(cellX - 1, cellY);
+                if (IsCountyCell(cellX - 1, cellY) && regionId != leftRegionId)
+                {
+                    const int boundaryX = x + (cellX * pixelsPerCell);
+                    DrawRectangle(boundaryX, pixelY, 1, pixelsPerCell, borderColor);
+                }
+            }
+
+            if (cellY > 0)
+            {
+                const int upRegionId = GetRegionId(cellX, cellY - 1);
+                if (IsCountyCell(cellX, cellY - 1) && regionId != upRegionId)
+                {
+                    const int boundaryY = y + (cellY * pixelsPerCell);
+                    DrawRectangle(pixelX, boundaryY, pixelsPerCell, 1, borderColor);
+                }
+            }
+        }
+    }
+
+    if (g_smallFont)
+    {
+        for (const OverworldRegionData& region : m_Regions)
+        {
+            const std::string label(1, CountyResourceMarker(region.m_Resource));
+            const float centerX = static_cast<float>(x) + (static_cast<float>(region.m_SeedX) * static_cast<float>(pixelsPerCell))
+                + (static_cast<float>(pixelsPerCell) * 0.5f);
+            const float centerY = static_cast<float>(y) + (static_cast<float>(region.m_SeedY) * static_cast<float>(pixelsPerCell))
+                + (static_cast<float>(pixelsPerCell) * 0.5f);
+            const Vector2 textSize = MeasureTextEx(*g_smallFont, label.c_str(), g_smallFontDrawSize, 1);
+            DrawOutlinedText(g_smallFont, label,
+                Vector2{ centerX - (textSize.x * 0.5f), centerY - (textSize.y * 0.5f) },
+                g_smallFontDrawSize, 1, WHITE);
         }
     }
 

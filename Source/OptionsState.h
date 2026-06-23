@@ -1,7 +1,7 @@
 #ifndef _OPTIONSSTATE_H_
 #define _OPTIONSSTATE_H_
 
-#include "Geist/State.h"
+#include "../Geist/Source/State.h"
 
 class OptionsState : public State
 {

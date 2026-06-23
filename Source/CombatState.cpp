@@ -1,8 +1,8 @@
 #include <string>
 #include <iomanip>
-#include "Geist/Engine.h"
-#include "Geist/Globals.h"
-#include "Geist/StateMachine.h"
+#include "../Geist/Source/Engine.h"
+#include "../Geist/Source/Globals.h"
+#include "../Geist/Source/StateMachine.h"
 
 #include "GameGlobals.h"
 #include "LittlePeopleSprites.h"
@@ -61,7 +61,7 @@ void CombatState::Draw()
     RegionData* region = g_GameDatabase.GetActiveRegion();
     if (!region || !region->m_Heightfield.m_Generated)
     {
-        DrawOutlinedText(g_font, "Combat (no region terrain)", { 4.0f, 4.0f }, g_font->baseSize, 1, WHITE);
+        DrawOutlinedText(g_font, "Combat (no region terrain)", { 4.0f, 4.0f }, g_fontDrawSize, 1, WHITE);
         return;
     }
 
@@ -99,5 +99,5 @@ void CombatState::Draw()
 
     g_RegionView.End3D();
 
-    DrawOutlinedText(g_font, "Combat  Q/E:rotate  Arrows:pan  W/S:zoom  Esc:title", { 4.0f, 4.0f }, g_font->baseSize, 1, WHITE);
+    DrawOutlinedText(g_font, "Combat  Q/E:rotate  Arrows:pan  W/S:zoom  Esc:title", { 4.0f, 4.0f }, g_fontDrawSize, 1, WHITE);
 }
