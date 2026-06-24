@@ -46,6 +46,8 @@ struct CombatUnitInstance
     Vector3 m_Anchor{ 0.0f, 0.0f, 0.0f };
     LittlePeopleArmy m_Army = LittlePeopleArmy::Blue;
     LittlePeopleDirection m_Facing = LittlePeopleDirection::South;
+    bool m_IsMoving = false;
+    Vector3 m_MoveTargetAnchor{ 0.0f, 0.0f, 0.0f };
 };
 
 const char* CombatUnitTypeName(CombatUnitType type);
@@ -69,8 +71,12 @@ bool RaycastCombatTerrain(const Ray& ray, const RegionHeightfield& heightfield, 
 
 int PickCombatUnitAtMouse(const Camera3D& camera, const RegionHeightfield& heightfield,
     const std::vector<CombatUnitInstance>& units, Vector2 mousePosition);
+float GetCombatUnitMoveSpeed(CombatUnitType type);
+bool IsCombatUnitMoving(const CombatUnitInstance& unit);
 void FaceCombatUnitToward(CombatUnitInstance& unit, Vector3 worldTarget);
-void MoveCombatUnit(CombatUnitInstance& unit, Vector3 targetAnchor);
+void BeginCombatUnitMove(CombatUnitInstance& unit, Vector3 targetAnchor);
+void UpdateCombatUnitMovement(CombatUnitInstance& unit, float deltaTime);
+void UpdateCombatUnitsMovement(std::vector<CombatUnitInstance>& units, float deltaTime);
 
 void DrawCombatUnit(const Camera3D& camera, const RegionHeightfield& heightfield, const CombatUnitInstance& unit,
     int walkFrame, bool selected = false);

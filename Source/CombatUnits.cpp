@@ -362,6 +362,27 @@ int PickCombatUnitAtMouse(const Camera3D& camera, const RegionHeightfield& heigh
     return bestUnitIndex;
 }
 
+float GetCombatUnitMoveSpeed(CombatUnitType type)
+{
+    switch (type)
+    {
+    case CombatUnitType::Knights:
+        return 11.0f;
+    case CombatUnitType::Catapult:
+        return 4.5f;
+    case CombatUnitType::Archers:
+        return 8.5f;
+    case CombatUnitType::Swordsmen:
+    default:
+        return 9.0f;
+    }
+}
+
+bool IsCombatUnitMoving(const CombatUnitInstance& unit)
+{
+    return unit.m_IsMoving;
+}
+
 void FaceCombatUnitToward(CombatUnitInstance& unit, Vector3 worldTarget)
 {
     const float dx = worldTarget.x - unit.m_Anchor.x;
@@ -372,11 +393,63 @@ void FaceCombatUnitToward(CombatUnitInstance& unit, Vector3 worldTarget)
     }
 }
 
-void MoveCombatUnit(CombatUnitInstance& unit, Vector3 targetAnchor)
+void BeginCombatUnitMove(CombatUnitInstance& unit, Vector3 targetAnchor)
 {
     FaceCombatUnitToward(unit, targetAnchor);
-    unit.m_Anchor.x = std::clamp(targetAnchor.x, 2.0f, static_cast<float>(REGION_CELLS) - 2.0f);
-    unit.m_Anchor.z = std::clamp(targetAnchor.z, 2.0f, static_cast<float>(REGION_CELLS) - 2.0f);
+
+    unit.m_MoveTargetAnchor.x = std::clamp(targetAnchor.x, 2.0f, static_cast<float>(REGION_CELLS) - 2.0f);
+    unit.m_MoveTargetAnchor.z = std::clamp(targetAnchor.z, 2.0f, static_cast<float>(REGION_CELLS) - 2.0f);
+    unit.m_MoveTargetAnchor.y = 0.0f;
+
+    const float dx = unit.m_MoveTargetAnchor.x - unit.m_Anchor.x;
+    const float dz = unit.m_MoveTargetAnchor.z - unit.m_Anchor.z;
+    if ((dx * dx + dz * dz) <= 0.05f)
+    {
+        unit.m_IsMoving = false;
+        return;
+    }
+
+    unit.m_IsMoving = true;
+}
+
+void UpdateCombatUnitMovement(CombatUnitInstance& unit, float deltaTime)
+{
+    if (!unit.m_IsMoving)
+    {
+        return;
+    }
+
+    const float dx = unit.m_MoveTargetAnchor.x - unit.m_Anchor.x;
+    const float dz = unit.m_MoveTargetAnchor.z - unit.m_Anchor.z;
+    const float distance = std::sqrt(dx * dx + dz * dz);
+    if (distance <= 0.05f)
+    {
+        unit.m_Anchor.x = unit.m_MoveTargetAnchor.x;
+        unit.m_Anchor.z = unit.m_MoveTargetAnchor.z;
+        unit.m_IsMoving = false;
+        return;
+    }
+
+    const float moveStep = GetCombatUnitMoveSpeed(unit.m_Type) * deltaTime;
+    if (moveStep >= distance)
+    {
+        unit.m_Anchor.x = unit.m_MoveTargetAnchor.x;
+        unit.m_Anchor.z = unit.m_MoveTargetAnchor.z;
+        unit.m_IsMoving = false;
+        return;
+    }
+
+    const float invDistance = 1.0f / distance;
+    unit.m_Anchor.x += dx * invDistance * moveStep;
+    unit.m_Anchor.z += dz * invDistance * moveStep;
+}
+
+void UpdateCombatUnitsMovement(std::vector<CombatUnitInstance>& units, float deltaTime)
+{
+    for (CombatUnitInstance& unit : units)
+    {
+        UpdateCombatUnitMovement(unit, deltaTime);
+    }
 }
 
 void DrawCombatUnit(const Camera3D& camera, const RegionHeightfield& heightfield, const CombatUnitInstance& unit,

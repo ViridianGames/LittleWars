@@ -18,6 +18,7 @@
 #include "llimits.h"
 #include "GameGlobals.h"
 #include "LittlePeopleSprites.h"
+#include "RegionMinimap.h"
 #include "RegionView.h"
 #include "TerrainTextures.h"
 
@@ -120,6 +121,7 @@ int main(int argv, char** argc)
    ShutdownGameFonts();
    ShutdownLittlePeopleSprites();
    ShutdownTerrainTextures();
+   g_RegionMinimap.Shutdown();
    g_Engine->Shutdown();
 
    return 0;

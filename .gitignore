@@ -173,3 +173,5 @@
 /build/Makefile
 /build/cmake_install.cmake
 /build/liblua.a
+/build/CMakeFiles/LittleWars.dir/Source/RegionMinimap.cpp.o
+/build/CMakeFiles/LittleWars.dir/Source/RegionMinimap.cpp.o.d

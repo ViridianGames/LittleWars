@@ -6,7 +6,7 @@
 class RegionTerrainMesh
 {
 public:
-    static constexpr unsigned int MESH_BUILD_VERSION = 3;
+    static constexpr unsigned int MESH_BUILD_VERSION = 6;
 
     void SetHeightfield(const RegionHeightfield* heightfield);
     void RebuildIfNeeded();

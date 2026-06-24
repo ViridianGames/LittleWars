@@ -5,6 +5,7 @@
 #include "../Geist/Source/StateMachine.h"
 
 #include "GameGlobals.h"
+#include "RegionMinimap.h"
 #include "RegionTerrainMesh.h"
 #include "RegionView.h"
 
@@ -73,5 +74,10 @@ void CastleDesignState::Draw()
     g_RegionTerrainMesh.Draw();
     g_RegionView.End3D();
 
-    DrawOutlinedText(g_font, "Castle  Q/E:rotate  Arrows:pan  W/S:zoom  Esc:title", { 4.0f, 4.0f }, g_fontDrawSize, 1, WHITE);
+    g_RegionMinimap.Draw(
+        heightfield,
+        region->m_HeightfieldSeed,
+        g_RegionView.GetCamera());
+
+    DrawOutlinedText(g_font, "Castle  WASD:pan  Wheel:zoom  Q/E:rotate  Esc:title", { 4.0f, 4.0f }, g_fontDrawSize, 1, WHITE);
 }

@@ -42,9 +42,14 @@ void RegionView::Update(const RegionHeightfield* heightfield)
 {
     (void)heightfield;
 
-    const float rotateSpeed = 1.5f;
+    const float rotateSpeed = g_Engine->m_EngineConfig.GetNumber("camera_rotate_topspeed");
     const float minZoom = g_Engine->m_EngineConfig.GetNumber("camera_close_limit");
-    const float maxZoom = g_Engine->m_EngineConfig.GetNumber("camera_far_limit");
+    float maxZoom = g_Engine->m_EngineConfig.GetNumber("camera_far_limit");
+    const float mapMaxZoom = static_cast<float>(REGION_CELLS) * 0.92f;
+    if (maxZoom <= 0.0f || maxZoom > mapMaxZoom)
+    {
+        maxZoom = mapMaxZoom;
+    }
     const float zoomSpeed = g_Engine->m_EngineConfig.GetNumber("camera_zoom_speed");
     const float panTopSpeed = g_Engine->m_EngineConfig.GetNumber("camera_pan_topspeed");
     const float frameScale = GetFrameTime();
@@ -58,13 +63,10 @@ void RegionView::Update(const RegionHeightfield* heightfield)
         m_Angle += rotateSpeed * frameScale;
     }
 
-    if (IsKeyDown(KEY_W))
+    const float wheelMove = GetMouseWheelMove();
+    if (wheelMove != 0.0f)
     {
-        m_Zoom -= zoomSpeed * frameScale * 80.0f;
-    }
-    if (IsKeyDown(KEY_S))
-    {
-        m_Zoom += zoomSpeed * frameScale * 80.0f;
+        m_Zoom -= wheelMove * zoomSpeed * 2.0f;
     }
 
     if (m_Zoom < minZoom)
@@ -81,29 +83,29 @@ void RegionView::Update(const RegionHeightfield* heightfield)
     const float screenRightZ = -std::sinf(m_Angle);
     const float screenForwardX = -std::sinf(m_Angle);
     const float screenForwardZ = -std::cosf(m_Angle);
-    const float panSpeed = panTopSpeed * frameScale * 1.4f * (m_Zoom / minZoom);
+    const float panSpeed = panTopSpeed * frameScale * 1.1f * (m_Zoom / minZoom);
 
     float panX = 0.0f;
     float panZ = 0.0f;
-    if (IsKeyDown(KEY_LEFT))
-    {
-        panX += screenRightX;
-        panZ += screenRightZ;
-    }
-    if (IsKeyDown(KEY_RIGHT))
-    {
-        panX -= screenRightX;
-        panZ -= screenRightZ;
-    }
-    if (IsKeyDown(KEY_UP))
+    if (IsKeyDown(KEY_W))
     {
         panX += screenForwardX;
         panZ += screenForwardZ;
     }
-    if (IsKeyDown(KEY_DOWN))
+    if (IsKeyDown(KEY_S))
     {
         panX -= screenForwardX;
         panZ -= screenForwardZ;
+    }
+    if (IsKeyDown(KEY_A))
+    {
+        panX -= screenRightX;
+        panZ -= screenRightZ;
+    }
+    if (IsKeyDown(KEY_D))
+    {
+        panX += screenRightX;
+        panZ += screenRightZ;
     }
 
     m_LookAtX += panX * panSpeed;

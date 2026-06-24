@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iosfwd>
 #include <memory>
+#include <queue>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -218,37 +219,318 @@ namespace
         }
     }
 
-    void AddHill(RegionHeightfield& heightfield, RNG& rng)
+    constexpr float kBattlefieldBaseHeight = 2.2f;
+    constexpr float kMaxTerrainPeakHeight = 7.5f;
+
+    void AddSmoothHill(RegionHeightfield& heightfield, RNG& rng, bool rollingHill = false)
     {
-        const float radius = static_cast<float>(rng.RandomRange(1, 8));
+        const float radius = rollingHill
+            ? static_cast<float>(rng.RandomRange(7, 12))
+            : static_cast<float>(rng.RandomRange(11, 20));
+        const float peakHeight = rollingHill
+            ? static_cast<float>(rng.RandomRange(8, 18)) / 10.0f
+            : static_cast<float>(rng.RandomRange(22, 48)) / 10.0f;
+        const int hillMargin = REGION_CELLS / 8;
+        const int centerX = rng.RandomRange(hillMargin, REGION_CELLS - hillMargin);
+        const int centerY = rng.RandomRange(hillMargin, REGION_CELLS - hillMargin);
 
-        const int centerX = rng.Random(REGION_VERTICES);
-        const int centerY = rng.Random(REGION_VERTICES);
-
-        for (float i = -radius; i <= radius; ++i)
+        for (int y = 0; y < REGION_VERTICES; ++y)
         {
-            const float disc = radius * radius - i * i;
-            if (disc < 0.0f)
+            for (int x = 0; x < REGION_VERTICES; ++x)
             {
-                continue;
+                const float dx = (static_cast<float>(x) - static_cast<float>(centerX)) / radius;
+                const float dy = (static_cast<float>(y) - static_cast<float>(centerY)) / radius;
+                const float distSq = dx * dx + dy * dy;
+                if (distSq > 1.0f)
+                {
+                    continue;
+                }
+
+                const float falloff = 1.0f - distSq;
+                const float bump = peakHeight * falloff * falloff;
+                heightfield.SetHeight(x, y, heightfield.GetHeight(x, y) + bump);
+            }
+        }
+    }
+
+    void SmoothHeightfield(RegionHeightfield& heightfield, int passes)
+    {
+        std::vector<float> scratch(static_cast<size_t>(REGION_VERTICES * REGION_VERTICES), 0.0f);
+
+        for (int pass = 0; pass < passes; ++pass)
+        {
+            for (int y = 0; y < REGION_VERTICES; ++y)
+            {
+                for (int x = 0; x < REGION_VERTICES; ++x)
+                {
+                    float sum = 0.0f;
+                    int count = 0;
+                    for (int offsetY = -1; offsetY <= 1; ++offsetY)
+                    {
+                        for (int offsetX = -1; offsetX <= 1; ++offsetX)
+                        {
+                            sum += heightfield.GetHeight(x + offsetX, y + offsetY);
+                            ++count;
+                        }
+                    }
+
+                    scratch[static_cast<size_t>(y * REGION_VERTICES + x)] = sum / static_cast<float>(count);
+                }
             }
 
-            const float span = std::sqrt(disc);
-            for (float j = -span; j <= span; ++j)
+            heightfield.m_Heights = scratch;
+        }
+    }
+
+    void DepressCircularLowland(RegionHeightfield& heightfield, float centerX, float centerY, float radius, float depth)
+    {
+        for (int y = 0; y < REGION_VERTICES; ++y)
+        {
+            for (int x = 0; x < REGION_VERTICES; ++x)
             {
-                float value = radius * radius - i * i - j * j;
+                const float dx = (static_cast<float>(x) - centerX) / radius;
+                const float dy = (static_cast<float>(y) - centerY) / radius;
+                const float distSq = dx * dx + dy * dy;
+                if (distSq > 1.0f)
+                {
+                    continue;
+                }
+
+                const float falloff = 1.0f - distSq;
+                const float depression = depth * falloff * falloff;
+                float value = heightfield.GetHeight(x, y) - depression;
                 if (value < 0.0f)
                 {
                     value = 0.0f;
                 }
+                heightfield.SetHeight(x, y, value);
+            }
+        }
+    }
 
-                const int x = centerX + static_cast<int>(i);
-                const int y = centerY + static_cast<int>(j);
-                if (x >= 0 && x < REGION_VERTICES && y >= 0 && y < REGION_VERTICES)
+    void AddLowlandFeature(RegionHeightfield& heightfield, RNG& rng)
+    {
+        const int quadrant = rng.Random(4);
+        const int margin = REGION_CELLS / 11;
+        const int innerMargin = REGION_CELLS / 4;
+        int centerX = REGION_CELLS / 2;
+        int centerY = REGION_CELLS / 2;
+
+        switch (quadrant)
+        {
+        case 0:
+            centerX = rng.RandomRange(margin, innerMargin);
+            centerY = rng.RandomRange(margin, innerMargin);
+            break;
+        case 1:
+            centerX = rng.RandomRange(REGION_CELLS - innerMargin, REGION_CELLS - margin);
+            centerY = rng.RandomRange(margin, innerMargin);
+            break;
+        case 2:
+            centerX = rng.RandomRange(REGION_CELLS - innerMargin, REGION_CELLS - margin);
+            centerY = rng.RandomRange(REGION_CELLS - innerMargin, REGION_CELLS - margin);
+            break;
+        case 3:
+        default:
+            centerX = rng.RandomRange(margin, innerMargin);
+            centerY = rng.RandomRange(REGION_CELLS - innerMargin, REGION_CELLS - margin);
+            break;
+        }
+
+        const bool swampOnly = rng.Random(3) == 0;
+        const float radius = swampOnly
+            ? static_cast<float>(rng.RandomRange(4, 6))
+            : static_cast<float>(rng.RandomRange(3, 5));
+        const float depth = swampOnly
+            ? static_cast<float>(rng.RandomRange(10, 16)) / 10.0f
+            : static_cast<float>(rng.RandomRange(18, 28)) / 10.0f;
+
+        DepressCircularLowland(
+            heightfield,
+            static_cast<float>(centerX),
+            static_cast<float>(centerY),
+            radius,
+            depth);
+    }
+
+    void ApplyBattlefieldBorderConstraints(RegionHeightfield& heightfield)
+    {
+        for (int x = 0; x < REGION_VERTICES; ++x)
+        {
+            for (int y = 0; y < REGION_VERTICES; ++y)
+            {
+                if (x == 0 || x == REGION_CELLS || y == 0 || y == REGION_CELLS)
                 {
-                    heightfield.SetHeight(x, y, heightfield.GetHeight(x, y) + std::sqrt(value));
+                    heightfield.SetHeight(x, y, 0.0f);
+                    continue;
+                }
+
+                if (x == 1 || x == REGION_CELLS - 1 || y == 1 || y == REGION_CELLS - 1)
+                {
+                    float edgeHeight = heightfield.GetHeight(x, y);
+                    if (edgeHeight < 1.0f)
+                    {
+                        edgeHeight = 1.0f;
+                    }
+                    if (edgeHeight > 2.4f)
+                    {
+                        edgeHeight = 2.4f;
+                    }
+                    heightfield.SetHeight(x, y, edgeHeight);
                 }
             }
+        }
+    }
+
+    bool IsWaterCell(const RegionHeightfield& heightfield, int cellX, int cellY)
+    {
+        if (cellX < 0 || cellY < 0 || cellX >= REGION_CELLS || cellY >= REGION_CELLS)
+        {
+            return true;
+        }
+
+        return heightfield.GetTerrainType(cellX, cellY) == RTT_WATER;
+    }
+
+    bool CanTraverseBetweenEdges(const RegionHeightfield& heightfield, bool horizontal)
+    {
+        std::vector<unsigned char> visited(static_cast<size_t>(REGION_CELLS * REGION_CELLS), 0);
+        std::queue<std::pair<int, int>> open;
+
+        const int edgeProbeStart = REGION_CELLS / 32;
+        const int edgeProbeEnd = REGION_CELLS / 8;
+
+        if (horizontal)
+        {
+            const int row = REGION_CELLS / 2;
+            for (int x = edgeProbeStart; x < edgeProbeEnd; ++x)
+            {
+                if (!IsWaterCell(heightfield, x, row))
+                {
+                    open.emplace(x, row);
+                    visited[static_cast<size_t>(row * REGION_CELLS + x)] = 1;
+                }
+            }
+        }
+        else
+        {
+            const int column = REGION_CELLS / 2;
+            for (int y = edgeProbeStart; y < edgeProbeEnd; ++y)
+            {
+                if (!IsWaterCell(heightfield, column, y))
+                {
+                    open.emplace(column, y);
+                    visited[static_cast<size_t>(y * REGION_CELLS + column)] = 1;
+                }
+            }
+        }
+
+        while (!open.empty())
+        {
+            const auto [cellX, cellY] = open.front();
+            open.pop();
+
+            if (horizontal)
+            {
+                if (cellX >= REGION_CELLS - edgeProbeEnd)
+                {
+                    return true;
+                }
+            }
+            else if (cellY >= REGION_CELLS - edgeProbeEnd)
+            {
+                return true;
+            }
+
+            static constexpr int kNeighbors[4][2] = { {1, 0}, {-1, 0}, {0, 1}, {0, -1} };
+            for (const auto& offset : kNeighbors)
+            {
+                const int nextX = cellX + offset[0];
+                const int nextY = cellY + offset[1];
+                if (nextX < 0 || nextY < 0 || nextX >= REGION_CELLS || nextY >= REGION_CELLS)
+                {
+                    continue;
+                }
+
+                const size_t index = static_cast<size_t>(nextY * REGION_CELLS + nextX);
+                if (visited[index] != 0 || IsWaterCell(heightfield, nextX, nextY))
+                {
+                    continue;
+                }
+
+                visited[index] = 1;
+                open.emplace(nextX, nextY);
+            }
+        }
+
+        return false;
+    }
+
+    void FillWaterCell(RegionHeightfield& heightfield, int cellX, int cellY)
+    {
+        heightfield.SetTerrainType(cellX, cellY, RTT_GRASS);
+        const float restoredHeight = kBattlefieldBaseHeight;
+        heightfield.SetHeight(cellX, cellY, restoredHeight);
+        heightfield.SetHeight(cellX + 1, cellY, restoredHeight);
+        heightfield.SetHeight(cellX, cellY + 1, restoredHeight);
+        heightfield.SetHeight(cellX + 1, cellY + 1, restoredHeight);
+    }
+
+    void RemoveBisectingWater(RegionHeightfield& heightfield)
+    {
+        for (int attempt = 0; attempt < 48; ++attempt)
+        {
+            const bool horizontalPassable = CanTraverseBetweenEdges(heightfield, true);
+            const bool verticalPassable = CanTraverseBetweenEdges(heightfield, false);
+            if (horizontalPassable && verticalPassable)
+            {
+                return;
+            }
+
+            int bestCellX = -1;
+            int bestCellY = -1;
+            int bestScore = -1;
+            for (int cellY = 1; cellY < REGION_CELLS - 1; ++cellY)
+            {
+                for (int cellX = 1; cellX < REGION_CELLS - 1; ++cellX)
+                {
+                    if (!IsWaterCell(heightfield, cellX, cellY))
+                    {
+                        continue;
+                    }
+
+                    int landNeighbors = 0;
+                    for (int offsetY = -1; offsetY <= 1; ++offsetY)
+                    {
+                        for (int offsetX = -1; offsetX <= 1; ++offsetX)
+                        {
+                            if (offsetX == 0 && offsetY == 0)
+                            {
+                                continue;
+                            }
+
+                            if (!IsWaterCell(heightfield, cellX + offsetX, cellY + offsetY))
+                            {
+                                ++landNeighbors;
+                            }
+                        }
+                    }
+
+                    if (landNeighbors > bestScore)
+                    {
+                        bestScore = landNeighbors;
+                        bestCellX = cellX;
+                        bestCellY = cellY;
+                    }
+                }
+            }
+
+            if (bestCellX < 0)
+            {
+                return;
+            }
+
+            FillWaterCell(heightfield, bestCellX, bestCellY);
         }
     }
 
@@ -265,19 +547,19 @@ namespace
                 const float avg = (h00 + h10 + h01 + h11) * 0.25f;
 
                 unsigned char terrainType = RTT_GRASS;
-                if (avg <= 0.05f)
+                if (avg <= 0.12f)
                 {
                     terrainType = RTT_WATER;
                 }
-                else if (avg <= 0.35f)
+                else if (avg <= 0.55f)
                 {
                     terrainType = RTT_BEACH;
                 }
-                else if (avg <= 0.75f)
+                else if (avg <= 1.55f)
                 {
                     terrainType = RTT_SWAMP;
                 }
-                else if (avg >= 5.5f)
+                else if (avg >= 6.0f)
                 {
                     terrainType = RTT_STONE;
                 }
@@ -636,18 +918,40 @@ void GameDatabase::GenerateRegionHeightfield(RegionData& region)
 
     heightfield.Clear();
     heightfield.m_Seed = region.m_HeightfieldSeed;
-    heightfield.m_Heights.assign(static_cast<size_t>(REGION_VERTICES * REGION_VERTICES), 0.0f);
+    heightfield.m_Heights.assign(static_cast<size_t>(REGION_VERTICES * REGION_VERTICES), kBattlefieldBaseHeight);
     heightfield.m_TerrainTypes.assign(static_cast<size_t>(REGION_CELLS * REGION_CELLS), RTT_GRASS);
 
     RNG rng;
     rng.SeedRNG(heightfield.m_Seed);
 
-    for (int i = 0; i < REGION_VERTICES + REGION_VERTICES; ++i)
+    const int hillCount = rng.RandomRange(12, 18);
+    for (int i = 0; i < hillCount; ++i)
     {
-        AddHill(heightfield, rng);
+        AddSmoothHill(heightfield, rng, false);
     }
 
-    float highestHeight = 0.0f;
+    const int rollingHillCount = rng.RandomRange(3, 6);
+    for (int i = 0; i < rollingHillCount; ++i)
+    {
+        AddSmoothHill(heightfield, rng, true);
+    }
+
+    SmoothHeightfield(heightfield, 2);
+
+    ApplyBattlefieldBorderConstraints(heightfield);
+
+    const int lowlandFeatureCount = rng.RandomRange(1, 3);
+    for (int i = 0; i < lowlandFeatureCount; ++i)
+    {
+        if (rng.Random(5) == 0)
+        {
+            continue;
+        }
+
+        AddLowlandFeature(heightfield, rng);
+    }
+
+    float highestHeight = kBattlefieldBaseHeight;
     for (int x = 0; x < REGION_VERTICES; ++x)
     {
         for (int y = 0; y < REGION_VERTICES; ++y)
@@ -656,51 +960,22 @@ void GameDatabase::GenerateRegionHeightfield(RegionData& region)
         }
     }
 
-    if (highestHeight > 0.0f)
+    if (highestHeight > kMaxTerrainPeakHeight)
     {
-        const float scalar = 8.0f / highestHeight;
+        const float scalar = kMaxTerrainPeakHeight / highestHeight;
         for (int x = 0; x < REGION_VERTICES; ++x)
         {
             for (int y = 0; y < REGION_VERTICES; ++y)
             {
-                heightfield.SetHeight(x, y, heightfield.GetHeight(x, y) * scalar);
-            }
-        }
-    }
-
-    const int terrainSinker = rng.Random(3);
-    for (int x = 0; x < REGION_VERTICES; ++x)
-    {
-        for (int y = 0; y < REGION_VERTICES; ++y)
-        {
-            float value = heightfield.GetHeight(x, y) - static_cast<float>(terrainSinker);
-            if (value < 0.0f)
-            {
-                value = 0.0f;
-            }
-            heightfield.SetHeight(x, y, value);
-        }
-    }
-
-    for (int x = 0; x < REGION_VERTICES; ++x)
-    {
-        for (int y = 0; y < REGION_VERTICES; ++y)
-        {
-            if (x == 0 || x == REGION_CELLS || y == 0 || y == REGION_CELLS)
-            {
-                heightfield.SetHeight(x, y, 0.0f);
-            }
-            else if (x == 1 || x == REGION_CELLS - 1 || y == 1 || y == REGION_CELLS - 1)
-            {
-                if (heightfield.GetHeight(x, y) > 1.0f)
-                {
-                    heightfield.SetHeight(x, y, 1.0f);
-                }
+                const float scaledHeight = kBattlefieldBaseHeight
+                    + (heightfield.GetHeight(x, y) - kBattlefieldBaseHeight) * scalar;
+                heightfield.SetHeight(x, y, scaledHeight);
             }
         }
     }
 
     ClassifyTerrainFromHeights(heightfield);
+    RemoveBisectingWater(heightfield);
     heightfield.m_Generated = true;
 }
 
@@ -714,6 +989,19 @@ RegionHeightfield* GameDatabase::EnsureRegionHeightfield(int regionId)
 
     GenerateRegionHeightfield(*region);
     return &region->m_Heightfield;
+}
+
+void GameDatabase::RegenerateRegionHeightfield(int regionId)
+{
+    RegionData* region = GetRegion(regionId);
+    if (!region)
+    {
+        return;
+    }
+
+    region->m_HeightfieldSeed = static_cast<unsigned int>(GetTime() * 1000.0);
+    region->m_Heightfield.Clear();
+    GenerateRegionHeightfield(*region);
 }
 
 void GameDatabase::SetActiveRegion(int regionId)

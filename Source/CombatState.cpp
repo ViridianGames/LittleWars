@@ -6,6 +6,7 @@
 #include "CombatUnits.h"
 #include "GameGlobals.h"
 #include "LittlePeopleSprites.h"
+#include "RegionMinimap.h"
 #include "RegionTerrainMesh.h"
 #include "RegionView.h"
 #include "raymath.h"
@@ -14,8 +15,7 @@ using namespace std;
 
 namespace
 {
-    constexpr double kGestureTimeThreshold = 0.12;
-    constexpr float kGestureMoveThreshold = 4.0f;
+    constexpr double kGestureTimeThreshold = 0.25;
 
     const char* LittlePeopleArmyName(LittlePeopleArmy army)
     {
@@ -34,11 +34,26 @@ namespace
         }
     }
 
-    bool IsGestureHold(double pressTime, Vector2 pressPosition, Vector2 currentPosition)
+    Color LittlePeopleArmyColor(LittlePeopleArmy army)
     {
-        const double holdDuration = GetTime() - pressTime;
-        const float mouseTravel = Vector2Distance(currentPosition, pressPosition);
-        return holdDuration >= kGestureTimeThreshold || mouseTravel >= kGestureMoveThreshold;
+        switch (army)
+        {
+        case LittlePeopleArmy::White:
+            return Color{ 235, 235, 235, 255 };
+        case LittlePeopleArmy::Blue:
+            return Color{ 80, 140, 255, 255 };
+        case LittlePeopleArmy::Red:
+            return Color{ 230, 70, 70, 255 };
+        case LittlePeopleArmy::Green:
+            return Color{ 70, 200, 90, 255 };
+        default:
+            return Color{ 200, 200, 200, 255 };
+        }
+    }
+
+    bool IsGestureHold(double pressTime)
+    {
+        return (GetTime() - pressTime) >= kGestureTimeThreshold;
     }
 }
 
@@ -65,14 +80,14 @@ void CombatState::InitializeDemoUnits()
     m_HasGestureFacingTarget = false;
 
     const CombatUnitInstance demoUnits[] = {
-        { 0, CombatUnitType::Swordsmen, Vector3{ 18.0f, 0.0f, 22.0f }, LittlePeopleArmy::Blue, LittlePeopleDirection::South },
-        { 1, CombatUnitType::Archers, Vector3{ 34.0f, 0.0f, 22.0f }, LittlePeopleArmy::Blue, LittlePeopleDirection::South },
-        { 2, CombatUnitType::Knights, Vector3{ 52.0f, 0.0f, 22.0f }, LittlePeopleArmy::Blue, LittlePeopleDirection::South },
-        { 3, CombatUnitType::Catapult, Vector3{ 62.0f, 0.0f, 22.0f }, LittlePeopleArmy::Blue, LittlePeopleDirection::South },
-        { 4, CombatUnitType::Swordsmen, Vector3{ 18.0f, 0.0f, 40.0f }, LittlePeopleArmy::Red, LittlePeopleDirection::North },
-        { 5, CombatUnitType::Archers, Vector3{ 34.0f, 0.0f, 40.0f }, LittlePeopleArmy::Red, LittlePeopleDirection::North },
-        { 6, CombatUnitType::Knights, Vector3{ 52.0f, 0.0f, 40.0f }, LittlePeopleArmy::Red, LittlePeopleDirection::North },
-        { 7, CombatUnitType::Catapult, Vector3{ 62.0f, 0.0f, 40.0f }, LittlePeopleArmy::Red, LittlePeopleDirection::North },
+        { 0, CombatUnitType::Swordsmen, Vector3{ 36.0f, 0.0f, 44.0f }, LittlePeopleArmy::Blue, LittlePeopleDirection::South },
+        { 1, CombatUnitType::Archers, Vector3{ 68.0f, 0.0f, 44.0f }, LittlePeopleArmy::Blue, LittlePeopleDirection::South },
+        { 2, CombatUnitType::Knights, Vector3{ 100.0f, 0.0f, 44.0f }, LittlePeopleArmy::Blue, LittlePeopleDirection::South },
+        { 3, CombatUnitType::Catapult, Vector3{ 118.0f, 0.0f, 44.0f }, LittlePeopleArmy::Blue, LittlePeopleDirection::South },
+        { 4, CombatUnitType::Swordsmen, Vector3{ 36.0f, 0.0f, 84.0f }, LittlePeopleArmy::Red, LittlePeopleDirection::North },
+        { 5, CombatUnitType::Archers, Vector3{ 68.0f, 0.0f, 84.0f }, LittlePeopleArmy::Red, LittlePeopleDirection::North },
+        { 6, CombatUnitType::Knights, Vector3{ 100.0f, 0.0f, 84.0f }, LittlePeopleArmy::Red, LittlePeopleDirection::North },
+        { 7, CombatUnitType::Catapult, Vector3{ 118.0f, 0.0f, 84.0f }, LittlePeopleArmy::Red, LittlePeopleDirection::North },
     };
 
     for (const CombatUnitInstance& unit : demoUnits)
@@ -168,19 +183,19 @@ void CombatState::HandleCombatInput(const RegionHeightfield& heightfield)
     if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && m_GestureUnitIndex >= 0
         && m_GestureUnitIndex < static_cast<int>(m_Units.size()))
     {
-        if (IsGestureHold(m_LeftMousePressTime, m_LeftMousePressPosition, mousePosition))
+        if (IsGestureHold(m_LeftMousePressTime))
         {
             m_IsGestureHold = true;
             m_PendingQuickClick = false;
-        }
 
-        const Ray ray = GetCombatMouseRay(camera);
-        Vector3 terrainHit{};
-        if (RaycastCombatTerrain(ray, heightfield, terrainHit))
-        {
-            FaceCombatUnitToward(m_Units[static_cast<size_t>(m_GestureUnitIndex)], terrainHit);
-            m_GestureFacingTarget = terrainHit;
-            m_HasGestureFacingTarget = true;
+            const Ray ray = GetCombatMouseRay(camera);
+            Vector3 terrainHit{};
+            if (RaycastCombatTerrain(ray, heightfield, terrainHit))
+            {
+                FaceCombatUnitToward(m_Units[static_cast<size_t>(m_GestureUnitIndex)], terrainHit);
+                m_GestureFacingTarget = terrainHit;
+                m_HasGestureFacingTarget = true;
+            }
         }
     }
     else if (!IsMouseButtonDown(MOUSE_BUTTON_LEFT))
@@ -193,7 +208,7 @@ void CombatState::HandleCombatInput(const RegionHeightfield& heightfield)
         if (m_PendingQuickClick && !m_IsGestureHold && !m_GestureStartedOnUnit
             && m_GestureUnitIndex >= 0 && m_GestureUnitIndex < static_cast<int>(m_Units.size()))
         {
-            MoveCombatUnit(m_Units[static_cast<size_t>(m_GestureUnitIndex)], m_PendingTerrainTarget);
+            BeginCombatUnitMove(m_Units[static_cast<size_t>(m_GestureUnitIndex)], m_PendingTerrainTarget);
             m_MoveTarget = m_PendingTerrainTarget;
             m_HasMoveTarget = true;
         }
@@ -217,8 +232,27 @@ void CombatState::Update()
 
     if (heightfield)
     {
+        UpdateCombatUnitsMovement(m_Units, GetFrameTime());
+
+        if (m_HasMoveTarget && m_SelectedUnitIndex >= 0
+            && m_SelectedUnitIndex < static_cast<int>(m_Units.size())
+            && !m_Units[static_cast<size_t>(m_SelectedUnitIndex)].m_IsMoving)
+        {
+            m_HasMoveTarget = false;
+        }
+
         UpdateTerrainTargetPreview(*heightfield);
         HandleCombatInput(*heightfield);
+    }
+
+    if (IsKeyPressed(KEY_R))
+    {
+        if (RegionData* region = g_GameDatabase.GetActiveRegion())
+        {
+            g_GameDatabase.RegenerateRegionHeightfield(region->m_Id);
+            m_HasMoveTarget = false;
+            m_HasHoverTarget = false;
+        }
     }
 
     if (IsKeyPressed(KEY_ESCAPE))
@@ -237,7 +271,7 @@ void CombatState::Draw()
     }
 
     const RegionHeightfield& heightfield = region->m_Heightfield;
-    const int walkFrame = LittlePeopleWalkFrameFromTime(GetTime());
+    const double currentTime = GetTime();
 
     g_RegionTerrainMesh.SetHeightfield(&heightfield);
     g_RegionTerrainMesh.RebuildIfNeeded();
@@ -247,12 +281,16 @@ void CombatState::Draw()
 
     for (int unitIndex = 0; unitIndex < static_cast<int>(m_Units.size()); ++unitIndex)
     {
+        const CombatUnitInstance& unit = m_Units[static_cast<size_t>(unitIndex)];
         const bool selected = (unitIndex == m_SelectedUnitIndex);
+        const int animationFrame = unit.m_IsMoving
+            ? LittlePeopleWalkFrameFromTime(currentTime)
+            : 0;
         DrawCombatUnit(
             g_RegionView.GetCamera(),
             heightfield,
-            m_Units[static_cast<size_t>(unitIndex)],
-            walkFrame,
+            unit,
+            animationFrame,
             selected
         );
     }
@@ -273,13 +311,35 @@ void CombatState::Draw()
 
     if (m_HasMoveTarget)
     {
-        DrawCombatMoveMarker(heightfield, m_MoveTarget, Color{ 80, 255, 120, 255 });
+        const Color moveMarkerColor = (m_SelectedUnitIndex >= 0
+            && m_SelectedUnitIndex < static_cast<int>(m_Units.size())
+            && m_Units[static_cast<size_t>(m_SelectedUnitIndex)].m_IsMoving)
+            ? Color{ 80, 255, 120, 200 }
+            : Color{ 80, 255, 120, 255 };
+        DrawCombatMoveMarker(heightfield, m_MoveTarget, moveMarkerColor);
     }
 
     g_RegionView.End3D();
 
+    std::vector<RegionMinimapMarker> minimapMarkers;
+    minimapMarkers.reserve(m_Units.size());
+    for (const CombatUnitInstance& unit : m_Units)
+    {
+        minimapMarkers.push_back(RegionMinimapMarker{
+            unit.m_Anchor.x,
+            unit.m_Anchor.z,
+            LittlePeopleArmyColor(unit.m_Army)
+        });
+    }
+
+    g_RegionMinimap.Draw(
+        heightfield,
+        region->m_HeightfieldSeed,
+        g_RegionView.GetCamera(),
+        &minimapMarkers);
+
     DrawOutlinedText(g_font, "Combat  Click/hold to aim, release to set facing", { 4.0f, 4.0f }, g_fontDrawSize, 1, WHITE);
-    DrawOutlinedText(g_smallFont, "Quick click terrain to move  Q/E:rotate  Esc:title", { 4.0f, 16.0f }, g_smallFontDrawSize, 1, WHITE);
+    DrawOutlinedText(g_smallFont, "WASD:pan  Wheel:zoom  Q/E:rotate  R:terrain  Esc:title", { 4.0f, 16.0f }, g_smallFontDrawSize, 1, WHITE);
 
     float labelY = 30.0f;
     for (int typeIndex = 0; typeIndex < 4; ++typeIndex)

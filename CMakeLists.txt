@@ -147,6 +147,7 @@ set(PROJECT_SOURCES
         Source/OverworldMap.cpp
         Source/Player.cpp
         Source/OptionsState.cpp
+        Source/RegionMinimap.cpp
         Source/RegionTerrainMesh.cpp
         Source/RegionView.cpp
         Source/SetupGameState.cpp

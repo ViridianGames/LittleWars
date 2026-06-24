@@ -13,6 +13,10 @@ public:
     void End3D();
 
     const Camera3D& GetCamera() const { return m_Camera; }
+    float GetLookAtX() const { return m_LookAtX; }
+    float GetLookAtZ() const { return m_LookAtZ; }
+    float GetZoom() const { return m_Zoom; }
+    float GetAngle() const { return m_Angle; }
 
 private:
     void SyncCamera();

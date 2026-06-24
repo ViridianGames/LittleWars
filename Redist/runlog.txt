@@ -1,20 +1,20 @@
- Tue Jun 23 20:51:50 2026.495 Starting Engine::Init()
- Tue Jun 23 20:51:50 2026.495 Starting StateMachine::Init
- Tue Jun 23 20:51:50 2026.495 Leaving StateMachine::Init
- Tue Jun 23 20:51:50 2026.495 Starting InputSystem::Init()
- Tue Jun 23 20:51:50 2026.495 Done With InputSystem::Init()
- Tue Jun 23 20:51:50 2026.642 Done with Engine::Init()
- Tue Jun 23 20:51:50 2026.643 Loading texture Images/terrain.png
- Tue Jun 23 20:51:50 2026.643 Texture ID: 7, Width: 64, Height: 64
- Tue Jun 23 20:51:50 2026.643 Load successful.
- Tue Jun 23 20:51:50 2026.643 Loading texture Images/littlepeople.png
- Tue Jun 23 20:51:50 2026.643 Texture ID: 8, Width: 196, Height: 176
- Tue Jun 23 20:51:50 2026.643 Load successful.
- Tue Jun 23 20:51:50 2026.643 Created state TitleState with ID 0
- Tue Jun 23 20:51:50 2026.643 Created state SetupGameState with ID 5
- Tue Jun 23 20:51:50 2026.643 Created state CastleDesignState with ID 4
- Tue Jun 23 20:51:50 2026.643 Created state MainState with ID 1
- Tue Jun 23 20:51:50 2026.643 Created state CombatState with ID 3
- Tue Jun 23 20:51:50 2026.643 Created state OptionsState with ID 2
- Tue Jun 23 20:51:50 2026.643 StateMachine: Transitioning to state TitleState, ID 0
- Tue Jun 23 20:51:52 2026.507 StateMachine: Transitioning to state CombatState, ID 3
+ Tue Jun 23 21:27:27 2026.928 Starting Engine::Init()
+ Tue Jun 23 21:27:27 2026.928 Starting StateMachine::Init
+ Tue Jun 23 21:27:27 2026.928 Leaving StateMachine::Init
+ Tue Jun 23 21:27:27 2026.928 Starting InputSystem::Init()
+ Tue Jun 23 21:27:27 2026.928 Done With InputSystem::Init()
+ Tue Jun 23 21:27:28 2026.096 Done with Engine::Init()
+ Tue Jun 23 21:27:28 2026.096 Loading texture Images/terrain.png
+ Tue Jun 23 21:27:28 2026.097 Texture ID: 7, Width: 64, Height: 64
+ Tue Jun 23 21:27:28 2026.097 Load successful.
+ Tue Jun 23 21:27:28 2026.097 Loading texture Images/littlepeople.png
+ Tue Jun 23 21:27:28 2026.097 Texture ID: 8, Width: 196, Height: 176
+ Tue Jun 23 21:27:28 2026.097 Load successful.
+ Tue Jun 23 21:27:28 2026.097 Created state TitleState with ID 0
+ Tue Jun 23 21:27:28 2026.097 Created state SetupGameState with ID 5
+ Tue Jun 23 21:27:28 2026.097 Created state CastleDesignState with ID 4
+ Tue Jun 23 21:27:28 2026.097 Created state MainState with ID 1
+ Tue Jun 23 21:27:28 2026.097 Created state CombatState with ID 3
+ Tue Jun 23 21:27:28 2026.097 Created state OptionsState with ID 2
+ Tue Jun 23 21:27:28 2026.097 StateMachine: Transitioning to state TitleState, ID 0
+ Tue Jun 23 21:27:29 2026.795 StateMachine: Transitioning to state CombatState, ID 3

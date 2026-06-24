@@ -60,7 +60,7 @@ void DebugPrint(std::string text);
 // Campaign / region database (accessible from any state)
 // ---------------------------------------------------------------------------
 
-constexpr int REGION_CELLS = 64;
+constexpr int REGION_CELLS = 128;
 constexpr int REGION_VERTICES = REGION_CELLS + 1;
 
 constexpr float REGION_WATER_HEIGHT = 1.0f;
@@ -129,7 +129,7 @@ class GameDatabase
 {
 public:
     static constexpr const char* SAVE_MAGIC = "LWAR";
-    static constexpr int SAVE_VERSION = 3;
+    static constexpr int SAVE_VERSION = 4;
 
     CampaignSetup m_Setup;
     int m_Turn = 0;
@@ -148,6 +148,7 @@ public:
     const RegionData* GetRegionAtMapPos(int mapX, int mapY) const;
 
     RegionHeightfield* EnsureRegionHeightfield(int regionId);
+    void RegenerateRegionHeightfield(int regionId);
     void SetActiveRegion(int regionId);
     RegionData* GetActiveRegion();
     const RegionData* GetActiveRegion() const;
