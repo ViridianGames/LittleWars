@@ -20,6 +20,10 @@ public:
 private:
     void HandleMapSelection();
     void DrawCountyInfo(int panelX, int panelY, int panelWidth) const;
+    void DrawPlayerSummaries(int panelX, int panelY, int panelWidth) const;
+    void DrawNextTurnButton() const;
+    void HandleNextTurnButton();
+    bool IsMouseOverNextTurnButton() const;
 
     int m_SelectedRegionId = -1;
 };

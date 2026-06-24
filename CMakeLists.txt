@@ -139,11 +139,13 @@ set(GEIST_SOURCES
 set(PROJECT_SOURCES
         Source/CastleDesignState.cpp
         Source/CombatState.cpp
+        Source/CombatUnits.cpp
         Source/GameGlobals.cpp
         Source/LittlePeopleSprites.cpp
         Source/Main.cpp
         Source/MainState.cpp
         Source/OverworldMap.cpp
+        Source/Player.cpp
         Source/OptionsState.cpp
         Source/RegionTerrainMesh.cpp
         Source/RegionView.cpp

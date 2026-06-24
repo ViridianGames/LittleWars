@@ -5,6 +5,7 @@
 
 #include "GameGlobals.h"
 #include "OverworldMap.h"
+#include "Player.h"
 
 using namespace std;
 
@@ -13,7 +14,47 @@ namespace
     constexpr int kMapPixelsPerCell = 2;
     constexpr int kMapDrawX = 4;
     constexpr int kMapDrawY = 4;
-    constexpr int kCountyInfoHeight = 78;
+    constexpr int kCountyInfoHeight = 52;
+    constexpr int kPlayerBoxHeight = 44;
+    constexpr int kPlayerBoxGap = 2;
+    constexpr int kNextTurnButtonWidth = 96;
+    constexpr int kNextTurnButtonHeight = 22;
+    constexpr int kPanelMargin = 4;
+
+    Rectangle GetNextTurnButtonRect()
+    {
+        const float x = static_cast<float>(g_Engine->m_RenderWidth) - static_cast<float>(kNextTurnButtonWidth + kPanelMargin);
+        const float y = static_cast<float>(g_Engine->m_RenderHeight) - static_cast<float>(kNextTurnButtonHeight + kPanelMargin);
+        return Rectangle{ x, y, static_cast<float>(kNextTurnButtonWidth), static_cast<float>(kNextTurnButtonHeight) };
+    }
+
+    Vector2 GetScaledMousePosition()
+    {
+        Vector2 mouse = GetMousePosition();
+        const float inputScale = g_Engine->GetInputScale();
+        mouse.x /= inputScale;
+        mouse.y /= inputScale;
+        return mouse;
+    }
+
+    string AbbreviateRelation(DiplomaticRelation relation)
+    {
+        switch (relation)
+        {
+        case DiplomaticRelation::War:
+            return "War";
+        case DiplomaticRelation::Hostile:
+            return "Hos";
+        case DiplomaticRelation::Neutral:
+            return "Neu";
+        case DiplomaticRelation::Friendly:
+            return "Frd";
+        case DiplomaticRelation::Allied:
+            return "All";
+        default:
+            return "?";
+        }
+    }
 }
 
 void MainState::Init(const std::string& configfile)
@@ -38,6 +79,8 @@ void MainState::OnEnter()
 
         g_OverworldMap.Generate(seed);
     }
+
+    g_GameDatabase.SyncPlayersFromOverworld(g_OverworldMap, false);
 }
 
 void MainState::OnExit()
@@ -52,10 +95,7 @@ void MainState::HandleMapSelection()
         return;
     }
 
-    Vector2 mouse = GetMousePosition();
-    const float inputScale = g_Engine->GetInputScale();
-    mouse.x /= inputScale;
-    mouse.y /= inputScale;
+    Vector2 mouse = GetScaledMousePosition();
 
     const int mapPixelWidth = OVERWORLD_MAP_SIZE * kMapPixelsPerCell;
     const int mapPixelHeight = OVERWORLD_MAP_SIZE * kMapPixelsPerCell;
@@ -79,24 +119,6 @@ void MainState::HandleMapSelection()
 
     m_SelectedRegionId = regionId;
     g_GameDatabase.SetActiveRegion(regionId);
-}
-
-namespace
-{
-    string OwnerName(int ownerId)
-    {
-        if (ownerId < 0)
-        {
-            return "Unclaimed";
-        }
-
-        if (ownerId == 0)
-        {
-            return "Player";
-        }
-
-        return "Faction " + to_string(ownerId);
-    }
 }
 
 void MainState::DrawCountyInfo(int panelX, int panelY, int panelWidth) const
@@ -124,21 +146,140 @@ void MainState::DrawCountyInfo(int panelX, int panelY, int panelWidth) const
         g_fontDrawSize, 1, Color{ 255, 230, 90, 255 });
 
     const string resourceText = string("Resource: ") + CountyResourceName(region->m_Resource);
-    const string ownerText = string("Owner: ") + OwnerName(region->m_OwnerId);
+    const string ownerText = string("Owner: ") + PlayerOwnerName(region->m_OwnerId);
     const string castleText = string("Castle: ") + (region->m_HasCastle ? "Yes" : "No");
-    const string sizeText = "Size: " + to_string(region->m_CellCount) + " cells";
-    const string neighborText = "Neighbors: " + to_string(region->m_AdjacentRegionIds.size());
 
-    DrawOutlinedText(g_smallFont, resourceText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 18) },
+    DrawOutlinedText(g_smallFont, resourceText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 16) },
         g_smallFontDrawSize, 1, WHITE);
-    DrawOutlinedText(g_smallFont, ownerText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 30) },
+    DrawOutlinedText(g_smallFont, ownerText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 28) },
         g_smallFontDrawSize, 1, WHITE);
-    DrawOutlinedText(g_smallFont, castleText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 42) },
+    DrawOutlinedText(g_smallFont, castleText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 40) },
         g_smallFontDrawSize, 1, WHITE);
-    DrawOutlinedText(g_smallFont, sizeText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 54) },
-        g_smallFontDrawSize, 1, Color{ 180, 180, 180, 255 });
-    DrawOutlinedText(g_smallFont, neighborText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 66) },
-        g_smallFontDrawSize, 1, Color{ 180, 180, 180, 255 });
+}
+
+bool MainState::IsMouseOverNextTurnButton() const
+{
+    return CheckCollisionPointRec(GetScaledMousePosition(), GetNextTurnButtonRect());
+}
+
+void MainState::HandleNextTurnButton()
+{
+    if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    {
+        return;
+    }
+
+    if (!IsMouseOverNextTurnButton())
+    {
+        return;
+    }
+
+    g_GameDatabase.AdvanceTurn(g_OverworldMap);
+}
+
+void MainState::DrawNextTurnButton() const
+{
+    const Rectangle buttonRect = GetNextTurnButtonRect();
+    const bool hovered = IsMouseOverNextTurnButton();
+    const Color fillColor = hovered ? Color{ 70, 120, 70, 255 } : Color{ 48, 88, 48, 255 };
+    const Color borderColor = hovered ? Color{ 140, 220, 140, 255 } : Color{ 100, 160, 100, 255 };
+
+    DrawRectangle(static_cast<int>(buttonRect.x), static_cast<int>(buttonRect.y),
+        static_cast<int>(buttonRect.width), static_cast<int>(buttonRect.height), fillColor);
+    DrawRectangleLines(static_cast<int>(buttonRect.x), static_cast<int>(buttonRect.y),
+        static_cast<int>(buttonRect.width), static_cast<int>(buttonRect.height), borderColor);
+
+    const string label = "Next Turn";
+    const Vector2 textSize = MeasureTextEx(*g_font, label.c_str(), g_fontDrawSize, 1.0f);
+    const float textX = buttonRect.x + (buttonRect.width - textSize.x) * 0.5f;
+    const float textY = buttonRect.y + (buttonRect.height - textSize.y) * 0.5f - 1.0f;
+    DrawOutlinedText(g_font, label, Vector2{ textX, textY }, g_fontDrawSize, 1, WHITE);
+}
+
+void MainState::DrawPlayerSummaries(int panelX, int panelY, int panelWidth) const
+{
+    const vector<Player>& players = g_GameDatabase.m_Players;
+    if (players.empty())
+    {
+        return;
+    }
+
+    int boxY = panelY;
+    for (const Player& player : players)
+    {
+        const Color playerColor = player.GetColor();
+        const Color bgColor = Color{
+            static_cast<unsigned char>(playerColor.r / 5 + 18),
+            static_cast<unsigned char>(playerColor.g / 5 + 18),
+            static_cast<unsigned char>(playerColor.b / 5 + 18),
+            255
+        };
+
+        DrawRectangle(panelX, boxY, panelWidth, kPlayerBoxHeight, bgColor);
+        DrawRectangleLines(panelX, boxY, panelWidth, kPlayerBoxHeight, playerColor);
+
+        string title = player.GetColorName();
+        if (player.m_IsHuman)
+        {
+            title += " (you)";
+        }
+
+        DrawOutlinedText(g_font, title,
+            Vector2{ static_cast<float>(panelX + 4), static_cast<float>(boxY + 2) },
+            g_fontDrawSize, 1, playerColor);
+
+        const string resources = "F:" + to_string(player.m_Food)
+            + " I:" + to_string(player.m_Iron)
+            + " G:" + to_string(player.m_Gold)
+            + " W:" + to_string(player.m_Wood);
+        DrawOutlinedText(g_smallFont, resources,
+            Vector2{ static_cast<float>(panelX + 4), static_cast<float>(boxY + 11) },
+            g_smallFontDrawSize, 1, WHITE);
+
+        const string regions = "Rgns F" + to_string(player.m_FoodRegions)
+            + " I" + to_string(player.m_IronRegions)
+            + " G" + to_string(player.m_GoldRegions)
+            + " W" + to_string(player.m_WoodRegions)
+            + " (" + to_string(player.m_TotalRegions) + ")";
+        DrawOutlinedText(g_smallFont, regions,
+            Vector2{ static_cast<float>(panelX + 4), static_cast<float>(boxY + 20) },
+            g_smallFontDrawSize, 1, Color{ 210, 210, 210, 255 });
+
+        const string units = "C" + to_string(player.m_Castles)
+            + " Sw" + to_string(player.m_Swordsmen)
+            + " Ar" + to_string(player.m_Archers)
+            + " Kn" + to_string(player.m_Knights)
+            + " Ct" + to_string(player.m_Catapults);
+        DrawOutlinedText(g_smallFont, units,
+            Vector2{ static_cast<float>(panelX + 4), static_cast<float>(boxY + 29) },
+            g_smallFontDrawSize, 1, Color{ 210, 210, 210, 255 });
+
+        string relations;
+        for (int otherId = 0; otherId < static_cast<int>(player.m_Relations.size()); ++otherId)
+        {
+            if (otherId == player.m_Id)
+            {
+                continue;
+            }
+
+            if (!relations.empty())
+            {
+                relations += " ";
+            }
+
+            const auto relation = static_cast<DiplomaticRelation>(player.m_Relations[static_cast<size_t>(otherId)]);
+            relations += string(PlayerOwnerName(otherId)) + ":" + AbbreviateRelation(relation);
+        }
+
+        if (!relations.empty())
+        {
+            DrawOutlinedText(g_smallFont, relations,
+                Vector2{ static_cast<float>(panelX + 4), static_cast<float>(boxY + 36) },
+                g_smallFontDrawSize, 1, Color{ 170, 170, 190, 255 });
+        }
+
+        boxY += kPlayerBoxHeight + kPlayerBoxGap;
+    }
 }
 
 void MainState::Update()
@@ -153,8 +294,10 @@ void MainState::Update()
         unsigned int seed = static_cast<unsigned int>(GetTime() * 1000.0);
         g_OverworldMap.Generate(seed);
         m_SelectedRegionId = -1;
+        g_GameDatabase.SyncPlayersFromOverworld(g_OverworldMap, true);
     }
 
+    HandleNextTurnButton();
     HandleMapSelection();
 }
 
@@ -173,11 +316,8 @@ void MainState::Draw()
     const int panelX = mapRight + 8;
     const int panelWidth = static_cast<int>(g_Engine->m_RenderWidth) - panelX - 4;
     DrawCountyInfo(panelX, kMapDrawY, panelWidth);
-
-    const string regionTotalText = "Regions: " + to_string(g_OverworldMap.GetRegions().size());
-    DrawOutlinedText(g_smallFont, regionTotalText,
-        Vector2{ static_cast<float>(panelX), static_cast<float>(kMapDrawY + kCountyInfoHeight + 2) },
-        g_smallFontDrawSize, 1, Color{ 180, 180, 180, 255 });
+    DrawPlayerSummaries(panelX, kMapDrawY + kCountyInfoHeight + kPlayerBoxGap, panelWidth);
+    DrawNextTurnButton();
 
     DrawOutlinedText(g_smallFont, "R: new map  Esc: title", Vector2{ 4.0f, static_cast<float>(g_Engine->m_RenderHeight - 14.0f) },
         g_smallFontDrawSize, 1, WHITE);

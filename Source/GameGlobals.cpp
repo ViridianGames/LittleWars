@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -12,6 +13,7 @@
 #include "../Geist/Source/Logging.h"
 
 #include "GameGlobals.h"
+#include "OverworldMap.h"
 
 #include "Engine.h"
 #include "raylib.h"
@@ -23,6 +25,61 @@ GameDatabase g_GameDatabase;
 
 namespace
 {
+    void SerializePlayer(ostream& stream, const Player& player)
+    {
+        IO::Serialize(stream, player.m_Id);
+        IO::Serialize(stream, player.m_IsHuman);
+        IO::Serialize(stream, player.m_Food);
+        IO::Serialize(stream, player.m_Iron);
+        IO::Serialize(stream, player.m_Gold);
+        IO::Serialize(stream, player.m_Wood);
+        IO::Serialize(stream, player.m_FoodRegions);
+        IO::Serialize(stream, player.m_IronRegions);
+        IO::Serialize(stream, player.m_GoldRegions);
+        IO::Serialize(stream, player.m_WoodRegions);
+        IO::Serialize(stream, player.m_TotalRegions);
+        IO::Serialize(stream, player.m_Castles);
+        IO::Serialize(stream, player.m_Swordsmen);
+        IO::Serialize(stream, player.m_Archers);
+        IO::Serialize(stream, player.m_Knights);
+        IO::Serialize(stream, player.m_Catapults);
+
+        const unsigned int relationCount = static_cast<unsigned int>(player.m_Relations.size());
+        IO::Serialize(stream, relationCount);
+        for (int relation : player.m_Relations)
+        {
+            IO::Serialize(stream, relation);
+        }
+    }
+
+    void DeserializePlayer(istream& stream, Player& player)
+    {
+        IO::Serialize(stream, player.m_Id);
+        IO::Serialize(stream, player.m_IsHuman);
+        IO::Serialize(stream, player.m_Food);
+        IO::Serialize(stream, player.m_Iron);
+        IO::Serialize(stream, player.m_Gold);
+        IO::Serialize(stream, player.m_Wood);
+        IO::Serialize(stream, player.m_FoodRegions);
+        IO::Serialize(stream, player.m_IronRegions);
+        IO::Serialize(stream, player.m_GoldRegions);
+        IO::Serialize(stream, player.m_WoodRegions);
+        IO::Serialize(stream, player.m_TotalRegions);
+        IO::Serialize(stream, player.m_Castles);
+        IO::Serialize(stream, player.m_Swordsmen);
+        IO::Serialize(stream, player.m_Archers);
+        IO::Serialize(stream, player.m_Knights);
+        IO::Serialize(stream, player.m_Catapults);
+
+        unsigned int relationCount = 0;
+        IO::Serialize(stream, relationCount);
+        player.m_Relations.resize(relationCount);
+        for (unsigned int i = 0; i < relationCount; ++i)
+        {
+            IO::Serialize(stream, player.m_Relations[i]);
+        }
+    }
+
     void PreparePixelFont(Font& font)
     {
         if (font.texture.id == 0)
@@ -475,7 +532,7 @@ void GameDatabase::Clear()
     m_Setup = CampaignSetup{};
     m_Turn = 0;
     m_ActiveRegionId = -1;
-    m_Player = PlayerData{};
+    m_Players.clear();
     m_Regions.clear();
 }
 
@@ -497,9 +554,8 @@ void GameDatabase::GenerateOverworldRegions()
     RNG rng;
     rng.SeedRNG(m_Setup.m_Seed);
 
-    m_Player.m_Id = 0;
-    m_Player.m_Gold = 100;
-    m_Player.m_Food = 50;
+    const int playerCount = std::clamp(1 + m_Setup.m_EnemyCount, 1, kMaxCampaignPlayers);
+    InitializeCampaignPlayers(m_Players, playerCount);
 
     int regionId = 0;
     for (int mapY = 0; mapY < m_Setup.m_RegionRows; ++mapY)
@@ -675,6 +731,29 @@ const RegionData* GameDatabase::GetActiveRegion() const
     return GetRegion(m_ActiveRegionId);
 }
 
+void GameDatabase::SyncPlayersFromOverworld(const OverworldMap& map, bool resetAssets)
+{
+    if (m_Players.empty())
+    {
+        const int playerCount = std::clamp(1 + m_Setup.m_EnemyCount, 1, kMaxCampaignPlayers);
+        InitializeCampaignPlayers(m_Players, playerCount);
+    }
+
+    ::SyncPlayersFromOverworld(map, m_Players, resetAssets);
+}
+
+void GameDatabase::AdvanceTurn(const OverworldMap& map)
+{
+    if (m_Players.empty())
+    {
+        const int playerCount = std::clamp(1 + m_Setup.m_EnemyCount, 1, kMaxCampaignPlayers);
+        InitializeCampaignPlayers(m_Players, playerCount);
+    }
+
+    CollectTurnIncomeFromRegions(map, m_Players);
+    ++m_Turn;
+}
+
 bool GameDatabase::SaveCampaign(const std::string& path) const
 {
     ofstream stream(path, ios::binary);
@@ -697,9 +776,12 @@ bool GameDatabase::SaveCampaign(const std::string& path) const
     IO::Serialize(stream, m_Turn);
     IO::Serialize(stream, m_ActiveRegionId);
 
-    IO::Serialize(stream, m_Player.m_Id);
-    IO::Serialize(stream, m_Player.m_Gold);
-    IO::Serialize(stream, m_Player.m_Food);
+    const unsigned int playerCount = static_cast<unsigned int>(m_Players.size());
+    IO::Serialize(stream, playerCount);
+    for (const Player& player : m_Players)
+    {
+        SerializePlayer(stream, player);
+    }
 
     const unsigned int regionCount = static_cast<unsigned int>(m_Regions.size());
     IO::Serialize(stream, regionCount);
@@ -758,9 +840,13 @@ bool GameDatabase::LoadCampaign(const std::string& path)
     IO::Serialize(stream, m_Turn);
     IO::Serialize(stream, m_ActiveRegionId);
 
-    IO::Serialize(stream, m_Player.m_Id);
-    IO::Serialize(stream, m_Player.m_Gold);
-    IO::Serialize(stream, m_Player.m_Food);
+    unsigned int playerCount = 0;
+    IO::Serialize(stream, playerCount);
+    m_Players.resize(playerCount);
+    for (Player& player : m_Players)
+    {
+        DeserializePlayer(stream, player);
+    }
 
     unsigned int regionCount = 0;
     IO::Serialize(stream, regionCount);

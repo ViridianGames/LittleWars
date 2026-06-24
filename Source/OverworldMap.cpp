@@ -1,6 +1,7 @@
 #include "OverworldMap.h"
 
 #include "GameGlobals.h"
+#include "Player.h"
 
 #include <algorithm>
 #include <cmath>
@@ -126,23 +127,6 @@ char CountyResourceMarker(CountyResource resource)
         return 'W';
     default:
         return '?';
-    }
-}
-
-Color OwnerBorderColor(int ownerId)
-{
-    switch (ownerId)
-    {
-    case 0:
-        return Color{ 80, 140, 255, 255 };
-    case 1:
-        return Color{ 220, 60, 60, 255 };
-    case 2:
-        return Color{ 230, 170, 40, 255 };
-    case 3:
-        return Color{ 180, 80, 220, 255 };
-    default:
-        return Color{ 255, 255, 255, 255 };
     }
 }
 
@@ -754,16 +738,16 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell) const
     {
         if (regionId < 0)
         {
-            return OwnerBorderColor(-1);
+            return PlayerOwnerColor(-1);
         }
 
         const OverworldRegionData* region = GetRegion(regionId);
         if (!region)
         {
-            return OwnerBorderColor(-1);
+            return PlayerOwnerColor(-1);
         }
 
-        return OwnerBorderColor(region->m_OwnerId);
+        return PlayerOwnerColor(region->m_OwnerId);
     };
 
     auto IsCountyCell = [this](int cellX, int cellY) -> bool

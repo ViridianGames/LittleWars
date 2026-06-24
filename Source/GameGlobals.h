@@ -2,6 +2,7 @@
 #define _GAMEGLOBALS_H_
 
 #include "CastleDesignState.h"
+#include "Player.h"
 #include "CombatState.h"
 #include "MainState.h"
 #include "OptionsState.h"
@@ -96,13 +97,6 @@ struct CampaignSetup
     int m_RegionRows = 4;
 };
 
-struct PlayerData
-{
-    int m_Id = 0;
-    int m_Gold = 100;
-    int m_Food = 50;
-};
-
 struct RegionHeightfield
 {
     bool m_Generated = false;
@@ -135,16 +129,18 @@ class GameDatabase
 {
 public:
     static constexpr const char* SAVE_MAGIC = "LWAR";
-    static constexpr int SAVE_VERSION = 2;
+    static constexpr int SAVE_VERSION = 3;
 
     CampaignSetup m_Setup;
     int m_Turn = 0;
     int m_ActiveRegionId = -1;
-    PlayerData m_Player;
+    std::vector<Player> m_Players;
     std::vector<RegionData> m_Regions;
 
     void Clear();
     void InitNewCampaign(const CampaignSetup& setup);
+    void SyncPlayersFromOverworld(const class OverworldMap& map, bool resetAssets);
+    void AdvanceTurn(const class OverworldMap& map);
 
     RegionData* GetRegion(int regionId);
     const RegionData* GetRegion(int regionId) const;
