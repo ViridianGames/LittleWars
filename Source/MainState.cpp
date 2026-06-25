@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <string>
 #include "../Geist/Source/Engine.h"
 #include "../Geist/Source/Globals.h"
@@ -15,8 +16,10 @@ namespace
     constexpr int kMapDrawX = 4;
     constexpr int kMapDrawY = 4;
     constexpr int kCountyInfoHeight = 52;
-    constexpr int kPlayerBoxHeight = 44;
+    constexpr int kPlayerBoxHeight = 40;
     constexpr int kPlayerBoxGap = 2;
+    constexpr int kPlayerColumnGap = 2;
+    constexpr int kPlayerColumns = 2;
     constexpr int kNextTurnButtonWidth = 96;
     constexpr int kNextTurnButtonHeight = 22;
     constexpr int kPanelMargin = 4;
@@ -37,24 +40,6 @@ namespace
         return mouse;
     }
 
-    string AbbreviateRelation(DiplomaticRelation relation)
-    {
-        switch (relation)
-        {
-        case DiplomaticRelation::War:
-            return "War";
-        case DiplomaticRelation::Hostile:
-            return "Hos";
-        case DiplomaticRelation::Neutral:
-            return "Neu";
-        case DiplomaticRelation::Friendly:
-            return "Frd";
-        case DiplomaticRelation::Allied:
-            return "All";
-        default:
-            return "?";
-        }
-    }
 }
 
 void MainState::Init(const std::string& configfile)
@@ -77,7 +62,13 @@ void MainState::OnEnter()
             seed = static_cast<unsigned int>(GetTime() * 1000.0);
         }
 
-        g_OverworldMap.Generate(seed);
+        g_OverworldMap.Generate(seed, g_GameDatabase.m_Setup);
+    }
+
+    if (g_GameDatabase.m_Players.empty())
+    {
+        const int playerCount = std::clamp(1 + g_GameDatabase.m_Setup.m_EnemyCount, 1, kMaxCampaignPlayers);
+        InitializeCampaignPlayers(g_GameDatabase.m_Players, playerCount);
     }
 
     g_GameDatabase.SyncPlayersFromOverworld(g_OverworldMap, false);
@@ -204,9 +195,16 @@ void MainState::DrawPlayerSummaries(int panelX, int panelY, int panelWidth) cons
         return;
     }
 
-    int boxY = panelY;
-    for (const Player& player : players)
+    const int columnWidth = (panelWidth - kPlayerColumnGap) / kPlayerColumns;
+
+    for (size_t playerIndex = 0; playerIndex < players.size(); ++playerIndex)
     {
+        const Player& player = players[playerIndex];
+        const int column = static_cast<int>(playerIndex) % kPlayerColumns;
+        const int row = static_cast<int>(playerIndex) / kPlayerColumns;
+        const int boxX = panelX + (column * (columnWidth + kPlayerColumnGap));
+        const int boxY = panelY + (row * (kPlayerBoxHeight + kPlayerBoxGap));
+
         const Color playerColor = player.GetColor();
         const Color bgColor = Color{
             static_cast<unsigned char>(playerColor.r / 5 + 18),
@@ -215,8 +213,8 @@ void MainState::DrawPlayerSummaries(int panelX, int panelY, int panelWidth) cons
             255
         };
 
-        DrawRectangle(panelX, boxY, panelWidth, kPlayerBoxHeight, bgColor);
-        DrawRectangleLines(panelX, boxY, panelWidth, kPlayerBoxHeight, playerColor);
+        DrawRectangle(boxX, boxY, columnWidth, kPlayerBoxHeight, bgColor);
+        DrawRectangleLines(boxX, boxY, columnWidth, kPlayerBoxHeight, playerColor);
 
         string title = player.GetColorName();
         if (player.m_IsHuman)
@@ -225,7 +223,7 @@ void MainState::DrawPlayerSummaries(int panelX, int panelY, int panelWidth) cons
         }
 
         DrawOutlinedText(g_font, title,
-            Vector2{ static_cast<float>(panelX + 4), static_cast<float>(boxY + 2) },
+            Vector2{ static_cast<float>(boxX + 3), static_cast<float>(boxY + 2) },
             g_fontDrawSize, 1, playerColor);
 
         const string resources = "F:" + to_string(player.m_Food)
@@ -233,7 +231,7 @@ void MainState::DrawPlayerSummaries(int panelX, int panelY, int panelWidth) cons
             + " G:" + to_string(player.m_Gold)
             + " W:" + to_string(player.m_Wood);
         DrawOutlinedText(g_smallFont, resources,
-            Vector2{ static_cast<float>(panelX + 4), static_cast<float>(boxY + 11) },
+            Vector2{ static_cast<float>(boxX + 3), static_cast<float>(boxY + 11) },
             g_smallFontDrawSize, 1, WHITE);
 
         const string regions = "Rgns F" + to_string(player.m_FoodRegions)
@@ -242,7 +240,7 @@ void MainState::DrawPlayerSummaries(int panelX, int panelY, int panelWidth) cons
             + " W" + to_string(player.m_WoodRegions)
             + " (" + to_string(player.m_TotalRegions) + ")";
         DrawOutlinedText(g_smallFont, regions,
-            Vector2{ static_cast<float>(panelX + 4), static_cast<float>(boxY + 20) },
+            Vector2{ static_cast<float>(boxX + 3), static_cast<float>(boxY + 20) },
             g_smallFontDrawSize, 1, Color{ 210, 210, 210, 255 });
 
         const string units = "C" + to_string(player.m_Castles)
@@ -251,34 +249,8 @@ void MainState::DrawPlayerSummaries(int panelX, int panelY, int panelWidth) cons
             + " Kn" + to_string(player.m_Knights)
             + " Ct" + to_string(player.m_Catapults);
         DrawOutlinedText(g_smallFont, units,
-            Vector2{ static_cast<float>(panelX + 4), static_cast<float>(boxY + 29) },
+            Vector2{ static_cast<float>(boxX + 3), static_cast<float>(boxY + 29) },
             g_smallFontDrawSize, 1, Color{ 210, 210, 210, 255 });
-
-        string relations;
-        for (int otherId = 0; otherId < static_cast<int>(player.m_Relations.size()); ++otherId)
-        {
-            if (otherId == player.m_Id)
-            {
-                continue;
-            }
-
-            if (!relations.empty())
-            {
-                relations += " ";
-            }
-
-            const auto relation = static_cast<DiplomaticRelation>(player.m_Relations[static_cast<size_t>(otherId)]);
-            relations += string(PlayerOwnerName(otherId)) + ":" + AbbreviateRelation(relation);
-        }
-
-        if (!relations.empty())
-        {
-            DrawOutlinedText(g_smallFont, relations,
-                Vector2{ static_cast<float>(panelX + 4), static_cast<float>(boxY + 36) },
-                g_smallFontDrawSize, 1, Color{ 170, 170, 190, 255 });
-        }
-
-        boxY += kPlayerBoxHeight + kPlayerBoxGap;
     }
 }
 
@@ -292,7 +264,7 @@ void MainState::Update()
     if (IsKeyPressed(KEY_R))
     {
         unsigned int seed = static_cast<unsigned int>(GetTime() * 1000.0);
-        g_OverworldMap.Generate(seed);
+        g_OverworldMap.Generate(seed, g_GameDatabase.m_Setup);
         m_SelectedRegionId = -1;
         g_GameDatabase.SyncPlayersFromOverworld(g_OverworldMap, true);
     }

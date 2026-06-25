@@ -17,6 +17,7 @@
 
 #include "llimits.h"
 #include "GameGlobals.h"
+#include "SetupGameState.h"
 #include "LittlePeopleSprites.h"
 #include "RegionMinimap.h"
 #include "RegionView.h"

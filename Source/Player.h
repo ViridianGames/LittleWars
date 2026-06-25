@@ -15,7 +15,7 @@ enum class DiplomaticRelation : int
     Allied = 2
 };
 
-constexpr int kMaxCampaignPlayers = 4;
+constexpr int kMaxCampaignPlayers = 8;
 
 constexpr int kRegionFoodIncome = 12;
 constexpr int kRegionIronIncome = 8;

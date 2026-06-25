@@ -256,7 +256,7 @@ void OverworldMap::GenerateTerrain(RNG& rng)
     }
 }
 
-void OverworldMap::PartitionIntoRegions(RNG& rng)
+void OverworldMap::PartitionIntoRegions(RNG& rng, int targetRegionCount)
 {
     m_RegionIds.assign(static_cast<size_t>(kCellCount), -1);
     m_Regions.clear();
@@ -270,9 +270,7 @@ void OverworldMap::PartitionIntoRegions(RNG& rng)
         }
     }
 
-    int targetRegions = landCells / 450;
-    targetRegions = std::max(targetRegions, 12);
-    targetRegions = std::min(targetRegions, 40);
+    int targetRegions = std::max(targetRegionCount, 1);
 
     struct SeedPoint
     {
@@ -281,7 +279,9 @@ void OverworldMap::PartitionIntoRegions(RNG& rng)
     };
 
     std::vector<SeedPoint> seeds;
-    const int minSeedDistance = 10;
+    const float distanceScale = std::sqrt(35.0f / static_cast<float>(targetRegions));
+    int minSeedDistance = static_cast<int>(10.0f * distanceScale);
+    minSeedDistance = std::clamp(minSeedDistance, 4, 18);
     int attempts = 0;
     while (static_cast<int>(seeds.size()) < targetRegions && attempts < 8000)
     {
@@ -385,11 +385,13 @@ void OverworldMap::PartitionIntoRegions(RNG& rng)
         }
     }
 
+    const int minCellsPerRegion = std::max(8, landCells / std::max(targetRegions * 3, 1));
+
     std::vector<int> oldToNewId(m_Regions.size(), -1);
     int nextRegionId = 0;
     for (size_t oldId = 0; oldId < m_Regions.size(); ++oldId)
     {
-        if (m_Regions[oldId].m_CellCount < 20)
+        if (m_Regions[oldId].m_CellCount < minCellsPerRegion)
         {
             continue;
         }
@@ -472,12 +474,14 @@ void OverworldMap::BuildAdjacency()
     }
 }
 
-void OverworldMap::AssignRegionResources(RNG& rng)
+void OverworldMap::AssignRegionResources(RNG& rng, int resourceDistribution)
 {
     if (m_Regions.empty())
     {
         return;
     }
+
+    const auto distribution = static_cast<ResourceDistribution>(resourceDistribution);
 
     struct RegionTerrainStats
     {
@@ -603,6 +607,154 @@ void OverworldMap::AssignRegionResources(RNG& rng)
         return CountyResource::Gold;
     };
 
+    if (distribution == ResourceDistribution::Balanced)
+    {
+        std::vector<int> regionIndices;
+        regionIndices.reserve(m_Regions.size());
+        for (size_t i = 0; i < m_Regions.size(); ++i)
+        {
+            regionIndices.push_back(static_cast<int>(i));
+        }
+
+        for (size_t i = regionIndices.size(); i > 1; --i)
+        {
+            const size_t swapIndex = static_cast<size_t>(rng.Random(static_cast<unsigned int>(i)));
+            std::swap(regionIndices[i - 1], regionIndices[swapIndex]);
+        }
+
+        const CountyResource cycle[] = {
+            CountyResource::Food,
+            CountyResource::Wood,
+            CountyResource::Iron,
+            CountyResource::Gold
+        };
+
+        for (size_t i = 0; i < regionIndices.size(); ++i)
+        {
+            assignResource(regionIndices[i], cycle[i % 4]);
+        }
+
+        return;
+    }
+
+    if (distribution == ResourceDistribution::Clumped)
+    {
+        const CountyResource resourceTypes[] = {
+            CountyResource::Food,
+            CountyResource::Wood,
+            CountyResource::Iron,
+            CountyResource::Gold
+        };
+
+        const int regionCount = static_cast<int>(m_Regions.size());
+        std::vector<int> quotas(4, regionCount / 4);
+        for (int i = 0; i < regionCount % 4; ++i)
+        {
+            ++quotas[static_cast<size_t>(i)];
+        }
+
+        std::vector<bool> claimed(m_Regions.size(), false);
+
+        auto claimNeighbors = [&](int startRegionId, CountyResource resource, int quota)
+        {
+            if (startRegionId < 0 || quota <= 0)
+            {
+                return;
+            }
+
+            std::queue<int> open;
+            open.push(startRegionId);
+
+            while (!open.empty() && quota > 0)
+            {
+                const int regionId = open.front();
+                open.pop();
+
+                if (regionId < 0 || regionId >= regionCount || claimed[static_cast<size_t>(regionId)])
+                {
+                    continue;
+                }
+
+                claimed[static_cast<size_t>(regionId)] = true;
+                assignResource(regionId, resource);
+                --quota;
+
+                const OverworldRegionData* region = GetRegion(regionId);
+                if (!region)
+                {
+                    continue;
+                }
+
+                for (int neighborId : region->m_AdjacentRegionIds)
+                {
+                    if (neighborId >= 0 && neighborId < regionCount && !claimed[static_cast<size_t>(neighborId)])
+                    {
+                        open.push(neighborId);
+                    }
+                }
+            }
+
+            while (quota > 0)
+            {
+                const int fallback = firstUnassignedIndex();
+                if (fallback < 0)
+                {
+                    break;
+                }
+
+                claimed[static_cast<size_t>(fallback)] = true;
+                assignResource(fallback, resource);
+                --quota;
+            }
+        };
+
+        for (int resourceIndex = 0; resourceIndex < 4; ++resourceIndex)
+        {
+            int bestSeed = -1;
+            int bestScore = -1;
+            for (size_t i = 0; i < m_Regions.size(); ++i)
+            {
+                if (claimed[i])
+                {
+                    continue;
+                }
+
+                int score = 0;
+                const OverworldRegionData& region = m_Regions[i];
+                for (int neighborId : region.m_AdjacentRegionIds)
+                {
+                    if (neighborId >= 0 && neighborId < regionCount && claimed[static_cast<size_t>(neighborId)])
+                    {
+                        ++score;
+                    }
+                }
+
+                if (score < bestScore || bestSeed < 0)
+                {
+                    bestScore = score;
+                    bestSeed = static_cast<int>(i);
+                }
+            }
+
+            if (bestSeed < 0)
+            {
+                bestSeed = firstUnassignedIndex();
+            }
+
+            claimNeighbors(bestSeed, resourceTypes[resourceIndex], quotas[static_cast<size_t>(resourceIndex)]);
+        }
+
+        for (size_t i = 0; i < m_Regions.size(); ++i)
+        {
+            if (!assigned[i])
+            {
+                m_Regions[i].m_Resource = rollWeightedResource();
+            }
+        }
+
+        return;
+    }
+
     if (static_cast<int>(m_Regions.size()) >= 4)
     {
         assignResource(pickBestRegion([&](int regionIndex) -> int
@@ -636,7 +788,7 @@ void OverworldMap::AssignRegionResources(RNG& rng)
     }
 }
 
-void OverworldMap::AssignRegionCampaignState(RNG& rng)
+void OverworldMap::AssignRegionCampaignState(RNG& rng, int enemyCount, int startingRegionsPerPlayer)
 {
     for (OverworldRegionData& region : m_Regions)
     {
@@ -649,32 +801,137 @@ void OverworldMap::AssignRegionCampaignState(RNG& rng)
         return;
     }
 
-    const size_t playerCountyIndex = static_cast<size_t>(rng.Random(static_cast<unsigned int>(m_Regions.size())));
-    m_Regions[playerCountyIndex].m_OwnerId = 0;
-    m_Regions[playerCountyIndex].m_HasCastle = true;
+    const int clampedEnemies = std::clamp(enemyCount, kMinOpponents, kMaxOpponents);
+    const int playerCount = std::clamp(1 + clampedEnemies, 1, kMaxCampaignPlayers);
+    const int regionsPerPlayer = std::max(startingRegionsPerPlayer, 1);
 
-    for (OverworldRegionData& region : m_Regions)
+    auto squaredDistance = [](const OverworldRegionData& a, const OverworldRegionData& b) -> int
     {
-        if (region.m_OwnerId >= 0)
+        const int dx = a.m_SeedX - b.m_SeedX;
+        const int dy = a.m_SeedY - b.m_SeedY;
+        return (dx * dx) + (dy * dy);
+    };
+
+    auto pickSeedRegion = [&]() -> int
+    {
+        std::vector<int> unownedRegionIds;
+        unownedRegionIds.reserve(m_Regions.size());
+        for (const OverworldRegionData& candidate : m_Regions)
         {
-            continue;
+            if (candidate.m_OwnerId < 0)
+            {
+                unownedRegionIds.push_back(candidate.m_Id);
+            }
         }
 
-        const int ownerRoll = rng.Random(100);
-        if (ownerRoll < 18)
+        if (unownedRegionIds.empty())
         {
-            region.m_OwnerId = rng.RandomRange(1, 3);
+            return -1;
         }
 
-        const int castleRoll = rng.Random(100);
-        if (castleRoll < 10)
+        bool anyOwned = false;
+        for (const OverworldRegionData& region : m_Regions)
         {
-            region.m_HasCastle = true;
+            if (region.m_OwnerId >= 0)
+            {
+                anyOwned = true;
+                break;
+            }
         }
+
+        if (!anyOwned)
+        {
+            return unownedRegionIds[static_cast<size_t>(rng.Random(static_cast<unsigned int>(unownedRegionIds.size())))];
+        }
+
+        int bestRegionId = -1;
+        int bestScore = -1;
+        for (const int candidateId : unownedRegionIds)
+        {
+            const OverworldRegionData* candidate = GetRegion(candidateId);
+            if (!candidate)
+            {
+                continue;
+            }
+
+            int nearestOwnedDistance = OVERWORLD_MAP_SIZE * OVERWORLD_MAP_SIZE;
+            for (const OverworldRegionData& owned : m_Regions)
+            {
+                if (owned.m_OwnerId < 0)
+                {
+                    continue;
+                }
+
+                nearestOwnedDistance = std::min(nearestOwnedDistance, squaredDistance(*candidate, owned));
+            }
+
+            if (nearestOwnedDistance > bestScore)
+            {
+                bestScore = nearestOwnedDistance;
+                bestRegionId = candidateId;
+            }
+        }
+
+        return bestRegionId;
+    };
+
+    auto claimContiguousTerritory = [&](int ownerId, int regionQuota) -> bool
+    {
+        const int seedRegionId = pickSeedRegion();
+        if (seedRegionId < 0)
+        {
+            return false;
+        }
+
+        std::queue<int> open;
+        open.push(seedRegionId);
+        int claimed = 0;
+
+        while (!open.empty() && claimed < regionQuota)
+        {
+            const int regionId = open.front();
+            open.pop();
+
+            OverworldRegionData* region = GetRegion(regionId);
+            if (!region || region->m_OwnerId >= 0)
+            {
+                continue;
+            }
+
+            region->m_OwnerId = ownerId;
+            if (claimed == 0)
+            {
+                region->m_HasCastle = true;
+            }
+            ++claimed;
+
+            std::vector<int> neighbors = region->m_AdjacentRegionIds;
+            for (size_t i = neighbors.size(); i > 1; --i)
+            {
+                const size_t swapIndex = static_cast<size_t>(rng.Random(static_cast<unsigned int>(i)));
+                std::swap(neighbors[i - 1], neighbors[swapIndex]);
+            }
+
+            for (int neighborId : neighbors)
+            {
+                const OverworldRegionData* neighbor = GetRegion(neighborId);
+                if (neighbor && neighbor->m_OwnerId < 0)
+                {
+                    open.push(neighborId);
+                }
+            }
+        }
+
+        return claimed > 0;
+    };
+
+    for (int ownerId = 0; ownerId < playerCount; ++ownerId)
+    {
+        claimContiguousTerritory(ownerId, regionsPerPlayer);
     }
 }
 
-void OverworldMap::Generate(unsigned int seed)
+void OverworldMap::Generate(unsigned int seed, const CampaignSetup& setup)
 {
     Clear();
     m_Seed = seed;
@@ -683,14 +940,17 @@ void OverworldMap::Generate(unsigned int seed)
         m_Seed = 1;
     }
 
+    CampaignSetup resolvedSetup = setup;
+    ClampCampaignSetup(resolvedSetup);
+
     RNG rng;
     rng.SeedRNG(m_Seed);
 
     GenerateTerrain(rng);
-    PartitionIntoRegions(rng);
+    PartitionIntoRegions(rng, MapSizeRegionCount(resolvedSetup.m_MapSize));
     BuildAdjacency();
-    AssignRegionResources(rng);
-    AssignRegionCampaignState(rng);
+    AssignRegionResources(rng, static_cast<int>(resolvedSetup.m_ResourceDistribution));
+    AssignRegionCampaignState(rng, resolvedSetup.m_EnemyCount, MapSizeStartingRegions(resolvedSetup.m_MapSize));
 
     m_Generated = true;
 }
@@ -868,14 +1128,42 @@ void OverworldMap::DrawRegionHighlight(int x, int y, int pixelsPerCell, int regi
     }
 
     const Color fill = Color{ 255, 230, 90, 90 };
-    const Color edge = Color{ 255, 255, 140, 255 };
-    const int borderThickness = std::max(1, pixelsPerCell);
+
+    auto IsInteriorCell = [&](int cellX, int cellY) -> bool
+    {
+        if (GetRegionId(cellX, cellY) != regionId)
+        {
+            return false;
+        }
+
+        if (cellX > 0 && GetRegionId(cellX - 1, cellY) != regionId)
+        {
+            return false;
+        }
+
+        if (cellX + 1 < OVERWORLD_MAP_SIZE && GetRegionId(cellX + 1, cellY) != regionId)
+        {
+            return false;
+        }
+
+        if (cellY > 0 && GetRegionId(cellX, cellY - 1) != regionId)
+        {
+            return false;
+        }
+
+        if (cellY + 1 < OVERWORLD_MAP_SIZE && GetRegionId(cellX, cellY + 1) != regionId)
+        {
+            return false;
+        }
+
+        return true;
+    };
 
     for (int cellY = 0; cellY < OVERWORLD_MAP_SIZE; ++cellY)
     {
         for (int cellX = 0; cellX < OVERWORLD_MAP_SIZE; ++cellX)
         {
-            if (GetRegionId(cellX, cellY) != regionId)
+            if (!IsInteriorCell(cellX, cellY))
             {
                 continue;
             }
@@ -883,16 +1171,6 @@ void OverworldMap::DrawRegionHighlight(int x, int y, int pixelsPerCell, int regi
             const int pixelX = x + (cellX * pixelsPerCell);
             const int pixelY = y + (cellY * pixelsPerCell);
             DrawRectangle(pixelX, pixelY, pixelsPerCell, pixelsPerCell, fill);
-
-            if (cellX + 1 >= OVERWORLD_MAP_SIZE || GetRegionId(cellX + 1, cellY) != regionId)
-            {
-                DrawRectangle(pixelX + pixelsPerCell - borderThickness, pixelY, borderThickness, pixelsPerCell, edge);
-            }
-
-            if (cellY + 1 >= OVERWORLD_MAP_SIZE || GetRegionId(cellX, cellY + 1) != regionId)
-            {
-                DrawRectangle(pixelX, pixelY + pixelsPerCell - borderThickness, pixelsPerCell, borderThickness, edge);
-            }
         }
     }
 }

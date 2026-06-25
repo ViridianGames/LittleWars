@@ -24,6 +24,96 @@ using namespace std;
 
 GameDatabase g_GameDatabase;
 
+const char* MapSizeName(MapSize size)
+{
+    switch (size)
+    {
+    case MapSize::Small:
+        return "Small";
+    case MapSize::Medium:
+        return "Medium";
+    case MapSize::Large:
+        return "Large";
+    case MapSize::Huge:
+        return "Huge";
+    default:
+        return "Unknown";
+    }
+}
+
+int MapSizeRegionCount(MapSize size)
+{
+    switch (size)
+    {
+    case MapSize::Small:
+        return 24;
+    case MapSize::Medium:
+        return 35;
+    case MapSize::Large:
+        return 64;
+    case MapSize::Huge:
+        return 100;
+    default:
+        return 35;
+    }
+}
+
+int MapSizeStartingRegions(MapSize size)
+{
+    switch (size)
+    {
+    case MapSize::Small:
+        return 1;
+    case MapSize::Medium:
+        return 2;
+    case MapSize::Large:
+        return 3;
+    case MapSize::Huge:
+        return 4;
+    default:
+        return 2;
+    }
+}
+
+const char* BattleModeName(BattleMode mode)
+{
+    switch (mode)
+    {
+    case BattleMode::Automatic:
+        return "Automatic";
+    case BattleMode::OnMap:
+        return "On Map";
+    default:
+        return "Unknown";
+    }
+}
+
+const char* ResourceDistributionName(ResourceDistribution distribution)
+{
+    switch (distribution)
+    {
+    case ResourceDistribution::Clumped:
+        return "Clumped";
+    case ResourceDistribution::Random:
+        return "Random";
+    case ResourceDistribution::Balanced:
+        return "Balanced";
+    default:
+        return "Unknown";
+    }
+}
+
+void ClampCampaignSetup(CampaignSetup& setup)
+{
+    setup.m_EnemyCount = std::clamp(setup.m_EnemyCount, kMinOpponents, kMaxOpponents);
+
+    const int mapSizeValue = static_cast<int>(setup.m_MapSize);
+    if (mapSizeValue < static_cast<int>(MapSize::Small) || mapSizeValue > static_cast<int>(MapSize::Huge))
+    {
+        setup.m_MapSize = MapSize::Medium;
+    }
+}
+
 namespace
 {
     void SerializePlayer(ostream& stream, const Player& player)
@@ -141,6 +231,10 @@ namespace
         case MapSize::Large:
             setup.m_RegionColumns = 6;
             setup.m_RegionRows = 6;
+            break;
+        case MapSize::Huge:
+            setup.m_RegionColumns = 8;
+            setup.m_RegionRows = 8;
             break;
         case MapSize::Medium:
         default:
@@ -1057,6 +1151,8 @@ bool GameDatabase::SaveCampaign(const std::string& path) const
     IO::Serialize(stream, m_Setup.m_Seed);
     IO::Serialize(stream, m_Setup.m_Difficulty);
     IO::Serialize(stream, m_Setup.m_EnemyCount);
+    IO::Serialize(stream, static_cast<int>(m_Setup.m_BattleMode));
+    IO::Serialize(stream, static_cast<int>(m_Setup.m_ResourceDistribution));
     IO::Serialize(stream, static_cast<int>(m_Setup.m_MapSize));
     IO::Serialize(stream, m_Setup.m_RegionColumns);
     IO::Serialize(stream, m_Setup.m_RegionRows);
@@ -1119,11 +1215,18 @@ bool GameDatabase::LoadCampaign(const std::string& path)
     IO::Serialize(stream, m_Setup.m_Seed);
     IO::Serialize(stream, m_Setup.m_Difficulty);
     IO::Serialize(stream, m_Setup.m_EnemyCount);
+    int battleMode = 0;
+    IO::Serialize(stream, battleMode);
+    m_Setup.m_BattleMode = static_cast<BattleMode>(battleMode);
+    int resourceDistribution = 0;
+    IO::Serialize(stream, resourceDistribution);
+    m_Setup.m_ResourceDistribution = static_cast<ResourceDistribution>(resourceDistribution);
     int mapSize = 0;
     IO::Serialize(stream, mapSize);
     m_Setup.m_MapSize = static_cast<MapSize>(mapSize);
     IO::Serialize(stream, m_Setup.m_RegionColumns);
     IO::Serialize(stream, m_Setup.m_RegionRows);
+    ClampCampaignSetup(m_Setup);
 
     IO::Serialize(stream, m_Turn);
     IO::Serialize(stream, m_ActiveRegionId);

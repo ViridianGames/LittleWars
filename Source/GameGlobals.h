@@ -6,7 +6,6 @@
 #include "CombatState.h"
 #include "MainState.h"
 #include "OptionsState.h"
-#include "SetupGameState.h"
 #include "TitleState.h"
 #include "raylib.h"
 #include "../Geist/Source/RNG.h"
@@ -69,8 +68,31 @@ enum class MapSize
 {
     Small = 0,
     Medium,
-    Large
+    Large,
+    Huge
 };
+
+enum class BattleMode
+{
+    Automatic = 0,
+    OnMap
+};
+
+enum class ResourceDistribution
+{
+    Clumped = 0,
+    Random,
+    Balanced
+};
+
+constexpr int kMinOpponents = 3;
+constexpr int kMaxOpponents = 7;
+
+const char* MapSizeName(MapSize size);
+int MapSizeRegionCount(MapSize size);
+int MapSizeStartingRegions(MapSize size);
+const char* BattleModeName(BattleMode mode);
+const char* ResourceDistributionName(ResourceDistribution distribution);
 
 // Matches terrain.png layout: row-major, top-left to bottom-right.
 enum RegionTerrainType : unsigned char
@@ -91,11 +113,15 @@ struct CampaignSetup
 {
     unsigned int m_Seed = 0;
     int m_Difficulty = 1;
-    int m_EnemyCount = 3;
+    int m_EnemyCount = 4;
+    BattleMode m_BattleMode = BattleMode::OnMap;
+    ResourceDistribution m_ResourceDistribution = ResourceDistribution::Balanced;
     MapSize m_MapSize = MapSize::Medium;
     int m_RegionColumns = 4;
     int m_RegionRows = 4;
 };
+
+void ClampCampaignSetup(CampaignSetup& setup);
 
 struct RegionHeightfield
 {
@@ -129,7 +155,7 @@ class GameDatabase
 {
 public:
     static constexpr const char* SAVE_MAGIC = "LWAR";
-    static constexpr int SAVE_VERSION = 4;
+    static constexpr int SAVE_VERSION = 6;
 
     CampaignSetup m_Setup;
     int m_Turn = 0;

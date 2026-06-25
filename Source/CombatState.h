@@ -26,6 +26,7 @@ private:
    void HandleCombatInput(const RegionHeightfield& heightfield);
 
    std::vector<CombatUnitInstance> m_Units;
+   std::vector<CombatProjectile> m_Projectiles;
    int m_SelectedUnitIndex = -1;
    bool m_HasMoveTarget = false;
    Vector3 m_MoveTarget{};

@@ -16,6 +16,14 @@ Color PlayerOwnerColor(int ownerId)
         return Color{ 230, 170, 40, 255 };
     case 3:
         return Color{ 180, 80, 220, 255 };
+    case 4:
+        return Color{ 60, 190, 90, 255 };
+    case 5:
+        return Color{ 230, 120, 50, 255 };
+    case 6:
+        return Color{ 70, 210, 210, 255 };
+    case 7:
+        return Color{ 220, 100, 170, 255 };
     default:
         return Color{ 255, 255, 255, 255 };
     }
@@ -33,6 +41,14 @@ const char* PlayerOwnerName(int ownerId)
         return "Gold";
     case 3:
         return "Purple";
+    case 4:
+        return "Green";
+    case 5:
+        return "Orange";
+    case 6:
+        return "Cyan";
+    case 7:
+        return "Pink";
     default:
         return "Unclaimed";
     }

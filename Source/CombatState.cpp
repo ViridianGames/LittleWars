@@ -78,6 +78,7 @@ void CombatState::InitializeDemoUnits()
     m_IsGestureHold = false;
     m_PendingQuickClick = false;
     m_HasGestureFacingTarget = false;
+    m_Projectiles.clear();
 
     const CombatUnitInstance demoUnits[] = {
         { 0, CombatUnitType::Swordsmen, Vector3{ 36.0f, 0.0f, 44.0f }, LittlePeopleArmy::Blue, LittlePeopleDirection::South },
@@ -92,7 +93,9 @@ void CombatState::InitializeDemoUnits()
 
     for (const CombatUnitInstance& unit : demoUnits)
     {
-        m_Units.push_back(unit);
+        CombatUnitInstance initializedUnit = unit;
+        InitCombatUnitHealth(initializedUnit);
+        m_Units.push_back(initializedUnit);
     }
 }
 
@@ -158,15 +161,36 @@ void CombatState::HandleCombatInput(const RegionHeightfield& heightfield)
         const int pickedUnitIndex = PickCombatUnitAtMouse(camera, heightfield, m_Units, mousePosition);
         if (pickedUnitIndex >= 0)
         {
-            m_SelectedUnitIndex = pickedUnitIndex;
-            m_GestureUnitIndex = pickedUnitIndex;
-            m_GestureStartedOnUnit = true;
-            m_PendingQuickClick = true;
-            m_HasMoveTarget = false;
+            const CombatUnitInstance& pickedUnit = m_Units[static_cast<size_t>(pickedUnitIndex)];
+
+            if (m_SelectedUnitIndex >= 0
+                && m_SelectedUnitIndex < static_cast<int>(m_Units.size())
+                && CanCombatUnitAttack(m_Units[static_cast<size_t>(m_SelectedUnitIndex)])
+                && AreCombatUnitsHostile(m_Units[static_cast<size_t>(m_SelectedUnitIndex)], pickedUnit))
+            {
+                CombatUnitInstance& selectedUnit = m_Units[static_cast<size_t>(m_SelectedUnitIndex)];
+                BeginCombatUnitAttackMove(selectedUnit, pickedUnitIndex, m_Units);
+                m_MoveTarget = GetCombatApproachPosition(selectedUnit, pickedUnit);
+                m_HasMoveTarget = true;
+                m_HasHoverTarget = false;
+                return;
+            }
+
+            if (IsCombatUnitPlayerControlled(pickedUnit))
+            {
+                m_SelectedUnitIndex = pickedUnitIndex;
+                m_GestureUnitIndex = pickedUnitIndex;
+                m_GestureStartedOnUnit = true;
+                m_PendingQuickClick = true;
+                m_HasMoveTarget = false;
+            }
+
             return;
         }
 
-        if (m_SelectedUnitIndex >= 0 && m_SelectedUnitIndex < static_cast<int>(m_Units.size()))
+        if (m_SelectedUnitIndex >= 0 && m_SelectedUnitIndex < static_cast<int>(m_Units.size())
+            && IsCombatUnitPlayerControlled(m_Units[static_cast<size_t>(m_SelectedUnitIndex)])
+            && IsCombatUnitAlive(m_Units[static_cast<size_t>(m_SelectedUnitIndex)]))
         {
             const Ray ray = GetCombatMouseRay(camera);
             Vector3 terrainHit{};
@@ -181,7 +205,8 @@ void CombatState::HandleCombatInput(const RegionHeightfield& heightfield)
     }
 
     if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && m_GestureUnitIndex >= 0
-        && m_GestureUnitIndex < static_cast<int>(m_Units.size()))
+        && m_GestureUnitIndex < static_cast<int>(m_Units.size())
+        && IsCombatUnitPlayerControlled(m_Units[static_cast<size_t>(m_GestureUnitIndex)]))
     {
         if (IsGestureHold(m_LeftMousePressTime))
         {
@@ -206,7 +231,9 @@ void CombatState::HandleCombatInput(const RegionHeightfield& heightfield)
     if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
     {
         if (m_PendingQuickClick && !m_IsGestureHold && !m_GestureStartedOnUnit
-            && m_GestureUnitIndex >= 0 && m_GestureUnitIndex < static_cast<int>(m_Units.size()))
+            && m_GestureUnitIndex >= 0 && m_GestureUnitIndex < static_cast<int>(m_Units.size())
+            && IsCombatUnitPlayerControlled(m_Units[static_cast<size_t>(m_GestureUnitIndex)])
+            && IsCombatUnitAlive(m_Units[static_cast<size_t>(m_GestureUnitIndex)]))
         {
             BeginCombatUnitMove(m_Units[static_cast<size_t>(m_GestureUnitIndex)], m_PendingTerrainTarget);
             m_MoveTarget = m_PendingTerrainTarget;
@@ -232,7 +259,20 @@ void CombatState::Update()
 
     if (heightfield)
     {
-        UpdateCombatUnitsMovement(m_Units, GetFrameTime());
+        const float deltaTime = GetFrameTime();
+        UpdateCombatUnitsAttackOrders(m_Units, *heightfield);
+        UpdateCombatUnitsMovement(m_Units, deltaTime);
+        UpdateCombatProjectiles(m_Projectiles, m_Units, deltaTime);
+        UpdateCombatUnitsCombat(m_Units, m_Projectiles, *heightfield, deltaTime);
+
+        if (m_SelectedUnitIndex >= 0
+            && m_SelectedUnitIndex < static_cast<int>(m_Units.size())
+            && !IsCombatUnitAlive(m_Units[static_cast<size_t>(m_SelectedUnitIndex)]))
+        {
+            m_SelectedUnitIndex = -1;
+            m_HasMoveTarget = false;
+            m_HasHoverTarget = false;
+        }
 
         if (m_HasMoveTarget && m_SelectedUnitIndex >= 0
             && m_SelectedUnitIndex < static_cast<int>(m_Units.size())
@@ -282,6 +322,11 @@ void CombatState::Draw()
     for (int unitIndex = 0; unitIndex < static_cast<int>(m_Units.size()); ++unitIndex)
     {
         const CombatUnitInstance& unit = m_Units[static_cast<size_t>(unitIndex)];
+        if (!IsCombatUnitAlive(unit))
+        {
+            continue;
+        }
+
         const bool selected = (unitIndex == m_SelectedUnitIndex);
         const int animationFrame = unit.m_IsMoving
             ? LittlePeopleWalkFrameFromTime(currentTime)
@@ -294,6 +339,8 @@ void CombatState::Draw()
             selected
         );
     }
+
+    DrawCombatProjectiles(m_Projectiles);
 
     if (m_SelectedUnitIndex >= 0 && m_SelectedUnitIndex < static_cast<int>(m_Units.size()))
     {
@@ -321,10 +368,26 @@ void CombatState::Draw()
 
     g_RegionView.End3D();
 
+    for (int unitIndex = 0; unitIndex < static_cast<int>(m_Units.size()); ++unitIndex)
+    {
+        const CombatUnitInstance& unit = m_Units[static_cast<size_t>(unitIndex)];
+        if (!IsCombatUnitAlive(unit))
+        {
+            continue;
+        }
+
+        DrawCombatUnitHealthMarkers(g_RegionView.GetCamera(), heightfield, unit);
+    }
+
     std::vector<RegionMinimapMarker> minimapMarkers;
     minimapMarkers.reserve(m_Units.size());
     for (const CombatUnitInstance& unit : m_Units)
     {
+        if (!IsCombatUnitAlive(unit))
+        {
+            continue;
+        }
+
         minimapMarkers.push_back(RegionMinimapMarker{
             unit.m_Anchor.x,
             unit.m_Anchor.z,
@@ -338,8 +401,8 @@ void CombatState::Draw()
         g_RegionView.GetCamera(),
         &minimapMarkers);
 
-    DrawOutlinedText(g_font, "Combat  Click/hold to aim, release to set facing", { 4.0f, 4.0f }, g_fontDrawSize, 1, WHITE);
-    DrawOutlinedText(g_smallFont, "WASD:pan  Wheel:zoom  Q/E:rotate  R:terrain  Esc:title", { 4.0f, 16.0f }, g_smallFontDrawSize, 1, WHITE);
+    DrawOutlinedText(g_font, "Combat  Red units only  Click enemy to attack", { 4.0f, 4.0f }, g_fontDrawSize, 1, WHITE);
+    DrawOutlinedText(g_smallFont, "Terrain:move  Hold:aim  WASD:pan  Wheel:zoom  Esc:title", { 4.0f, 16.0f }, g_smallFontDrawSize, 1, WHITE);
 
     float labelY = 30.0f;
     for (int typeIndex = 0; typeIndex < 4; ++typeIndex)
@@ -356,8 +419,27 @@ void CombatState::Draw()
     if (m_SelectedUnitIndex >= 0 && m_SelectedUnitIndex < static_cast<int>(m_Units.size()))
     {
         const CombatUnitInstance& selectedUnit = m_Units[static_cast<size_t>(m_SelectedUnitIndex)];
+        const int maxHP = GetCombatUnitMaxHitPoints(selectedUnit);
+        const int livingSoldiers = GetCombatUnitLivingSoldierCount(selectedUnit);
+        const int maxSoldiers = GetCombatUnitSoldierCount(selectedUnit.m_Type);
         const string selectedText = string("Selected: ") + CombatUnitTypeName(selectedUnit.m_Type)
             + " (" + LittlePeopleArmyName(selectedUnit.m_Army) + ")";
+        const string hpText = "HP: " + to_string(GetCombatUnitCurrentHitPoints(selectedUnit)) + "/" + to_string(maxHP)
+            + "  Figures: " + to_string(livingSoldiers) + "/" + to_string(maxSoldiers)
+            + "  Dmg: " + to_string(GetCombatUnitAttackDamage(selectedUnit));
         DrawOutlinedText(g_smallFont, selectedText, { 4.0f, labelY + 4.0f }, g_smallFontDrawSize, 1, Color{ 255, 230, 90, 255 });
+        DrawOutlinedText(g_smallFont, hpText, { 4.0f, labelY + 14.0f }, g_smallFontDrawSize, 1, Color{ 220, 220, 220, 255 });
+
+        constexpr int kHealthBarWidth = 72;
+        constexpr int kHealthBarHeight = 5;
+        const float barX = 4.0f;
+        const float barY = labelY + 26.0f;
+        const float healthFraction = maxHP > 0
+            ? static_cast<float>(GetCombatUnitCurrentHitPoints(selectedUnit)) / static_cast<float>(maxHP)
+            : 0.0f;
+        DrawRectangle(static_cast<int>(barX), static_cast<int>(barY), kHealthBarWidth, kHealthBarHeight, Color{ 40, 40, 48, 255 });
+        DrawRectangle(static_cast<int>(barX), static_cast<int>(barY),
+            static_cast<int>(kHealthBarWidth * healthFraction), kHealthBarHeight, Color{ 80, 200, 90, 255 });
+        DrawRectangleLines(static_cast<int>(barX), static_cast<int>(barY), kHealthBarWidth, kHealthBarHeight, Color{ 120, 120, 130, 255 });
     }
 }

@@ -5,6 +5,8 @@
 
 #include <vector>
 
+struct CampaignSetup;
+
 constexpr int OVERWORLD_MAP_SIZE = 128;
 
 enum OverworldCellType : unsigned char
@@ -43,7 +45,7 @@ class OverworldMap
 {
 public:
     void Clear();
-    void Generate(unsigned int seed);
+    void Generate(unsigned int seed, const CampaignSetup& setup);
 
     OverworldCellType GetCell(int x, int y) const;
     int GetRegionId(int x, int y) const;
@@ -65,10 +67,10 @@ private:
     int GetCellIndex(int x, int y) const;
 
     void GenerateTerrain(RNG& rng);
-    void PartitionIntoRegions(RNG& rng);
+    void PartitionIntoRegions(RNG& rng, int targetRegionCount);
     void BuildAdjacency();
-    void AssignRegionResources(RNG& rng);
-    void AssignRegionCampaignState(RNG& rng);
+    void AssignRegionResources(RNG& rng, int resourceDistribution);
+    void AssignRegionCampaignState(RNG& rng, int enemyCount, int startingRegionsPerPlayer);
 
     bool m_Generated = false;
     unsigned int m_Seed = 0;
