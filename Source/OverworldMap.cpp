@@ -17,6 +17,17 @@ namespace
 {
     constexpr int kCellCount = OVERWORLD_MAP_SIZE * OVERWORLD_MAP_SIZE;
 
+    unsigned long long BorderKey(int regionA, int regionB)
+    {
+        if (regionA > regionB)
+        {
+            std::swap(regionA, regionB);
+        }
+
+        return (static_cast<unsigned long long>(static_cast<unsigned int>(regionA)) << 32)
+            | static_cast<unsigned int>(regionB);
+    }
+
     Color CellColor(OverworldCellType type)
     {
         switch (type)
@@ -134,9 +145,39 @@ void OverworldMap::Clear()
 {
     m_Generated = false;
     m_Seed = 0;
+    m_TargetConquerableRegions = 0;
     m_Cells.clear();
     m_RegionIds.clear();
     m_Regions.clear();
+    m_BorderTypes.clear();
+}
+
+int OverworldMap::GetConquerableRegionCount() const
+{
+    int count = 0;
+    for (const OverworldRegionData& region : m_Regions)
+    {
+        if (!region.m_IsWater)
+        {
+            ++count;
+        }
+    }
+
+    return count;
+}
+
+int OverworldMap::GetLakeRegionCount() const
+{
+    int count = 0;
+    for (const OverworldRegionData& region : m_Regions)
+    {
+        if (region.m_IsWater)
+        {
+            ++count;
+        }
+    }
+
+    return count;
 }
 
 bool OverworldMap::IsInBounds(int x, int y) const
@@ -151,7 +192,7 @@ int OverworldMap::GetCellIndex(int x, int y) const
 
 bool OverworldMap::IsLandCell(OverworldCellType type) const
 {
-    return type == OW_CLEAR || type == OW_TREES || type == OW_MARSH;
+    return type == OW_CLEAR;
 }
 
 OverworldCellType OverworldMap::GetCell(int x, int y) const
@@ -203,60 +244,173 @@ OverworldRegionData* OverworldMap::GetRegion(int regionId)
 void OverworldMap::GenerateTerrain(RNG& rng)
 {
     m_Cells.assign(static_cast<size_t>(kCellCount), OW_CLEAR);
+    SculptCoastline(rng);
+}
+
+void OverworldMap::SculptCoastline(RNG& rng)
+{
+    constexpr int kMinCoastDepth = 6;
+    constexpr int kMaxCoastDepth = 14;
+    constexpr int kNoOceanConstraint = OVERWORLD_MAP_SIZE;
+
+    const int oceanEdgeCount = rng.RandomRange(1, 4);
+    bool oceanLeft = false;
+    bool oceanRight = false;
+    bool oceanTop = false;
+    bool oceanBottom = false;
+
+    std::vector<int> edges = { 0, 1, 2, 3 };
+    for (int i = static_cast<int>(edges.size()); i > 1; --i)
+    {
+        const size_t swapIndex = static_cast<size_t>(rng.Random(static_cast<unsigned int>(i)));
+        std::swap(edges[static_cast<size_t>(i - 1)], edges[swapIndex]);
+    }
+
+    for (int i = 0; i < oceanEdgeCount; ++i)
+    {
+        switch (edges[static_cast<size_t>(i)])
+        {
+        case 0:
+            oceanLeft = true;
+            break;
+        case 1:
+            oceanRight = true;
+            break;
+        case 2:
+            oceanTop = true;
+            break;
+        case 3:
+        default:
+            oceanBottom = true;
+            break;
+        }
+    }
+
+    auto BuildCoastProfile = [&](int variation) -> std::vector<int>
+    {
+        std::vector<int> profile(static_cast<size_t>(OVERWORLD_MAP_SIZE));
+        int depth = rng.RandomRange(kMinCoastDepth, kMaxCoastDepth + 1);
+        for (int i = 0; i < OVERWORLD_MAP_SIZE; ++i)
+        {
+            depth = std::clamp(depth + rng.RandomRange(-variation, variation + 1), kMinCoastDepth, kMaxCoastDepth);
+            const int wave = static_cast<int>(std::sin(static_cast<float>(i) * 0.17f) * 2.5f);
+            profile[static_cast<size_t>(i)] = std::clamp(depth + wave, 4, kMaxCoastDepth + 3);
+        }
+
+        return profile;
+    };
+
+    const std::vector<int> leftCoast = oceanLeft ? BuildCoastProfile(2) : std::vector<int>();
+    const std::vector<int> rightCoast = oceanRight ? BuildCoastProfile(2) : std::vector<int>();
+    const std::vector<int> topCoast = oceanTop ? BuildCoastProfile(2) : std::vector<int>();
+    const std::vector<int> bottomCoast = oceanBottom ? BuildCoastProfile(2) : std::vector<int>();
 
     for (int y = 0; y < OVERWORLD_MAP_SIZE; ++y)
     {
         for (int x = 0; x < OVERWORLD_MAP_SIZE; ++x)
         {
-            const int roll = rng.RandomRange(0, 99);
-            OverworldCellType type = OW_CLEAR;
-            if (roll < 12)
+            const int inlandFromLeft = oceanLeft ? (x - leftCoast[static_cast<size_t>(y)]) : kNoOceanConstraint;
+            const int inlandFromRight = oceanRight
+                ? ((OVERWORLD_MAP_SIZE - 1 - x) - rightCoast[static_cast<size_t>(y)])
+                : kNoOceanConstraint;
+            const int inlandFromTop = oceanTop ? (y - topCoast[static_cast<size_t>(x)]) : kNoOceanConstraint;
+            const int inlandFromBottom = oceanBottom
+                ? ((OVERWORLD_MAP_SIZE - 1 - y) - bottomCoast[static_cast<size_t>(x)])
+                : kNoOceanConstraint;
+            const int inlandMargin = std::min({ inlandFromLeft, inlandFromRight, inlandFromTop, inlandFromBottom });
+
+            const size_t cellIndex = static_cast<size_t>(GetCellIndex(x, y));
+            if (inlandMargin < 0)
             {
-                type = OW_WATER;
-            }
-            else if (roll < 20)
-            {
-                type = OW_MOUNTAIN;
-            }
-            else if (roll < 35)
-            {
-                type = OW_TREES;
-            }
-            else if (roll < 42)
-            {
-                type = OW_MARSH;
+                m_Cells[cellIndex] = OW_WATER;
+                continue;
             }
 
-            m_Cells[static_cast<size_t>(GetCellIndex(x, y))] = type;
+            if (inlandMargin < 5 && rng.Random(100) < (58 - (inlandMargin * 11)))
+            {
+                m_Cells[cellIndex] = OW_WATER;
+            }
         }
     }
 
-    std::vector<OverworldCellType> nextCells = m_Cells;
-    for (int pass = 0; pass < 5; ++pass)
+    for (int pass = 0; pass < 2; ++pass)
     {
-        for (int y = 0; y < OVERWORLD_MAP_SIZE; ++y)
+        std::vector<OverworldCellType> nextCells = m_Cells;
+        for (int y = 1; y < OVERWORLD_MAP_SIZE - 1; ++y)
         {
-            for (int x = 0; x < OVERWORLD_MAP_SIZE; ++x)
+            for (int x = 1; x < OVERWORLD_MAP_SIZE; ++x)
             {
-                nextCells[static_cast<size_t>(GetCellIndex(x, y))] = ResolveCellType(m_Cells, x, y);
+                const size_t cellIndex = static_cast<size_t>(GetCellIndex(x, y));
+                if (m_Cells[cellIndex] == OW_WATER)
+                {
+                    continue;
+                }
+
+                bool nearOceanEdge = false;
+                if (oceanLeft && x < kMaxCoastDepth + 5)
+                {
+                    nearOceanEdge = true;
+                }
+                if (oceanRight && x > OVERWORLD_MAP_SIZE - 1 - (kMaxCoastDepth + 5))
+                {
+                    nearOceanEdge = true;
+                }
+                if (oceanTop && y < kMaxCoastDepth + 5)
+                {
+                    nearOceanEdge = true;
+                }
+                if (oceanBottom && y > OVERWORLD_MAP_SIZE - 1 - (kMaxCoastDepth + 5))
+                {
+                    nearOceanEdge = true;
+                }
+
+                if (!nearOceanEdge)
+                {
+                    continue;
+                }
+
+                const int waterNeighbors = CountNeighborsOfType(m_Cells, x, y, OW_WATER);
+                if (waterNeighbors >= 3 && rng.Random(100) < 42)
+                {
+                    nextCells[cellIndex] = OW_WATER;
+                }
             }
         }
+
         m_Cells.swap(nextCells);
     }
 
-    for (int x = 0; x < OVERWORLD_MAP_SIZE; ++x)
+    if (oceanTop)
     {
-        m_Cells[static_cast<size_t>(x)] = OW_WATER;
-        m_Cells[static_cast<size_t>((OVERWORLD_MAP_SIZE - 1) * OVERWORLD_MAP_SIZE + x)] = OW_WATER;
+        for (int x = 0; x < OVERWORLD_MAP_SIZE; ++x)
+        {
+            m_Cells[static_cast<size_t>(x)] = OW_WATER;
+        }
     }
-    for (int y = 0; y < OVERWORLD_MAP_SIZE; ++y)
+    if (oceanBottom)
     {
-        m_Cells[static_cast<size_t>(y * OVERWORLD_MAP_SIZE)] = OW_WATER;
-        m_Cells[static_cast<size_t>(y * OVERWORLD_MAP_SIZE + (OVERWORLD_MAP_SIZE - 1))] = OW_WATER;
+        for (int x = 0; x < OVERWORLD_MAP_SIZE; ++x)
+        {
+            m_Cells[static_cast<size_t>((OVERWORLD_MAP_SIZE - 1) * OVERWORLD_MAP_SIZE + x)] = OW_WATER;
+        }
+    }
+    if (oceanLeft)
+    {
+        for (int y = 0; y < OVERWORLD_MAP_SIZE; ++y)
+        {
+            m_Cells[static_cast<size_t>(y * OVERWORLD_MAP_SIZE)] = OW_WATER;
+        }
+    }
+    if (oceanRight)
+    {
+        for (int y = 0; y < OVERWORLD_MAP_SIZE; ++y)
+        {
+            m_Cells[static_cast<size_t>(y * OVERWORLD_MAP_SIZE + (OVERWORLD_MAP_SIZE - 1))] = OW_WATER;
+        }
     }
 }
 
-void OverworldMap::PartitionIntoRegions(RNG& rng, int targetRegionCount)
+void OverworldMap::PartitionIntoRegions(RNG& rng, int targetRegionCount, int minKeptRegions)
 {
     m_RegionIds.assign(static_cast<size_t>(kCellCount), -1);
     m_Regions.clear();
@@ -282,35 +436,46 @@ void OverworldMap::PartitionIntoRegions(RNG& rng, int targetRegionCount)
     const float distanceScale = std::sqrt(35.0f / static_cast<float>(targetRegions));
     int minSeedDistance = static_cast<int>(10.0f * distanceScale);
     minSeedDistance = std::clamp(minSeedDistance, 4, 18);
-    int attempts = 0;
-    while (static_cast<int>(seeds.size()) < targetRegions && attempts < 8000)
+
+    while (static_cast<int>(seeds.size()) < targetRegions && minSeedDistance >= 3)
     {
-        ++attempts;
-        const int x = rng.Random(OVERWORLD_MAP_SIZE);
-        const int y = rng.Random(OVERWORLD_MAP_SIZE);
-        if (!IsLandCell(GetCell(x, y)))
+        int attempts = 0;
+        while (static_cast<int>(seeds.size()) < targetRegions && attempts < 8000)
         {
-            continue;
-        }
-
-        bool tooClose = false;
-        for (const SeedPoint& seed : seeds)
-        {
-            const int dx = x - seed.x;
-            const int dy = y - seed.y;
-            if ((dx * dx) + (dy * dy) < (minSeedDistance * minSeedDistance))
+            ++attempts;
+            const int x = rng.Random(OVERWORLD_MAP_SIZE);
+            const int y = rng.Random(OVERWORLD_MAP_SIZE);
+            if (!IsLandCell(GetCell(x, y)))
             {
-                tooClose = true;
-                break;
+                continue;
             }
+
+            bool tooClose = false;
+            for (const SeedPoint& seed : seeds)
+            {
+                const int dx = x - seed.x;
+                const int dy = y - seed.y;
+                if ((dx * dx) + (dy * dy) < (minSeedDistance * minSeedDistance))
+                {
+                    tooClose = true;
+                    break;
+                }
+            }
+
+            if (tooClose)
+            {
+                continue;
+            }
+
+            seeds.push_back({ x, y });
         }
 
-        if (tooClose)
+        if (static_cast<int>(seeds.size()) >= targetRegions)
         {
-            continue;
+            break;
         }
 
-        seeds.push_back({ x, y });
+        --minSeedDistance;
     }
 
     struct VoronoiNode
@@ -385,31 +550,47 @@ void OverworldMap::PartitionIntoRegions(RNG& rng, int targetRegionCount)
         }
     }
 
-    const int minCellsPerRegion = std::max(8, landCells / std::max(targetRegions * 3, 1));
+    const std::vector<OverworldRegionData> voronoiRegions = m_Regions;
+    const int requiredKeptRegions = std::max(minKeptRegions, 1);
 
-    std::vector<int> oldToNewId(m_Regions.size(), -1);
-    int nextRegionId = 0;
-    for (size_t oldId = 0; oldId < m_Regions.size(); ++oldId)
+    int minCellsPerRegion = std::max(6, landCells / std::max(requiredKeptRegions * 5, 1));
+    std::vector<int> oldToNewId(voronoiRegions.size(), -1);
+    int keptRegionCount = 0;
+
+    while (true)
     {
-        if (m_Regions[oldId].m_CellCount < minCellsPerRegion)
+        keptRegionCount = 0;
+        std::fill(oldToNewId.begin(), oldToNewId.end(), -1);
+
+        for (size_t oldId = 0; oldId < voronoiRegions.size(); ++oldId)
         {
-            continue;
+            if (voronoiRegions[oldId].m_CellCount < minCellsPerRegion)
+            {
+                continue;
+            }
+
+            oldToNewId[oldId] = keptRegionCount;
+            ++keptRegionCount;
         }
 
-        oldToNewId[oldId] = nextRegionId;
-        ++nextRegionId;
+        if (keptRegionCount >= requiredKeptRegions || minCellsPerRegion <= 4)
+        {
+            break;
+        }
+
+        --minCellsPerRegion;
     }
 
     std::vector<OverworldRegionData> keptRegions;
-    keptRegions.reserve(static_cast<size_t>(nextRegionId));
-    for (size_t oldId = 0; oldId < m_Regions.size(); ++oldId)
+    keptRegions.reserve(static_cast<size_t>(keptRegionCount));
+    for (size_t oldId = 0; oldId < voronoiRegions.size(); ++oldId)
     {
         if (oldToNewId[oldId] < 0)
         {
             continue;
         }
 
-        OverworldRegionData region = m_Regions[oldId];
+        OverworldRegionData region = voronoiRegions[oldId];
         region.m_Id = oldToNewId[oldId];
         keptRegions.push_back(region);
     }
@@ -429,6 +610,296 @@ void OverworldMap::PartitionIntoRegions(RNG& rng, int targetRegionCount)
         }
 
         regionId = oldToNewId[static_cast<size_t>(regionId)];
+        if (regionId < 0)
+        {
+            continue;
+        }
+    }
+}
+
+void OverworldMap::DesignateWaterRegions(RNG& rng, int minConquerableRegions)
+{
+    if (m_Regions.empty())
+    {
+        return;
+    }
+
+    const int desiredWaterCount = std::max(1, static_cast<int>((m_Regions.size() * 25) / 100));
+    const int maxWaterCount = std::max(0, static_cast<int>(m_Regions.size()) - std::max(minConquerableRegions, 0));
+    const int waterCount = std::min(desiredWaterCount, maxWaterCount);
+    if (waterCount <= 0)
+    {
+        return;
+    }
+    std::vector<int> candidates;
+    candidates.reserve(m_Regions.size());
+
+    for (const OverworldRegionData& region : m_Regions)
+    {
+        if (region.m_IsWater || region.m_CellCount < 12)
+        {
+            continue;
+        }
+
+        const int edgeDistance = std::min({
+            region.m_SeedX,
+            region.m_SeedY,
+            OVERWORLD_MAP_SIZE - 1 - region.m_SeedX,
+            OVERWORLD_MAP_SIZE - 1 - region.m_SeedY
+        });
+
+        if (edgeDistance < 4)
+        {
+            continue;
+        }
+
+        candidates.push_back(region.m_Id);
+    }
+
+    if (candidates.empty())
+    {
+        for (const OverworldRegionData& region : m_Regions)
+        {
+            if (!region.m_IsWater && region.m_CellCount >= 8)
+            {
+                candidates.push_back(region.m_Id);
+            }
+        }
+    }
+
+    for (size_t i = candidates.size(); i > 1; --i)
+    {
+        const size_t swapIndex = static_cast<size_t>(rng.Random(static_cast<unsigned int>(i)));
+        std::swap(candidates[i - 1], candidates[swapIndex]);
+    }
+
+    const int lakesToCreate = std::min(waterCount, static_cast<int>(candidates.size()));
+    for (int i = 0; i < lakesToCreate; ++i)
+    {
+        OverworldRegionData* region = GetRegion(candidates[static_cast<size_t>(i)]);
+        if (!region)
+        {
+            continue;
+        }
+
+        region->m_IsWater = true;
+        region->m_OwnerId = -1;
+        region->m_HasCastle = false;
+
+        for (int y = 0; y < OVERWORLD_MAP_SIZE; ++y)
+        {
+            for (int x = 0; x < OVERWORLD_MAP_SIZE; ++x)
+            {
+                if (GetRegionId(x, y) != region->m_Id)
+                {
+                    continue;
+                }
+
+                m_Cells[static_cast<size_t>(GetCellIndex(x, y))] = OW_WATER;
+            }
+        }
+    }
+}
+
+void OverworldMap::ClearLandRegionInteriors()
+{
+    for (int y = 0; y < OVERWORLD_MAP_SIZE; ++y)
+    {
+        for (int x = 0; x < OVERWORLD_MAP_SIZE; ++x)
+        {
+            const int regionId = GetRegionId(x, y);
+            if (regionId < 0)
+            {
+                continue;
+            }
+
+            const OverworldRegionData* region = GetRegion(regionId);
+            if (!region || region->m_IsWater)
+            {
+                continue;
+            }
+
+            m_Cells[static_cast<size_t>(GetCellIndex(x, y))] = OW_CLEAR;
+        }
+    }
+}
+
+RegionBorderType OverworldMap::GetBorderType(int regionA, int regionB) const
+{
+    if (regionA < 0 || regionB < 0 || regionA == regionB)
+    {
+        return RegionBorderType::Open;
+    }
+
+    const auto it = m_BorderTypes.find(BorderKey(regionA, regionB));
+    if (it == m_BorderTypes.end())
+    {
+        return RegionBorderType::Open;
+    }
+
+    return it->second;
+}
+
+std::vector<int> OverworldMap::GetTraversableAdjacentRegions(int regionId) const
+{
+    const OverworldRegionData* region = GetRegion(regionId);
+    if (!region || region->m_IsWater)
+    {
+        return {};
+    }
+
+    std::vector<int> traversable;
+    traversable.reserve(region->m_AdjacentRegionIds.size());
+    for (int neighborId : region->m_AdjacentRegionIds)
+    {
+        const OverworldRegionData* neighbor = GetRegion(neighborId);
+        if (!neighbor || neighbor->m_IsWater)
+        {
+            continue;
+        }
+
+        if (GetBorderType(regionId, neighborId) != RegionBorderType::Mountain)
+        {
+            traversable.push_back(neighborId);
+        }
+    }
+
+    return traversable;
+}
+
+void OverworldMap::CarveInterRegionMountains()
+{
+    for (size_t i = 0; i < m_Cells.size(); ++i)
+    {
+        if (m_RegionIds[i] >= 0 || m_Cells[i] == OW_WATER)
+        {
+            continue;
+        }
+
+        m_Cells[i] = OW_MOUNTAIN;
+    }
+
+    std::vector<bool> carve(static_cast<size_t>(kCellCount), false);
+    const int offsets[4][2] = { {1, 0}, {-1, 0}, {0, 1}, {0, -1} };
+
+    for (int y = 0; y < OVERWORLD_MAP_SIZE; ++y)
+    {
+        for (int x = 0; x < OVERWORLD_MAP_SIZE; ++x)
+        {
+            const int regionId = GetRegionId(x, y);
+            if (regionId < 0)
+            {
+                continue;
+            }
+
+            const OverworldRegionData* region = GetRegion(regionId);
+            if (!region || region->m_IsWater)
+            {
+                continue;
+            }
+
+            for (const auto& offset : offsets)
+            {
+                const int neighborX = x + offset[0];
+                const int neighborY = y + offset[1];
+                if (!IsInBounds(neighborX, neighborY))
+                {
+                    continue;
+                }
+
+                const int neighborRegionId = GetRegionId(neighborX, neighborY);
+                if (neighborRegionId < 0 || neighborRegionId == regionId)
+                {
+                    continue;
+                }
+
+                const OverworldRegionData* neighbor = GetRegion(neighborRegionId);
+                if (!neighbor || neighbor->m_IsWater)
+                {
+                    continue;
+                }
+
+                if (regionId >= neighborRegionId)
+                {
+                    continue;
+                }
+
+                if (GetBorderType(regionId, neighborRegionId) != RegionBorderType::Mountain)
+                {
+                    continue;
+                }
+
+                carve[static_cast<size_t>(GetCellIndex(x, y))] = true;
+                carve[static_cast<size_t>(GetCellIndex(neighborX, neighborY))] = true;
+            }
+        }
+    }
+
+    for (size_t i = 0; i < carve.size(); ++i)
+    {
+        if (!carve[i] || m_Cells[i] == OW_WATER)
+        {
+            continue;
+        }
+
+        m_Cells[i] = OW_MOUNTAIN;
+        m_RegionIds[i] = -1;
+    }
+}
+
+void OverworldMap::RecalculateRegionCellCounts()
+{
+    for (OverworldRegionData& region : m_Regions)
+    {
+        region.m_CellCount = 0;
+    }
+
+    for (int regionId : m_RegionIds)
+    {
+        if (regionId < 0)
+        {
+            continue;
+        }
+
+        if (OverworldRegionData* region = GetRegion(regionId))
+        {
+            ++region->m_CellCount;
+        }
+    }
+}
+
+void OverworldMap::AssignRegionBorders(RNG& rng)
+{
+    m_BorderTypes.clear();
+
+    for (const OverworldRegionData& region : m_Regions)
+    {
+        if (region.m_IsWater)
+        {
+            continue;
+        }
+
+        for (int neighborId : region.m_AdjacentRegionIds)
+        {
+            if (neighborId < 0 || neighborId <= region.m_Id)
+            {
+                continue;
+            }
+
+            const OverworldRegionData* neighbor = GetRegion(neighborId);
+            if (!neighbor || neighbor->m_IsWater)
+            {
+                continue;
+            }
+
+            RegionBorderType borderType = RegionBorderType::Open;
+            if (rng.Random(100) < 18)
+            {
+                borderType = RegionBorderType::Mountain;
+            }
+
+            m_BorderTypes[BorderKey(region.m_Id, neighborId)] = borderType;
+        }
     }
 }
 
@@ -495,7 +966,7 @@ void OverworldMap::AssignRegionResources(RNG& rng, int resourceDistribution)
 
     for (OverworldRegionData& region : m_Regions)
     {
-        if (region.m_Id < 0 || region.m_Id >= static_cast<int>(terrainStats.size()))
+        if (region.m_IsWater || region.m_Id < 0 || region.m_Id >= static_cast<int>(terrainStats.size()))
         {
             continue;
         }
@@ -536,14 +1007,16 @@ void OverworldMap::AssignRegionResources(RNG& rng, int resourceDistribution)
 
     std::vector<bool> assigned(m_Regions.size(), false);
 
-    auto firstUnassignedIndex = [&assigned]() -> int
+    auto firstUnassignedIndex = [&]() -> int
     {
         for (size_t i = 0; i < assigned.size(); ++i)
         {
-            if (!assigned[static_cast<size_t>(i)])
+            if (m_Regions[i].m_IsWater || assigned[static_cast<size_t>(i)])
             {
-                return static_cast<int>(i);
+                continue;
             }
+
+            return static_cast<int>(i);
         }
 
         return -1;
@@ -556,7 +1029,7 @@ void OverworldMap::AssignRegionResources(RNG& rng, int resourceDistribution)
 
         for (size_t i = 0; i < m_Regions.size(); ++i)
         {
-            if (assigned[i])
+            if (m_Regions[i].m_IsWater || assigned[i])
             {
                 continue;
             }
@@ -580,6 +1053,11 @@ void OverworldMap::AssignRegionResources(RNG& rng, int resourceDistribution)
     auto assignResource = [&](int regionIndex, CountyResource resource)
     {
         if (regionIndex < 0 || regionIndex >= static_cast<int>(m_Regions.size()))
+        {
+            return;
+        }
+
+        if (m_Regions[static_cast<size_t>(regionIndex)].m_IsWater)
         {
             return;
         }
@@ -613,7 +1091,10 @@ void OverworldMap::AssignRegionResources(RNG& rng, int resourceDistribution)
         regionIndices.reserve(m_Regions.size());
         for (size_t i = 0; i < m_Regions.size(); ++i)
         {
-            regionIndices.push_back(static_cast<int>(i));
+            if (!m_Regions[i].m_IsWater)
+            {
+                regionIndices.push_back(static_cast<int>(i));
+            }
         }
 
         for (size_t i = regionIndices.size(); i > 1; --i)
@@ -646,9 +1127,17 @@ void OverworldMap::AssignRegionResources(RNG& rng, int resourceDistribution)
             CountyResource::Gold
         };
 
-        const int regionCount = static_cast<int>(m_Regions.size());
-        std::vector<int> quotas(4, regionCount / 4);
-        for (int i = 0; i < regionCount % 4; ++i)
+        int landRegionCount = 0;
+        for (const OverworldRegionData& region : m_Regions)
+        {
+            if (!region.m_IsWater)
+            {
+                ++landRegionCount;
+            }
+        }
+
+        std::vector<int> quotas(4, landRegionCount / 4);
+        for (int i = 0; i < landRegionCount % 4; ++i)
         {
             ++quotas[static_cast<size_t>(i)];
         }
@@ -670,7 +1159,13 @@ void OverworldMap::AssignRegionResources(RNG& rng, int resourceDistribution)
                 const int regionId = open.front();
                 open.pop();
 
-                if (regionId < 0 || regionId >= regionCount || claimed[static_cast<size_t>(regionId)])
+                if (regionId < 0 || regionId >= static_cast<int>(m_Regions.size()) || claimed[static_cast<size_t>(regionId)])
+                {
+                    continue;
+                }
+
+                const OverworldRegionData* region = GetRegion(regionId);
+                if (!region || region->m_IsWater)
                 {
                     continue;
                 }
@@ -679,15 +1174,12 @@ void OverworldMap::AssignRegionResources(RNG& rng, int resourceDistribution)
                 assignResource(regionId, resource);
                 --quota;
 
-                const OverworldRegionData* region = GetRegion(regionId);
-                if (!region)
-                {
-                    continue;
-                }
-
                 for (int neighborId : region->m_AdjacentRegionIds)
                 {
-                    if (neighborId >= 0 && neighborId < regionCount && !claimed[static_cast<size_t>(neighborId)])
+                    const OverworldRegionData* neighbor = GetRegion(neighborId);
+                    if (neighbor && !neighbor->m_IsWater && neighborId >= 0
+                        && neighborId < static_cast<int>(m_Regions.size())
+                        && !claimed[static_cast<size_t>(neighborId)])
                     {
                         open.push(neighborId);
                     }
@@ -714,7 +1206,7 @@ void OverworldMap::AssignRegionResources(RNG& rng, int resourceDistribution)
             int bestScore = -1;
             for (size_t i = 0; i < m_Regions.size(); ++i)
             {
-                if (claimed[i])
+                if (m_Regions[i].m_IsWater || claimed[i])
                 {
                     continue;
                 }
@@ -723,7 +1215,8 @@ void OverworldMap::AssignRegionResources(RNG& rng, int resourceDistribution)
                 const OverworldRegionData& region = m_Regions[i];
                 for (int neighborId : region.m_AdjacentRegionIds)
                 {
-                    if (neighborId >= 0 && neighborId < regionCount && claimed[static_cast<size_t>(neighborId)])
+                    if (neighborId >= 0 && neighborId < static_cast<int>(m_Regions.size())
+                        && claimed[static_cast<size_t>(neighborId)])
                     {
                         ++score;
                     }
@@ -812,21 +1305,86 @@ void OverworldMap::AssignRegionCampaignState(RNG& rng, int enemyCount, int start
         return (dx * dx) + (dy * dy);
     };
 
-    auto pickSeedRegion = [&]() -> int
+    auto countAvailableInComponent = [&](int seedRegionId) -> int
     {
-        std::vector<int> unownedRegionIds;
-        unownedRegionIds.reserve(m_Regions.size());
-        for (const OverworldRegionData& candidate : m_Regions)
+        const OverworldRegionData* seed = GetRegion(seedRegionId);
+        if (!seed || seed->m_IsWater || seed->m_OwnerId >= 0)
         {
-            if (candidate.m_OwnerId < 0)
+            return 0;
+        }
+
+        std::queue<int> open;
+        std::unordered_set<int> visited;
+        open.push(seedRegionId);
+        visited.insert(seedRegionId);
+        int count = 0;
+
+        while (!open.empty())
+        {
+            const int regionId = open.front();
+            open.pop();
+
+            const OverworldRegionData* region = GetRegion(regionId);
+            if (!region || region->m_IsWater || region->m_OwnerId >= 0)
             {
-                unownedRegionIds.push_back(candidate.m_Id);
+                continue;
+            }
+
+            ++count;
+
+            for (int neighborId : GetTraversableAdjacentRegions(regionId))
+            {
+                if (!visited.insert(neighborId).second)
+                {
+                    continue;
+                }
+
+                const OverworldRegionData* neighbor = GetRegion(neighborId);
+                if (!neighbor || neighbor->m_IsWater || neighbor->m_OwnerId >= 0)
+                {
+                    continue;
+                }
+
+                open.push(neighborId);
             }
         }
 
-        if (unownedRegionIds.empty())
+        return count;
+    };
+
+    auto pickSeedRegion = [&](const std::unordered_set<int>& excludedSeeds) -> int
+    {
+        std::vector<int> candidates;
+        candidates.reserve(m_Regions.size());
+        for (const OverworldRegionData& candidate : m_Regions)
+        {
+            if (candidate.m_IsWater || candidate.m_OwnerId >= 0 || excludedSeeds.count(candidate.m_Id) > 0)
+            {
+                continue;
+            }
+
+            candidates.push_back(candidate.m_Id);
+        }
+
+        if (candidates.empty())
         {
             return -1;
+        }
+
+        std::vector<int> viable;
+        viable.reserve(candidates.size());
+        for (int candidateId : candidates)
+        {
+            if (countAvailableInComponent(candidateId) >= regionsPerPlayer)
+            {
+                viable.push_back(candidateId);
+            }
+        }
+
+        const std::vector<int>* pool = &candidates;
+        if (!viable.empty())
+        {
+            pool = &viable;
         }
 
         bool anyOwned = false;
@@ -841,12 +1399,29 @@ void OverworldMap::AssignRegionCampaignState(RNG& rng, int enemyCount, int start
 
         if (!anyOwned)
         {
-            return unownedRegionIds[static_cast<size_t>(rng.Random(static_cast<unsigned int>(unownedRegionIds.size())))];
+            if (!viable.empty())
+            {
+                return viable[static_cast<size_t>(rng.Random(static_cast<unsigned int>(viable.size())))];
+            }
+
+            int bestRegionId = -1;
+            int bestAvailable = -1;
+            for (int candidateId : candidates)
+            {
+                const int available = countAvailableInComponent(candidateId);
+                if (available > bestAvailable)
+                {
+                    bestAvailable = available;
+                    bestRegionId = candidateId;
+                }
+            }
+
+            return bestRegionId;
         }
 
         int bestRegionId = -1;
         int bestScore = -1;
-        for (const int candidateId : unownedRegionIds)
+        for (const int candidateId : *pool)
         {
             const OverworldRegionData* candidate = GetRegion(candidateId);
             if (!candidate)
@@ -875,16 +1450,29 @@ void OverworldMap::AssignRegionCampaignState(RNG& rng, int enemyCount, int start
         return bestRegionId;
     };
 
-    auto claimContiguousTerritory = [&](int ownerId, int regionQuota) -> bool
+    auto unclaimPlayerRegions = [&](int ownerId)
     {
-        const int seedRegionId = pickSeedRegion();
+        for (OverworldRegionData& region : m_Regions)
+        {
+            if (region.m_OwnerId == ownerId)
+            {
+                region.m_OwnerId = -1;
+                region.m_HasCastle = false;
+            }
+        }
+    };
+
+    auto claimFromSeed = [&](int ownerId, int seedRegionId, int regionQuota) -> int
+    {
         if (seedRegionId < 0)
         {
-            return false;
+            return 0;
         }
 
         std::queue<int> open;
+        std::unordered_set<int> visited;
         open.push(seedRegionId);
+        visited.insert(seedRegionId);
         int claimed = 0;
 
         while (!open.empty() && claimed < regionQuota)
@@ -893,7 +1481,7 @@ void OverworldMap::AssignRegionCampaignState(RNG& rng, int enemyCount, int start
             open.pop();
 
             OverworldRegionData* region = GetRegion(regionId);
-            if (!region || region->m_OwnerId >= 0)
+            if (!region || region->m_IsWater || region->m_OwnerId >= 0)
             {
                 continue;
             }
@@ -905,7 +1493,7 @@ void OverworldMap::AssignRegionCampaignState(RNG& rng, int enemyCount, int start
             }
             ++claimed;
 
-            std::vector<int> neighbors = region->m_AdjacentRegionIds;
+            std::vector<int> neighbors = GetTraversableAdjacentRegions(regionId);
             for (size_t i = neighbors.size(); i > 1; --i)
             {
                 const size_t swapIndex = static_cast<size_t>(rng.Random(static_cast<unsigned int>(i)));
@@ -914,20 +1502,45 @@ void OverworldMap::AssignRegionCampaignState(RNG& rng, int enemyCount, int start
 
             for (int neighborId : neighbors)
             {
-                const OverworldRegionData* neighbor = GetRegion(neighborId);
-                if (neighbor && neighbor->m_OwnerId < 0)
+                if (!visited.insert(neighborId).second)
                 {
-                    open.push(neighborId);
+                    continue;
                 }
+
+                const OverworldRegionData* neighbor = GetRegion(neighborId);
+                if (!neighbor || neighbor->m_IsWater || neighbor->m_OwnerId >= 0)
+                {
+                    continue;
+                }
+
+                open.push(neighborId);
             }
         }
 
-        return claimed > 0;
+        return claimed;
     };
 
+    constexpr int kMaxPlacementAttempts = 48;
     for (int ownerId = 0; ownerId < playerCount; ++ownerId)
     {
-        claimContiguousTerritory(ownerId, regionsPerPlayer);
+        std::unordered_set<int> excludedSeeds;
+        for (int attempt = 0; attempt < kMaxPlacementAttempts; ++attempt)
+        {
+            const int seedRegionId = pickSeedRegion(excludedSeeds);
+            if (seedRegionId < 0)
+            {
+                break;
+            }
+
+            const int claimed = claimFromSeed(ownerId, seedRegionId, regionsPerPlayer);
+            if (claimed >= regionsPerPlayer)
+            {
+                break;
+            }
+
+            unclaimPlayerRegions(ownerId);
+            excludedSeeds.insert(seedRegionId);
+        }
     }
 }
 
@@ -947,7 +1560,28 @@ void OverworldMap::Generate(unsigned int seed, const CampaignSetup& setup)
     rng.SeedRNG(m_Seed);
 
     GenerateTerrain(rng);
-    PartitionIntoRegions(rng, MapSizeRegionCount(resolvedSetup.m_MapSize));
+
+    const int landRegionTarget = MapSizeRegionCount(resolvedSetup.m_MapSize);
+    m_TargetConquerableRegions = landRegionTarget;
+    const int minKeptRegions = static_cast<int>(std::ceil(landRegionTarget / 0.75f));
+    const int partitionTarget = static_cast<int>(std::ceil(minKeptRegions * 1.25f));
+
+    for (int attempt = 0; attempt < 6; ++attempt)
+    {
+        PartitionIntoRegions(rng, partitionTarget + (attempt * 6), minKeptRegions);
+        if (static_cast<int>(m_Regions.size()) >= minKeptRegions)
+        {
+            break;
+        }
+    }
+
+    DesignateWaterRegions(rng, landRegionTarget);
+    ClearLandRegionInteriors();
+    CarveInterRegionMountains();
+    BuildAdjacency();
+    AssignRegionBorders(rng);
+    CarveInterRegionMountains();
+    RecalculateRegionCellCounts();
     BuildAdjacency();
     AssignRegionResources(rng, static_cast<int>(resolvedSetup.m_ResourceDistribution));
     AssignRegionCampaignState(rng, resolvedSetup.m_EnemyCount, MapSizeStartingRegions(resolvedSetup.m_MapSize));
@@ -955,7 +1589,7 @@ void OverworldMap::Generate(unsigned int seed, const CampaignSetup& setup)
     m_Generated = true;
 }
 
-void OverworldMap::Draw(int x, int y, int pixelsPerCell) const
+void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) const
 {
     if (!m_Generated || pixelsPerCell <= 0)
     {
@@ -964,8 +1598,8 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell) const
 
     const int mapPixelWidth = OVERWORLD_MAP_SIZE * pixelsPerCell;
     const int mapPixelHeight = OVERWORLD_MAP_SIZE * pixelsPerCell;
-    constexpr int kRegionBorderWidth = 2;
-    const Color outerBorderColor = Color{ 48, 48, 56, 255 };
+    constexpr int kRegionBorderWidth = 1;
+    const Color regionBorderColor = WHITE;
 
     auto RegionTint = [](int regionId) -> Color
     {
@@ -982,37 +1616,32 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell) const
             Color color = CellColor(GetCell(cellX, cellY));
 
             const int regionId = GetRegionId(cellX, cellY);
-            if (regionId >= 0)
+            const OverworldCellType cellType = GetCell(cellX, cellY);
+            if (regionId >= 0 && cellType == OW_CLEAR)
             {
-                const Color tint = RegionTint(regionId);
-                color.r = static_cast<unsigned char>((color.r + tint.r) / 2);
-                color.g = static_cast<unsigned char>((color.g + tint.g) / 2);
-                color.b = static_cast<unsigned char>((color.b + tint.b) / 2);
+                const OverworldRegionData* region = GetRegion(regionId);
+                if (region && !region->m_IsWater)
+                {
+                    const Color tint = RegionTint(regionId);
+                    color.r = static_cast<unsigned char>((color.r + tint.r) / 2);
+                    color.g = static_cast<unsigned char>((color.g + tint.g) / 2);
+                    color.b = static_cast<unsigned char>((color.b + tint.b) / 2);
+                }
             }
 
             DrawRectangle(pixelX, pixelY, pixelsPerCell, pixelsPerCell, color);
         }
     }
 
-    auto BorderColorForRegion = [this](int regionId) -> Color
+    auto IsLandRegion = [this](int regionId) -> bool
     {
         if (regionId < 0)
         {
-            return PlayerOwnerColor(-1);
+            return false;
         }
 
         const OverworldRegionData* region = GetRegion(regionId);
-        if (!region)
-        {
-            return PlayerOwnerColor(-1);
-        }
-
-        return PlayerOwnerColor(region->m_OwnerId);
-    };
-
-    auto IsCountyCell = [this](int cellX, int cellY) -> bool
-    {
-        return GetRegionId(cellX, cellY) >= 0;
+        return region && !region->m_IsWater;
     };
 
     for (int cellY = 0; cellY < OVERWORLD_MAP_SIZE; ++cellY)
@@ -1020,100 +1649,60 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell) const
         for (int cellX = 0; cellX < OVERWORLD_MAP_SIZE; ++cellX)
         {
             const int regionId = GetRegionId(cellX, cellY);
+            if (!IsLandRegion(regionId))
+            {
+                continue;
+            }
+
             const int pixelX = x + (cellX * pixelsPerCell);
             const int pixelY = y + (cellY * pixelsPerCell);
 
             if (cellX + 1 < OVERWORLD_MAP_SIZE)
             {
                 const int rightRegionId = GetRegionId(cellX + 1, cellY);
-                if (IsCountyCell(cellX, cellY) && IsCountyCell(cellX + 1, cellY) && regionId != rightRegionId)
+                if (IsLandRegion(rightRegionId) && regionId != rightRegionId)
                 {
                     const int boundaryX = x + ((cellX + 1) * pixelsPerCell);
-                    DrawRectangle(boundaryX - 1, pixelY, kRegionBorderWidth, pixelsPerCell, outerBorderColor);
+                    DrawRectangle(boundaryX - 1, pixelY, kRegionBorderWidth, pixelsPerCell, regionBorderColor);
                 }
             }
 
             if (cellY + 1 < OVERWORLD_MAP_SIZE)
             {
                 const int downRegionId = GetRegionId(cellX, cellY + 1);
-                if (IsCountyCell(cellX, cellY) && IsCountyCell(cellX, cellY + 1) && regionId != downRegionId)
+                if (IsLandRegion(downRegionId) && regionId != downRegionId)
                 {
                     const int boundaryY = y + ((cellY + 1) * pixelsPerCell);
-                    DrawRectangle(pixelX, boundaryY - 1, pixelsPerCell, kRegionBorderWidth, outerBorderColor);
+                    DrawRectangle(pixelX, boundaryY - 1, pixelsPerCell, kRegionBorderWidth, regionBorderColor);
                 }
             }
         }
     }
 
-    for (int cellY = 0; cellY < OVERWORLD_MAP_SIZE; ++cellY)
+    if (selectedRegionId >= 0)
     {
-        for (int cellX = 0; cellX < OVERWORLD_MAP_SIZE; ++cellX)
-        {
-            const int regionId = GetRegionId(cellX, cellY);
-            if (regionId < 0)
-            {
-                continue;
-            }
-
-            const Color borderColor = BorderColorForRegion(regionId);
-            const int pixelX = x + (cellX * pixelsPerCell);
-            const int pixelY = y + (cellY * pixelsPerCell);
-
-            if (cellX + 1 < OVERWORLD_MAP_SIZE)
-            {
-                const int rightRegionId = GetRegionId(cellX + 1, cellY);
-                if (IsCountyCell(cellX + 1, cellY) && regionId != rightRegionId)
-                {
-                    const int boundaryX = x + ((cellX + 1) * pixelsPerCell);
-                    DrawRectangle(boundaryX - 1, pixelY, 1, pixelsPerCell, borderColor);
-                }
-            }
-
-            if (cellY + 1 < OVERWORLD_MAP_SIZE)
-            {
-                const int downRegionId = GetRegionId(cellX, cellY + 1);
-                if (IsCountyCell(cellX, cellY + 1) && regionId != downRegionId)
-                {
-                    const int boundaryY = y + ((cellY + 1) * pixelsPerCell);
-                    DrawRectangle(pixelX, boundaryY - 1, pixelsPerCell, 1, borderColor);
-                }
-            }
-
-            if (cellX > 0)
-            {
-                const int leftRegionId = GetRegionId(cellX - 1, cellY);
-                if (IsCountyCell(cellX - 1, cellY) && regionId != leftRegionId)
-                {
-                    const int boundaryX = x + (cellX * pixelsPerCell);
-                    DrawRectangle(boundaryX, pixelY, 1, pixelsPerCell, borderColor);
-                }
-            }
-
-            if (cellY > 0)
-            {
-                const int upRegionId = GetRegionId(cellX, cellY - 1);
-                if (IsCountyCell(cellX, cellY - 1) && regionId != upRegionId)
-                {
-                    const int boundaryY = y + (cellY * pixelsPerCell);
-                    DrawRectangle(pixelX, boundaryY, pixelsPerCell, 1, borderColor);
-                }
-            }
-        }
+        DrawRegionHighlight(x, y, pixelsPerCell, selectedRegionId);
     }
 
     if (g_smallFont)
     {
         for (const OverworldRegionData& region : m_Regions)
         {
+            if (region.m_IsWater)
+            {
+                continue;
+            }
+
             const std::string label(1, CountyResourceMarker(region.m_Resource));
             const float centerX = static_cast<float>(x) + (static_cast<float>(region.m_SeedX) * static_cast<float>(pixelsPerCell))
                 + (static_cast<float>(pixelsPerCell) * 0.5f);
             const float centerY = static_cast<float>(y) + (static_cast<float>(region.m_SeedY) * static_cast<float>(pixelsPerCell))
                 + (static_cast<float>(pixelsPerCell) * 0.5f);
             const Vector2 textSize = MeasureTextEx(*g_smallFont, label.c_str(), g_smallFontDrawSize, 1);
+            const Color labelFill = region.m_OwnerId >= 0 ? PlayerOwnerColor(region.m_OwnerId) : WHITE;
             DrawOutlinedText(g_smallFont, label,
                 Vector2{ centerX - (textSize.x * 0.5f), centerY - (textSize.y * 0.5f) },
-                g_smallFontDrawSize, 1, WHITE);
+                g_smallFontDrawSize, 1, labelFill);
         }
     }
 
@@ -1129,41 +1718,11 @@ void OverworldMap::DrawRegionHighlight(int x, int y, int pixelsPerCell, int regi
 
     const Color fill = Color{ 255, 230, 90, 90 };
 
-    auto IsInteriorCell = [&](int cellX, int cellY) -> bool
-    {
-        if (GetRegionId(cellX, cellY) != regionId)
-        {
-            return false;
-        }
-
-        if (cellX > 0 && GetRegionId(cellX - 1, cellY) != regionId)
-        {
-            return false;
-        }
-
-        if (cellX + 1 < OVERWORLD_MAP_SIZE && GetRegionId(cellX + 1, cellY) != regionId)
-        {
-            return false;
-        }
-
-        if (cellY > 0 && GetRegionId(cellX, cellY - 1) != regionId)
-        {
-            return false;
-        }
-
-        if (cellY + 1 < OVERWORLD_MAP_SIZE && GetRegionId(cellX, cellY + 1) != regionId)
-        {
-            return false;
-        }
-
-        return true;
-    };
-
     for (int cellY = 0; cellY < OVERWORLD_MAP_SIZE; ++cellY)
     {
         for (int cellX = 0; cellX < OVERWORLD_MAP_SIZE; ++cellX)
         {
-            if (!IsInteriorCell(cellX, cellY))
+            if (GetRegionId(cellX, cellY) != regionId)
             {
                 continue;
             }
@@ -1177,6 +1736,11 @@ void OverworldMap::DrawRegionHighlight(int x, int y, int pixelsPerCell, int regi
 
 void OverworldMap::DrawAdjacencyGraph(int x, int y, int width, int height, int selectedRegionId) const
 {
+    DrawAccessibilityGrid(x, y, width, height, selectedRegionId);
+}
+
+void OverworldMap::DrawAccessibilityGrid(int x, int y, int width, int height, int selectedRegionId) const
+{
     if (!m_Generated || width <= 0 || height <= 0 || m_Regions.empty())
     {
         return;
@@ -1185,15 +1749,77 @@ void OverworldMap::DrawAdjacencyGraph(int x, int y, int width, int height, int s
     DrawRectangle(x, y, width, height, Color{ 32, 36, 46, 255 });
     DrawRectangleLines(x, y, width, height, Color{ 90, 90, 100, 255 });
 
+    const int landRegionCount = GetConquerableRegionCount();
+    const int lakeRegionCount = GetLakeRegionCount();
+    const int targetRegionCount = m_TargetConquerableRegions;
+
+    if (g_font)
+    {
+        DrawOutlinedText(g_font, "Accessibility", Vector2{ static_cast<float>(x + 4), static_cast<float>(y + 3) },
+            g_fontDrawSize, 1, Color{ 255, 230, 90, 255 });
+    }
+
+    if (g_smallFont)
+    {
+        const Color landCountColor = landRegionCount >= targetRegionCount
+            ? Color{ 140, 210, 150, 255 }
+            : Color{ 230, 120, 120, 255 };
+        const char* countLine = TextFormat("Land %d  Lakes %d  Target %d", landRegionCount, lakeRegionCount, targetRegionCount);
+        DrawOutlinedText(g_smallFont, countLine,
+            Vector2{ static_cast<float>(x + 4), static_cast<float>(y + 16) },
+            g_smallFontDrawSize, 1, landCountColor);
+    }
+
     auto RegionColor = [](int regionId) -> Color
     {
         const unsigned char shade = static_cast<unsigned char>(90 + ((regionId * 47) % 70));
         return Color{ shade, shade, static_cast<unsigned char>(shade + 20), 255 };
     };
 
+    auto EdgeColorForBorder = [](RegionBorderType borderType) -> Color
+    {
+        if (borderType == RegionBorderType::Mountain)
+        {
+            return Color{ 170, 80, 80, 220 };
+        }
+
+        return Color{ 210, 210, 175, 200 };
+    };
+
+    std::vector<bool> reachable(static_cast<size_t>(m_Regions.size()), false);
+    if (selectedRegionId >= 0 && selectedRegionId < static_cast<int>(m_Regions.size()))
+    {
+        std::queue<int> open;
+        reachable[static_cast<size_t>(selectedRegionId)] = true;
+        open.push(selectedRegionId);
+
+        while (!open.empty())
+        {
+            const int regionId = open.front();
+            open.pop();
+
+            for (int neighborId : GetTraversableAdjacentRegions(regionId))
+            {
+                if (neighborId < 0 || neighborId >= static_cast<int>(reachable.size()))
+                {
+                    continue;
+                }
+
+                if (reachable[static_cast<size_t>(neighborId)])
+                {
+                    continue;
+                }
+
+                reachable[static_cast<size_t>(neighborId)] = true;
+                open.push(neighborId);
+            }
+        }
+    }
+
     constexpr float kPadding = 12.0f;
+    constexpr float kTopInset = 30.0f;
     const float usableWidth = static_cast<float>(width) - (2.0f * kPadding);
-    const float usableHeight = static_cast<float>(height) - (2.0f * kPadding);
+    const float usableHeight = static_cast<float>(height) - kTopInset - kPadding;
     const float mapScale = static_cast<float>(OVERWORLD_MAP_SIZE - 1);
 
     std::vector<Vector2> nodePositions(static_cast<size_t>(m_Regions.size()));
@@ -1206,11 +1832,10 @@ void OverworldMap::DrawAdjacencyGraph(int x, int y, int width, int height, int s
 
         nodePositions[static_cast<size_t>(region.m_Id)] = Vector2{
             static_cast<float>(x) + kPadding + (static_cast<float>(region.m_SeedX) / mapScale) * usableWidth,
-            static_cast<float>(y) + kPadding + (static_cast<float>(region.m_SeedY) / mapScale) * usableHeight
+            static_cast<float>(y) + kTopInset + (static_cast<float>(region.m_SeedY) / mapScale) * usableHeight
         };
     }
 
-    const Color edgeColor = Color{ 210, 210, 175, 200 };
     for (const OverworldRegionData& region : m_Regions)
     {
         if (region.m_Id < 0 || region.m_Id >= static_cast<int>(nodePositions.size()))
@@ -1226,7 +1851,19 @@ void OverworldMap::DrawAdjacencyGraph(int x, int y, int width, int height, int s
                 continue;
             }
 
-            DrawLineEx(from, nodePositions[static_cast<size_t>(neighborId)], 1.0f, edgeColor);
+            const OverworldRegionData* neighbor = GetRegion(neighborId);
+            Color edgeColor = EdgeColorForBorder(GetBorderType(region.m_Id, neighborId));
+            float thickness = 1.0f;
+            if (region.m_IsWater || (neighbor && neighbor->m_IsWater))
+            {
+                edgeColor = Color{ 80, 160, 255, 200 };
+            }
+            else if (GetBorderType(region.m_Id, neighborId) == RegionBorderType::Mountain)
+            {
+                thickness = 2.5f;
+            }
+
+            DrawLineEx(from, nodePositions[static_cast<size_t>(neighborId)], thickness, edgeColor);
         }
     }
 
@@ -1240,13 +1877,41 @@ void OverworldMap::DrawAdjacencyGraph(int x, int y, int width, int height, int s
 
         const Vector2 center = nodePositions[static_cast<size_t>(region.m_Id)];
         const bool isSelected = region.m_Id == selectedRegionId;
+        const bool isReachable = selectedRegionId < 0 || reachable[static_cast<size_t>(region.m_Id)];
+
+        Color fill = region.m_IsWater
+            ? Color{ 70, 140, 230, 255 }
+            : RegionColor(region.m_Id);
+        if (isSelected)
+        {
+            fill = Color{ 255, 230, 90, 255 };
+        }
+        else if (selectedRegionId >= 0 && !region.m_IsWater)
+        {
+            fill = isReachable
+                ? Color{ 90, 180, 110, 255 }
+                : Color{ 70, 74, 84, 255 };
+        }
+
         const float nodeRadius = isSelected ? kNodeRadius + 2.0f : kNodeRadius;
-        const Color fill = isSelected ? Color{ 255, 230, 90, 255 } : RegionColor(region.m_Id);
         DrawCircleV(center, nodeRadius, fill);
         DrawCircleLinesV(center, nodeRadius, isSelected ? Color{ 255, 255, 180, 255 } : Color{ 20, 20, 20, 255 });
 
         const char* label = TextFormat("%d", region.m_Id);
         const int labelWidth = MeasureText(label, 8);
         DrawText(label, static_cast<int>(center.x) - (labelWidth / 2), static_cast<int>(center.y) - 4, 8, BLACK);
+    }
+
+    if (g_smallFont)
+    {
+        DrawOutlinedText(g_smallFont, "Tan land  Blue lake  Red mountain",
+            Vector2{ static_cast<float>(x + 4), static_cast<float>(y + height - 12) },
+            g_smallFontDrawSize, 1, Color{ 180, 180, 190, 255 });
+        if (selectedRegionId >= 0)
+        {
+            DrawOutlinedText(g_smallFont, "Green = reachable from selection",
+                Vector2{ static_cast<float>(x + 4), static_cast<float>(y + height - 22) },
+                g_smallFontDrawSize, 1, Color{ 140, 210, 150, 255 });
+        }
     }
 }

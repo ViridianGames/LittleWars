@@ -26,6 +26,8 @@ private:
     bool IsMouseOverNextTurnButton() const;
 
     int m_SelectedRegionId = -1;
+    bool m_SelectedImpassable = false;
+    unsigned char m_SelectedImpassableCellType = 0;
 };
 
 #endif

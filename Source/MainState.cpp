@@ -23,6 +23,8 @@ namespace
     constexpr int kNextTurnButtonWidth = 96;
     constexpr int kNextTurnButtonHeight = 22;
     constexpr int kPanelMargin = 4;
+    constexpr bool kShowPlayerStatusBoxes = false;
+    constexpr bool kShowAccessibilityGrid = true;
 
     Rectangle GetNextTurnButtonRect()
     {
@@ -101,13 +103,25 @@ void MainState::HandleMapSelection()
     const int cellX = static_cast<int>((mouse.x - static_cast<float>(kMapDrawX)) / static_cast<float>(kMapPixelsPerCell));
     const int cellY = static_cast<int>((mouse.y - static_cast<float>(kMapDrawY)) / static_cast<float>(kMapPixelsPerCell));
     const int regionId = g_OverworldMap.GetRegionId(cellX, cellY);
+    const OverworldCellType cellType = g_OverworldMap.GetCell(cellX, cellY);
 
     if (regionId < 0)
     {
         m_SelectedRegionId = -1;
+        if (cellType == OW_MOUNTAIN || cellType == OW_WATER)
+        {
+            m_SelectedImpassable = true;
+            m_SelectedImpassableCellType = static_cast<unsigned char>(cellType);
+        }
+        else
+        {
+            m_SelectedImpassable = false;
+        }
+
         return;
     }
 
+    m_SelectedImpassable = false;
     m_SelectedRegionId = regionId;
     g_GameDatabase.SetActiveRegion(regionId);
 }
@@ -119,6 +133,26 @@ void MainState::DrawCountyInfo(int panelX, int panelY, int panelWidth) const
 
     if (m_SelectedRegionId < 0)
     {
+        if (m_SelectedImpassable && m_SelectedImpassableCellType == static_cast<unsigned char>(OW_MOUNTAIN))
+        {
+            DrawOutlinedText(g_font, "Mountains", Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 4) },
+                g_fontDrawSize, 1, Color{ 180, 180, 180, 255 });
+            DrawOutlinedText(g_smallFont, "Impassable",
+                Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 20) },
+                g_smallFontDrawSize, 1, Color{ 200, 200, 200, 255 });
+            return;
+        }
+
+        if (m_SelectedImpassable && m_SelectedImpassableCellType == static_cast<unsigned char>(OW_WATER))
+        {
+            DrawOutlinedText(g_font, "Water", Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 4) },
+                g_fontDrawSize, 1, Color{ 140, 200, 255, 255 });
+            DrawOutlinedText(g_smallFont, "Impassable",
+                Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 20) },
+                g_smallFontDrawSize, 1, Color{ 200, 200, 200, 255 });
+            return;
+        }
+
         DrawOutlinedText(g_font, "County", Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 4) },
             g_fontDrawSize, 1, WHITE);
         DrawOutlinedText(g_smallFont, "Click a county on the map", Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 20) },
@@ -132,9 +166,19 @@ void MainState::DrawCountyInfo(int panelX, int panelY, int panelWidth) const
         return;
     }
 
-    const string title = "County " + to_string(region->m_Id);
+    const string title = region->m_IsWater
+        ? "Lake " + to_string(region->m_Id)
+        : "County " + to_string(region->m_Id);
     DrawOutlinedText(g_font, title, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 4) },
         g_fontDrawSize, 1, Color{ 255, 230, 90, 255 });
+
+    if (region->m_IsWater)
+    {
+        DrawOutlinedText(g_smallFont, "Inland water - impassable",
+            Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 20) },
+            g_smallFontDrawSize, 1, Color{ 140, 200, 255, 255 });
+        return;
+    }
 
     const string resourceText = string("Resource: ") + CountyResourceName(region->m_Resource);
     const string ownerText = string("Owner: ") + PlayerOwnerName(region->m_OwnerId);
@@ -278,17 +322,26 @@ void MainState::Draw()
     DrawRectangle(0, 0, static_cast<int>(g_Engine->m_RenderWidth), static_cast<int>(g_Engine->m_RenderHeight),
         Color{ 24, 28, 36, 255 });
 
-    g_OverworldMap.Draw(kMapDrawX, kMapDrawY, kMapPixelsPerCell);
-    if (m_SelectedRegionId >= 0)
-    {
-        g_OverworldMap.DrawRegionHighlight(kMapDrawX, kMapDrawY, kMapPixelsPerCell, m_SelectedRegionId);
-    }
+    g_OverworldMap.Draw(kMapDrawX, kMapDrawY, kMapPixelsPerCell, m_SelectedRegionId);
 
     const int mapRight = kMapDrawX + (OVERWORLD_MAP_SIZE * kMapPixelsPerCell);
     const int panelX = mapRight + 8;
     const int panelWidth = static_cast<int>(g_Engine->m_RenderWidth) - panelX - 4;
+    const int sidePanelY = kMapDrawY + kCountyInfoHeight + kPlayerBoxGap;
+    const int sidePanelHeight = static_cast<int>(g_Engine->m_RenderHeight) - sidePanelY - kNextTurnButtonHeight - (kPanelMargin * 2);
+
     DrawCountyInfo(panelX, kMapDrawY, panelWidth);
-    DrawPlayerSummaries(panelX, kMapDrawY + kCountyInfoHeight + kPlayerBoxGap, panelWidth);
+
+    if (kShowAccessibilityGrid)
+    {
+        g_OverworldMap.DrawAccessibilityGrid(panelX, sidePanelY, panelWidth, sidePanelHeight, m_SelectedRegionId);
+    }
+
+    if (kShowPlayerStatusBoxes)
+    {
+        DrawPlayerSummaries(panelX, sidePanelY, panelWidth);
+    }
+
     DrawNextTurnButton();
 
     DrawOutlinedText(g_smallFont, "R: new map  Esc: title", Vector2{ 4.0f, static_cast<float>(g_Engine->m_RenderHeight - 14.0f) },
