@@ -45,6 +45,13 @@ struct CombatFigure
     int m_FormationRow = 0;
     int m_FormationColumn = 0;
     float m_AttackCooldownRemaining = 0.0f;
+    float m_WorldX = 0.0f;
+    float m_WorldZ = 0.0f;
+    float m_FacingAngle = 0.0f;
+    float m_TargetFacingAngle = 0.0f;
+    bool m_IsMoving = false;
+    float m_MoveTargetX = 0.0f;
+    float m_MoveTargetZ = 0.0f;
 };
 
 struct CombatUnitInstance
@@ -54,6 +61,8 @@ struct CombatUnitInstance
     Vector3 m_Anchor{ 0.0f, 0.0f, 0.0f };
     LittlePeopleArmy m_Army = LittlePeopleArmy::Blue;
     LittlePeopleDirection m_Facing = LittlePeopleDirection::South;
+    float m_FacingAngle = 0.0f;
+    float m_TargetFacingAngle = 0.0f;
     bool m_IsMoving = false;
     Vector3 m_MoveTargetAnchor{ 0.0f, 0.0f, 0.0f };
     int m_AttackTargetUnitIndex = -1;
@@ -105,6 +114,7 @@ void UpdateCombatUnitsCombat(std::vector<CombatUnitInstance>& units, std::vector
 void UpdateCombatProjectiles(std::vector<CombatProjectile>& projectiles, std::vector<CombatUnitInstance>& units, float deltaTime);
 bool GetCombatUnitFormationSlot(CombatUnitType type, int slotIndex, int& row, int& column);
 Vector2 GetCombatUnitFormationOffset(CombatUnitType type, int row, int column);
+Vector3 TransformCombatFormationOffset(float facingAngleRadians, float localX, float localZ);
 Vector3 TransformCombatFormationOffset(LittlePeopleDirection facing, float localX, float localZ);
 
 float GetCombatUnitSpriteHeight(CombatUnitType type);
@@ -123,9 +133,10 @@ int PickCombatUnitAtMouse(const Camera3D& camera, const RegionHeightfield& heigh
     const std::vector<CombatUnitInstance>& units, Vector2 mousePosition);
 float GetCombatUnitMoveSpeed(CombatUnitType type);
 bool IsCombatUnitMoving(const CombatUnitInstance& unit);
+bool IsCombatFigureMoving(const CombatFigure& figure);
 void FaceCombatUnitToward(CombatUnitInstance& unit, Vector3 worldTarget);
 void BeginCombatUnitMove(CombatUnitInstance& unit, Vector3 targetAnchor, bool clearAttackTarget = true);
-void UpdateCombatUnitMovement(CombatUnitInstance& unit, float deltaTime);
+void UpdateCombatUnitsFormationRecovery(std::vector<CombatUnitInstance>& units);
 void UpdateCombatUnitsMovement(std::vector<CombatUnitInstance>& units, float deltaTime);
 
 void DrawCombatUnit(const Camera3D& camera, const RegionHeightfield& heightfield, const CombatUnitInstance& unit,

@@ -121,6 +121,15 @@ void MainState::HandleMapSelection()
         return;
     }
 
+    const OverworldRegionData* region = g_OverworldMap.GetRegion(regionId);
+    if (!region || region->m_IsWater)
+    {
+        m_SelectedRegionId = -1;
+        m_SelectedImpassable = true;
+        m_SelectedImpassableCellType = static_cast<unsigned char>(OW_WATER);
+        return;
+    }
+
     m_SelectedImpassable = false;
     m_SelectedRegionId = regionId;
     g_GameDatabase.SetActiveRegion(regionId);

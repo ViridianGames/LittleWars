@@ -175,3 +175,6 @@
 /build/liblua.a
 /build/CMakeFiles/LittleWars.dir/Source/RegionMinimap.cpp.o
 /build/CMakeFiles/LittleWars.dir/Source/RegionMinimap.cpp.o.d
+/Redist/Images/tiles256.png-autosave.kra
+/build/CMakeFiles/LittleWars.dir/Source/MapTilesSprites.cpp.o
+/build/CMakeFiles/LittleWars.dir/Source/MapTilesSprites.cpp.o.d

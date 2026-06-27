@@ -1,6 +1,7 @@
 #include "OverworldMap.h"
 
 #include "GameGlobals.h"
+#include "MapTilesSprites.h"
 #include "Player.h"
 
 #include <algorithm>
@@ -1684,25 +1685,115 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
         DrawRegionHighlight(x, y, pixelsPerCell, selectedRegionId);
     }
 
-    if (g_smallFont)
+    struct RegionCellBounds
     {
-        for (const OverworldRegionData& region : m_Regions)
+        int m_MinX = OVERWORLD_MAP_SIZE;
+        int m_MinY = OVERWORLD_MAP_SIZE;
+        int m_MaxX = -1;
+        int m_MaxY = -1;
+
+        bool IsValid() const
         {
-            if (region.m_IsWater)
+            return m_MaxX >= m_MinX && m_MaxY >= m_MinY;
+        }
+    };
+
+    std::vector<RegionCellBounds> regionCellBounds(m_Regions.size());
+    for (int cellY = 0; cellY < OVERWORLD_MAP_SIZE; ++cellY)
+    {
+        for (int cellX = 0; cellX < OVERWORLD_MAP_SIZE; ++cellX)
+        {
+            const int regionId = GetRegionId(cellX, cellY);
+            if (regionId < 0 || regionId >= static_cast<int>(regionCellBounds.size()))
             {
                 continue;
             }
 
-            const std::string label(1, CountyResourceMarker(region.m_Resource));
-            const float centerX = static_cast<float>(x) + (static_cast<float>(region.m_SeedX) * static_cast<float>(pixelsPerCell))
-                + (static_cast<float>(pixelsPerCell) * 0.5f);
-            const float centerY = static_cast<float>(y) + (static_cast<float>(region.m_SeedY) * static_cast<float>(pixelsPerCell))
-                + (static_cast<float>(pixelsPerCell) * 0.5f);
-            const Vector2 textSize = MeasureTextEx(*g_smallFont, label.c_str(), g_smallFontDrawSize, 1);
-            const Color labelFill = region.m_OwnerId >= 0 ? PlayerOwnerColor(region.m_OwnerId) : WHITE;
-            DrawOutlinedText(g_smallFont, label,
-                Vector2{ centerX - (textSize.x * 0.5f), centerY - (textSize.y * 0.5f) },
-                g_smallFontDrawSize, 1, labelFill);
+            const OverworldRegionData* region = GetRegion(regionId);
+            if (!region || region->m_IsWater)
+            {
+                continue;
+            }
+
+            RegionCellBounds& bounds = regionCellBounds[static_cast<size_t>(regionId)];
+            bounds.m_MinX = std::min(bounds.m_MinX, cellX);
+            bounds.m_MinY = std::min(bounds.m_MinY, cellY);
+            bounds.m_MaxX = std::max(bounds.m_MaxX, cellX);
+            bounds.m_MaxY = std::max(bounds.m_MaxY, cellY);
+        }
+    }
+
+    auto RegionCenterPixels = [&](const OverworldRegionData& region) -> Vector2
+    {
+        if (region.m_Id >= 0 && region.m_Id < static_cast<int>(regionCellBounds.size()))
+        {
+            const RegionCellBounds& bounds = regionCellBounds[static_cast<size_t>(region.m_Id)];
+            if (bounds.IsValid())
+            {
+                const int centerPixelX = x + (((bounds.m_MinX + bounds.m_MaxX + 1) * pixelsPerCell) / 2);
+                const int centerPixelY = y + (((bounds.m_MinY + bounds.m_MaxY + 1) * pixelsPerCell) / 2);
+                return Vector2{ static_cast<float>(centerPixelX), static_cast<float>(centerPixelY) };
+            }
+        }
+
+        return Vector2{
+            static_cast<float>(x + (region.m_SeedX * pixelsPerCell) + (pixelsPerCell / 2)),
+            static_cast<float>(y + (region.m_SeedY * pixelsPerCell) + (pixelsPerCell / 2))
+        };
+    };
+
+    constexpr int kOwnedMarkerGap = 0;
+    constexpr int kOwnedIconLeftOffset = -1;
+    constexpr int kOwnedIconDownOffset = 1;
+    constexpr int kResourceIconUpOffset = 1;
+    for (const OverworldRegionData& region : m_Regions)
+    {
+        if (region.m_IsWater)
+        {
+            continue;
+        }
+
+        const Vector2 regionCenter = RegionCenterPixels(region);
+        const int centerX = static_cast<int>(regionCenter.x);
+        const int centerY = static_cast<int>(regionCenter.y);
+        const MapTilesSpriteSpec resourceSpec = GetMapTilesResourceSpec(region.m_Resource);
+
+        if (region.m_OwnerId >= 0)
+        {
+            const int flagLeft = 0;
+            const int flagTop = 0;
+            const int iconLeft = MAP_TILES_FLAG_WIDTH + kOwnedMarkerGap + kOwnedIconLeftOffset;
+            const int iconTop = ((MAP_TILES_FLAG_HEIGHT - resourceSpec.m_Height) / 2) + kOwnedIconDownOffset;
+
+            const int boundsLeft = std::min(flagLeft, iconLeft);
+            const int boundsTop = std::min(flagTop, iconTop);
+            const int boundsRight = std::max(flagLeft + MAP_TILES_FLAG_WIDTH, iconLeft + resourceSpec.m_Width);
+            const int boundsBottom = std::max(flagTop + MAP_TILES_FLAG_HEIGHT, iconTop + resourceSpec.m_Height);
+            const int groupWidth = boundsRight - boundsLeft;
+            const int groupHeight = boundsBottom - boundsTop;
+            const int anchorX = centerX - (groupWidth / 2) - boundsLeft;
+            const int anchorY = centerY - (groupHeight / 2) - boundsTop;
+
+            DrawRegionFlag(
+                Vector2{
+                    static_cast<float>(anchorX + flagLeft + (MAP_TILES_FLAG_WIDTH / 2)),
+                    static_cast<float>(anchorY + flagTop + (MAP_TILES_FLAG_HEIGHT / 2))
+                },
+                PlayerOwnerColor(region.m_OwnerId));
+            DrawRegionResourceIcon(
+                region.m_Resource,
+                Vector2{
+                    static_cast<float>(anchorX + iconLeft + (resourceSpec.m_Width / 2)),
+                    static_cast<float>(anchorY + iconTop + (resourceSpec.m_Height / 2) - kResourceIconUpOffset)
+                },
+                WHITE);
+        }
+        else
+        {
+            DrawRegionResourceIcon(
+                region.m_Resource,
+                Vector2{ static_cast<float>(centerX), static_cast<float>(centerY - kResourceIconUpOffset) },
+                WHITE);
         }
     }
 

@@ -68,46 +68,577 @@ namespace
         DrawCube(armCenter, armSize.x, armSize.y, armSize.z, Color{ 70, 55, 38, 255 });
     }
 
-    float GetCombatFormationLineExtent(CombatUnitType type)
+    constexpr float kTwoPi = 6.28318530718f;
+    constexpr float kPi = 3.14159265359f;
+    constexpr float kFacingAngleSlice = kTwoPi / static_cast<float>(LITTLEPEOPLE_DIRECTION_COUNT);
+    constexpr float kUnitRotateSpeed = 5.5f;
+    constexpr float kFigureMinSeparation = 0.85f;
+
+    float FacingDirectionToAngle(LittlePeopleDirection facing)
     {
-        const CombatUnitFormation& formation = GetCombatUnitFormation(type);
-        return ((formation.m_Rows - 1) * 0.5f) * formation.m_RowSpacing;
+        const int directionIndex = static_cast<int>(facing) % LITTLEPEOPLE_DIRECTION_COUNT;
+        return static_cast<float>(directionIndex) * kFacingAngleSlice;
     }
 
-    int PickRandomLivingFigureIndexInRange(const CombatUnitInstance& attacker, const CombatFigure& attackerFigure,
-        const CombatUnitInstance& target, const RegionHeightfield& heightfield)
+    float NormalizeAngleRadians(float angle)
     {
-        const float attackRange = GetCombatUnitAttackRange(attacker.m_Type);
-        std::vector<int> inRangeFigureIndices;
-        inRangeFigureIndices.reserve(target.m_Figures.size());
-
-        for (int figureIndex = 0; figureIndex < static_cast<int>(target.m_Figures.size()); ++figureIndex)
+        while (angle >= kTwoPi)
         {
-            const CombatFigure& targetFigure = target.m_Figures[static_cast<size_t>(figureIndex)];
-            if (!IsCombatFigureAlive(targetFigure))
+            angle -= kTwoPi;
+        }
+
+        while (angle < 0.0f)
+        {
+            angle += kTwoPi;
+        }
+
+        return angle;
+    }
+
+    float ShortestAngleDelta(float currentAngle, float targetAngle)
+    {
+        float delta = targetAngle - currentAngle;
+        while (delta > kPi)
+        {
+            delta -= kTwoPi;
+        }
+
+        while (delta < -kPi)
+        {
+            delta += kTwoPi;
+        }
+
+        return delta;
+    }
+
+    float FacingAngleFromVector(float dx, float dz)
+    {
+        return NormalizeAngleRadians(std::atan2f(dx, dz));
+    }
+
+    LittlePeopleDirection VisualFacingFromAngle(float facingAngle)
+    {
+        return LittlePeopleDirectionFromVector(std::sinf(facingAngle), std::cosf(facingAngle));
+    }
+
+    float ClampWorldCoord(float value)
+    {
+        return std::clamp(value, 2.0f, static_cast<float>(REGION_CELLS) - 2.0f);
+    }
+
+    void SyncCombatUnitFacingAngles(CombatUnitInstance& unit)
+    {
+        unit.m_FacingAngle = FacingDirectionToAngle(unit.m_Facing);
+        unit.m_TargetFacingAngle = unit.m_FacingAngle;
+    }
+
+    void InitializeFigureWorldState(CombatUnitInstance& unit, CombatFigure& figure)
+    {
+        const Vector2 localOffset = GetCombatUnitFormationOffset(
+            unit.m_Type,
+            figure.m_FormationRow,
+            figure.m_FormationColumn);
+        const Vector3 worldOffset = TransformCombatFormationOffset(unit.m_FacingAngle, localOffset.x, localOffset.y);
+        figure.m_WorldX = unit.m_Anchor.x + worldOffset.x;
+        figure.m_WorldZ = unit.m_Anchor.z + worldOffset.z;
+        figure.m_FacingAngle = unit.m_FacingAngle;
+        figure.m_TargetFacingAngle = unit.m_FacingAngle;
+        figure.m_MoveTargetX = figure.m_WorldX;
+        figure.m_MoveTargetZ = figure.m_WorldZ;
+        figure.m_IsMoving = false;
+    }
+
+    void UpdateCombatFigureFacing(CombatFigure& figure, float deltaTime)
+    {
+        const float delta = ShortestAngleDelta(figure.m_FacingAngle, figure.m_TargetFacingAngle);
+        if (std::fabs(delta) < 0.005f)
+        {
+            figure.m_FacingAngle = figure.m_TargetFacingAngle;
+            return;
+        }
+
+        const float step = kUnitRotateSpeed * deltaTime;
+        if (std::fabs(delta) <= step)
+        {
+            figure.m_FacingAngle = figure.m_TargetFacingAngle;
+        }
+        else
+        {
+            figure.m_FacingAngle += (delta > 0.0f ? step : -step);
+        }
+
+        figure.m_FacingAngle = NormalizeAngleRadians(figure.m_FacingAngle);
+    }
+
+    void FaceCombatFigureToward(CombatFigure& figure, float targetX, float targetZ)
+    {
+        const float dx = targetX - figure.m_WorldX;
+        const float dz = targetZ - figure.m_WorldZ;
+        if ((dx * dx + dz * dz) > 0.05f)
+        {
+            figure.m_TargetFacingAngle = FacingAngleFromVector(dx, dz);
+        }
+    }
+
+    void SyncCombatUnitAnchorFromFigures(CombatUnitInstance& unit)
+    {
+        float sumX = 0.0f;
+        float sumZ = 0.0f;
+        int livingCount = 0;
+
+        for (const CombatFigure& figure : unit.m_Figures)
+        {
+            if (!IsCombatFigureAlive(figure))
             {
                 continue;
             }
 
-            const float distance = GetCombatFigureDistance(
-                attacker,
-                attackerFigure,
-                target,
-                targetFigure,
-                heightfield);
-            if (distance <= attackRange)
+            sumX += figure.m_WorldX;
+            sumZ += figure.m_WorldZ;
+            ++livingCount;
+        }
+
+        if (livingCount <= 0)
+        {
+            return;
+        }
+
+        const float invCount = 1.0f / static_cast<float>(livingCount);
+        unit.m_Anchor.x = sumX * invCount;
+        unit.m_Anchor.z = sumZ * invCount;
+    }
+
+    Vector2 GetFigureFormationWorldXZ(const CombatUnitInstance& unit, const CombatFigure& figure,
+        float anchorX, float anchorZ, float facingAngle)
+    {
+        const Vector2 localOffset = GetCombatUnitFormationOffset(
+            unit.m_Type,
+            figure.m_FormationRow,
+            figure.m_FormationColumn);
+        const Vector3 worldOffset = TransformCombatFormationOffset(facingAngle, localOffset.x, localOffset.y);
+        return Vector2{
+            anchorX + worldOffset.x,
+            anchorZ + worldOffset.z
+        };
+    }
+
+    float ResolveFormationFacingForMove(const CombatUnitInstance& unit, Vector3 orderCenter)
+    {
+        const float moveDx = orderCenter.x - unit.m_Anchor.x;
+        const float moveDz = orderCenter.z - unit.m_Anchor.z;
+        const float moveDistSq = moveDx * moveDx + moveDz * moveDz;
+        if (moveDistSq <= 0.05f)
+        {
+            return unit.m_FacingAngle;
+        }
+
+        const float moveDist = std::sqrt(moveDistSq);
+        const float forwardX = std::sinf(unit.m_FacingAngle);
+        const float forwardZ = std::cosf(unit.m_FacingAngle);
+        const float dot = (moveDx * forwardX + moveDz * forwardZ) / moveDist;
+
+        if (dot < -0.15f)
+        {
+            return unit.m_FacingAngle;
+        }
+
+        return FacingAngleFromVector(moveDx, moveDz);
+    }
+
+    bool IsCombatFigureNearFormationSlot(const CombatUnitInstance& unit, const CombatFigure& figure,
+        float anchorX, float anchorZ, float facingAngle)
+    {
+        const Vector2 slotPosition = GetFigureFormationWorldXZ(unit, figure, anchorX, anchorZ, facingAngle);
+        const float dx = figure.m_WorldX - slotPosition.x;
+        const float dz = figure.m_WorldZ - slotPosition.y;
+        return (dx * dx + dz * dz) <= 0.1f;
+    }
+
+    bool IsUnitExecutingDistantMoveOrder(const CombatUnitInstance& unit)
+    {
+        if (!unit.m_IsMoving)
+        {
+            return false;
+        }
+
+        const float dx = unit.m_MoveTargetAnchor.x - unit.m_Anchor.x;
+        const float dz = unit.m_MoveTargetAnchor.z - unit.m_Anchor.z;
+        return (dx * dx + dz * dz) > 1.0f;
+    }
+
+    void AssignFigureFormationTargets(CombatUnitInstance& unit, float anchorX, float anchorZ,
+        float facingAngle, bool& anyMoving)
+    {
+        anyMoving = false;
+        for (CombatFigure& figure : unit.m_Figures)
+        {
+            if (!IsCombatFigureAlive(figure))
             {
-                inRangeFigureIndices.push_back(figureIndex);
+                continue;
+            }
+
+            const Vector2 slotPosition = GetFigureFormationWorldXZ(unit, figure, anchorX, anchorZ, facingAngle);
+            figure.m_MoveTargetX = ClampWorldCoord(slotPosition.x);
+            figure.m_MoveTargetZ = ClampWorldCoord(slotPosition.y);
+
+            const float dx = figure.m_MoveTargetX - figure.m_WorldX;
+            const float dz = figure.m_MoveTargetZ - figure.m_WorldZ;
+            figure.m_IsMoving = (dx * dx + dz * dz) > 0.05f;
+            anyMoving = anyMoving || figure.m_IsMoving;
+        }
+    }
+
+    void AssignFigureMoveOrder(CombatUnitInstance& unit, Vector3 orderCenter, float formationFacingAngle)
+    {
+        unit.m_MoveTargetAnchor.x = ClampWorldCoord(orderCenter.x);
+        unit.m_MoveTargetAnchor.z = ClampWorldCoord(orderCenter.z);
+        unit.m_MoveTargetAnchor.y = 0.0f;
+
+        bool anyMoving = false;
+        AssignFigureFormationTargets(
+            unit,
+            unit.m_MoveTargetAnchor.x,
+            unit.m_MoveTargetAnchor.z,
+            formationFacingAngle,
+            anyMoving);
+        unit.m_IsMoving = anyMoving;
+    }
+
+    bool AreCombatFiguresFriendly(const CombatUnitInstance& a, const CombatUnitInstance& b)
+    {
+        return IsCombatUnitAlive(a) && IsCombatUnitAlive(b) && a.m_Army == b.m_Army;
+    }
+
+    bool WouldFigureOverlapFriendly(float worldX, float worldZ,
+        const std::vector<CombatUnitInstance>& units,
+        int selfUnitIndex, int selfFigureIndex)
+    {
+        const CombatUnitInstance& selfUnit = units[static_cast<size_t>(selfUnitIndex)];
+        const float minDistSq = kFigureMinSeparation * kFigureMinSeparation;
+
+        for (int unitIndex = 0; unitIndex < static_cast<int>(units.size()); ++unitIndex)
+        {
+            const CombatUnitInstance& unit = units[static_cast<size_t>(unitIndex)];
+            if (!AreCombatFiguresFriendly(selfUnit, unit))
+            {
+                continue;
+            }
+
+            for (int figureIndex = 0; figureIndex < static_cast<int>(unit.m_Figures.size()); ++figureIndex)
+            {
+                if (unitIndex == selfUnitIndex && figureIndex == selfFigureIndex)
+                {
+                    continue;
+                }
+
+                const CombatFigure& other = unit.m_Figures[static_cast<size_t>(figureIndex)];
+                if (!IsCombatFigureAlive(other))
+                {
+                    continue;
+                }
+
+                const float dx = worldX - other.m_WorldX;
+                const float dz = worldZ - other.m_WorldZ;
+                if ((dx * dx + dz * dz) < minDistSq)
+                {
+                    return true;
+                }
             }
         }
 
-        if (inRangeFigureIndices.empty())
+        return false;
+    }
+
+    void ResolveFriendlyFigureOverlap(CombatFigure& figureA, CombatFigure& figureB,
+        float dx, float dz, float dist, float minDistance)
+    {
+        if (dist < 0.001f)
         {
-            return -1;
+            dx = 1.0f;
+            dz = 0.0f;
+            dist = 1.0f;
         }
 
-        const int choice = GetRandomValue(0, static_cast<int>(inRangeFigureIndices.size()) - 1);
-        return inRangeFigureIndices[static_cast<size_t>(choice)];
+        const float overlap = minDistance - dist;
+        const float pushX = (dx / dist) * overlap;
+        const float pushZ = (dz / dist) * overlap;
+        const float mobilityA = figureA.m_IsMoving ? 1.0f : 0.2f;
+        const float mobilityB = figureB.m_IsMoving ? 1.0f : 0.2f;
+        const float invMobilitySum = 1.0f / (mobilityA + mobilityB);
+
+        figureA.m_WorldX = ClampWorldCoord(figureA.m_WorldX - pushX * mobilityA * invMobilitySum);
+        figureA.m_WorldZ = ClampWorldCoord(figureA.m_WorldZ - pushZ * mobilityA * invMobilitySum);
+        figureB.m_WorldX = ClampWorldCoord(figureB.m_WorldX + pushX * mobilityB * invMobilitySum);
+        figureB.m_WorldZ = ClampWorldCoord(figureB.m_WorldZ + pushZ * mobilityB * invMobilitySum);
+    }
+
+    void ApplyFriendlyArmySeparation(std::vector<CombatUnitInstance>& units)
+    {
+        const float minDistSq = kFigureMinSeparation * kFigureMinSeparation;
+
+        for (int unitIndexA = 0; unitIndexA < static_cast<int>(units.size()); ++unitIndexA)
+        {
+            CombatUnitInstance& unitA = units[static_cast<size_t>(unitIndexA)];
+            if (!IsCombatUnitAlive(unitA))
+            {
+                continue;
+            }
+
+            for (int figureIndexA = 0; figureIndexA < static_cast<int>(unitA.m_Figures.size()); ++figureIndexA)
+            {
+                CombatFigure& figureA = unitA.m_Figures[static_cast<size_t>(figureIndexA)];
+                if (!IsCombatFigureAlive(figureA))
+                {
+                    continue;
+                }
+
+                for (int unitIndexB = unitIndexA; unitIndexB < static_cast<int>(units.size()); ++unitIndexB)
+                {
+                    CombatUnitInstance& unitB = units[static_cast<size_t>(unitIndexB)];
+                    if (!AreCombatFiguresFriendly(unitA, unitB))
+                    {
+                        continue;
+                    }
+
+                    const int startFigureIndexB = (unitIndexA == unitIndexB)
+                        ? figureIndexA + 1
+                        : 0;
+
+                    for (int figureIndexB = startFigureIndexB;
+                        figureIndexB < static_cast<int>(unitB.m_Figures.size());
+                        ++figureIndexB)
+                    {
+                        CombatFigure& figureB = unitB.m_Figures[static_cast<size_t>(figureIndexB)];
+                        if (!IsCombatFigureAlive(figureB))
+                        {
+                            continue;
+                        }
+
+                        float dx = figureB.m_WorldX - figureA.m_WorldX;
+                        float dz = figureB.m_WorldZ - figureA.m_WorldZ;
+                        const float distSq = dx * dx + dz * dz;
+                        if (distSq >= minDistSq)
+                        {
+                            continue;
+                        }
+
+                        if (figureA.m_IsMoving && figureB.m_IsMoving)
+                        {
+                            continue;
+                        }
+
+                        const float dist = std::sqrt(distSq);
+                        ResolveFriendlyFigureOverlap(figureA, figureB, dx, dz, dist, kFigureMinSeparation);
+                    }
+                }
+            }
+        }
+    }
+
+    bool FindNearestHostileFigure(const CombatUnitInstance& unit, const CombatFigure& figure,
+        int preferredTargetUnitIndex, const std::vector<CombatUnitInstance>& units,
+        int& outUnitIndex, int& outFigureIndex, float& outDistance)
+    {
+        outUnitIndex = -1;
+        outFigureIndex = -1;
+        outDistance = 0.0f;
+
+        auto considerFigure = [&](int unitIndex, int figureIndex, const CombatFigure& candidate)
+        {
+            const float dx = candidate.m_WorldX - figure.m_WorldX;
+            const float dz = candidate.m_WorldZ - figure.m_WorldZ;
+            const float distance = std::sqrt(dx * dx + dz * dz);
+            if (outUnitIndex < 0 || distance < outDistance)
+            {
+                outUnitIndex = unitIndex;
+                outFigureIndex = figureIndex;
+                outDistance = distance;
+            }
+        };
+
+        if (preferredTargetUnitIndex >= 0
+            && preferredTargetUnitIndex < static_cast<int>(units.size())
+            && AreCombatUnitsHostile(unit, units[static_cast<size_t>(preferredTargetUnitIndex)]))
+        {
+            const CombatUnitInstance& preferredUnit = units[static_cast<size_t>(preferredTargetUnitIndex)];
+            for (int figureIndex = 0; figureIndex < static_cast<int>(preferredUnit.m_Figures.size()); ++figureIndex)
+            {
+                const CombatFigure& candidate = preferredUnit.m_Figures[static_cast<size_t>(figureIndex)];
+                if (!IsCombatFigureAlive(candidate))
+                {
+                    continue;
+                }
+
+                considerFigure(preferredTargetUnitIndex, figureIndex, candidate);
+            }
+        }
+
+        for (int unitIndex = 0; unitIndex < static_cast<int>(units.size()); ++unitIndex)
+        {
+            const CombatUnitInstance& candidateUnit = units[static_cast<size_t>(unitIndex)];
+            if (!AreCombatUnitsHostile(unit, candidateUnit))
+            {
+                continue;
+            }
+
+            for (int figureIndex = 0; figureIndex < static_cast<int>(candidateUnit.m_Figures.size()); ++figureIndex)
+            {
+                const CombatFigure& candidate = candidateUnit.m_Figures[static_cast<size_t>(figureIndex)];
+                if (!IsCombatFigureAlive(candidate))
+                {
+                    continue;
+                }
+
+                considerFigure(unitIndex, figureIndex, candidate);
+            }
+        }
+
+        return outUnitIndex >= 0;
+    }
+
+    bool IsCombatUnitInCombatRange(const CombatUnitInstance& unit, const std::vector<CombatUnitInstance>& units)
+    {
+        if (!CanCombatUnitAttack(unit))
+        {
+            return false;
+        }
+
+        const float attackRange = GetCombatUnitAttackRange(unit.m_Type);
+        for (const CombatFigure& figure : unit.m_Figures)
+        {
+            if (!IsCombatFigureAlive(figure))
+            {
+                continue;
+            }
+
+            int hostileUnitIndex = -1;
+            int hostileFigureIndex = -1;
+            float hostileDistance = 0.0f;
+            if (FindNearestHostileFigure(
+                    unit,
+                    figure,
+                    -1,
+                    units,
+                    hostileUnitIndex,
+                    hostileFigureIndex,
+                    hostileDistance)
+                && hostileDistance <= attackRange)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    void UpdateCombatUnitFormationRecovery(CombatUnitInstance& unit, const std::vector<CombatUnitInstance>& units)
+    {
+        if (!IsCombatUnitAlive(unit) || unit.m_Type == CombatUnitType::Catapult)
+        {
+            return;
+        }
+
+        if (unit.m_AttackTargetUnitIndex >= 0 || IsCombatUnitInCombatRange(unit, units))
+        {
+            return;
+        }
+
+        if (IsUnitExecutingDistantMoveOrder(unit))
+        {
+            return;
+        }
+
+        SyncCombatUnitAnchorFromFigures(unit);
+
+        bool needsReform = false;
+        for (const CombatFigure& figure : unit.m_Figures)
+        {
+            if (!IsCombatFigureAlive(figure))
+            {
+                continue;
+            }
+
+            if (!IsCombatFigureNearFormationSlot(
+                    unit,
+                    figure,
+                    unit.m_Anchor.x,
+                    unit.m_Anchor.z,
+                    unit.m_FacingAngle))
+            {
+                needsReform = true;
+                break;
+            }
+        }
+
+        if (!needsReform)
+        {
+            return;
+        }
+
+        bool anyMoving = false;
+        AssignFigureFormationTargets(
+            unit,
+            unit.m_Anchor.x,
+            unit.m_Anchor.z,
+            unit.m_FacingAngle,
+            anyMoving);
+        unit.m_IsMoving = anyMoving;
+    }
+
+    bool CanFigureStopAt(float worldX, float worldZ,
+        const std::vector<CombatUnitInstance>& units,
+        int selfUnitIndex, int selfFigureIndex)
+    {
+        return !WouldFigureOverlapFriendly(worldX, worldZ, units, selfUnitIndex, selfFigureIndex);
+    }
+
+    void UpdateCombatFigureMovement(const std::vector<CombatUnitInstance>& units,
+        int unitIndex, CombatUnitInstance& unit, int figureIndex, CombatFigure& figure, float deltaTime)
+    {
+        if (!figure.m_IsMoving || !IsCombatFigureAlive(figure))
+        {
+            return;
+        }
+
+        const float dx = figure.m_MoveTargetX - figure.m_WorldX;
+        const float dz = figure.m_MoveTargetZ - figure.m_WorldZ;
+        const float distance = std::sqrt(dx * dx + dz * dz);
+        if (distance <= 0.05f)
+        {
+            if (CanFigureStopAt(figure.m_MoveTargetX, figure.m_MoveTargetZ, units, unitIndex, figureIndex))
+            {
+                figure.m_WorldX = figure.m_MoveTargetX;
+                figure.m_WorldZ = figure.m_MoveTargetZ;
+                figure.m_IsMoving = false;
+            }
+
+            return;
+        }
+
+        figure.m_TargetFacingAngle = FacingAngleFromVector(dx, dz);
+
+        const float moveStep = GetCombatUnitMoveSpeed(unit.m_Type) * deltaTime;
+        if (moveStep >= distance)
+        {
+            if (CanFigureStopAt(figure.m_MoveTargetX, figure.m_MoveTargetZ, units, unitIndex, figureIndex))
+            {
+                figure.m_WorldX = figure.m_MoveTargetX;
+                figure.m_WorldZ = figure.m_MoveTargetZ;
+                figure.m_IsMoving = false;
+            }
+
+            return;
+        }
+
+        const float invDistance = 1.0f / distance;
+        figure.m_WorldX += dx * invDistance * moveStep;
+        figure.m_WorldZ += dz * invDistance * moveStep;
+    }
+
+    float GetCombatFormationLineExtent(CombatUnitType type)
+    {
+        const CombatUnitFormation& formation = GetCombatUnitFormation(type);
+        return ((formation.m_Rows - 1) * 0.5f) * formation.m_RowSpacing;
     }
 
     int ResolveCombatTargetUnitIndex(const CombatUnitInstance& attacker, const std::vector<CombatUnitInstance>& units,
@@ -489,6 +1020,12 @@ void InitCombatUnitHealth(CombatUnitInstance& unit)
         figure.m_AttackCooldownRemaining = GetRandomValue(0, 500) / 1000.0f;
         unit.m_Figures.push_back(figure);
     }
+
+    SyncCombatUnitFacingAngles(unit);
+    for (CombatFigure& figure : unit.m_Figures)
+    {
+        InitializeFigureWorldState(unit, figure);
+    }
 }
 
 void CompactCombatUnitFormation(CombatUnitInstance& unit)
@@ -545,11 +1082,6 @@ void ApplyCombatFigureDamage(CombatUnitInstance& unit, int figureIndex, int dama
     {
         figure.m_CurrentHP = 0;
     }
-
-    if (!IsCombatFigureAlive(figure))
-    {
-        CompactCombatUnitFormation(unit);
-    }
 }
 
 void ClearCombatUnitAttackTarget(CombatUnitInstance& unit)
@@ -603,21 +1135,60 @@ void UpdateCombatUnitsAttackOrders(std::vector<CombatUnitInstance>& units, const
             continue;
         }
 
-        FaceCombatUnitToward(unit, target.m_Anchor);
+        const float attackRange = GetCombatUnitAttackRange(unit.m_Type);
+        bool anyMoving = false;
 
-        if (CanCombatFiguresEngage(unit, target, heightfield))
+        for (CombatFigure& figure : unit.m_Figures)
         {
-            unit.m_IsMoving = false;
-            continue;
+            if (!IsCombatFigureAlive(figure))
+            {
+                continue;
+            }
+
+            int hostileUnitIndex = -1;
+            int hostileFigureIndex = -1;
+            float hostileDistance = 0.0f;
+            if (!FindNearestHostileFigure(
+                    unit,
+                    figure,
+                    unit.m_AttackTargetUnitIndex,
+                    units,
+                    hostileUnitIndex,
+                    hostileFigureIndex,
+                    hostileDistance))
+            {
+                figure.m_IsMoving = false;
+                continue;
+            }
+
+            const CombatFigure& hostileFigure = units[static_cast<size_t>(hostileUnitIndex)]
+                .m_Figures[static_cast<size_t>(hostileFigureIndex)];
+            FaceCombatFigureToward(figure, hostileFigure.m_WorldX, hostileFigure.m_WorldZ);
+
+            if (hostileDistance <= attackRange)
+            {
+                figure.m_IsMoving = false;
+                continue;
+            }
+
+            const float advanceDistance = std::max(0.0f, hostileDistance - (attackRange * 0.85f));
+            if (advanceDistance <= 0.05f)
+            {
+                figure.m_IsMoving = false;
+                continue;
+            }
+
+            const float dx = hostileFigure.m_WorldX - figure.m_WorldX;
+            const float dz = hostileFigure.m_WorldZ - figure.m_WorldZ;
+            const float invDistance = 1.0f / hostileDistance;
+            figure.m_MoveTargetX = ClampWorldCoord(figure.m_WorldX + (dx * invDistance * advanceDistance));
+            figure.m_MoveTargetZ = ClampWorldCoord(figure.m_WorldZ + (dz * invDistance * advanceDistance));
+            figure.m_IsMoving = true;
+            anyMoving = true;
         }
 
-        const Vector3 approachPosition = GetCombatApproachPosition(unit, target);
-        const float approachDx = approachPosition.x - unit.m_MoveTargetAnchor.x;
-        const float approachDz = approachPosition.z - unit.m_MoveTargetAnchor.z;
-        if (!unit.m_IsMoving || (approachDx * approachDx + approachDz * approachDz) > 1.0f)
-        {
-            BeginCombatUnitMove(unit, approachPosition, false);
-        }
+        unit.m_IsMoving = anyMoving;
+        SyncCombatUnitAnchorFromFigures(unit);
     }
 }
 
@@ -639,7 +1210,6 @@ void UpdateCombatUnitsCombat(std::vector<CombatUnitInstance>& units, std::vector
         }
 
         CombatUnitInstance& targetUnit = units[static_cast<size_t>(targetUnitIndex)];
-        FaceCombatUnitToward(attacker, targetUnit.m_Anchor);
 
         const int damagePerFigure = GetCombatFigureAttackDamage(attacker.m_Type);
         if (damagePerFigure <= 0)
@@ -668,34 +1238,40 @@ void UpdateCombatUnitsCombat(std::vector<CombatUnitInstance>& units, std::vector
                 continue;
             }
 
-            const int targetFigureIndex = PickRandomLivingFigureIndexInRange(
-                attacker,
-                attackerFigure,
-                targetUnit,
-                heightfield);
-            if (targetFigureIndex < 0)
+            int hostileUnitIndex = -1;
+            int targetFigureIndex = -1;
+            float hostileDistance = 0.0f;
+            if (!FindNearestHostileFigure(
+                    attacker,
+                    attackerFigure,
+                    attacker.m_AttackTargetUnitIndex >= 0 ? attacker.m_AttackTargetUnitIndex : targetUnitIndex,
+                    units,
+                    hostileUnitIndex,
+                    targetFigureIndex,
+                    hostileDistance))
             {
                 continue;
             }
 
-            const CombatFigure& targetFigure = targetUnit.m_Figures[static_cast<size_t>(targetFigureIndex)];
+            if (hostileDistance > GetCombatUnitAttackRange(attacker.m_Type))
+            {
+                continue;
+            }
+
+            CombatUnitInstance& resolvedTargetUnit = units[static_cast<size_t>(hostileUnitIndex)];
+            const CombatFigure& targetFigure = resolvedTargetUnit.m_Figures[static_cast<size_t>(targetFigureIndex)];
+            FaceCombatFigureToward(attackerFigure, targetFigure.m_WorldX, targetFigure.m_WorldZ);
 
             if (attacker.m_Type == CombatUnitType::Archers)
             {
                 const Vector3 startPosition = GetCombatFigureDrawPosition(attacker, attackerFigure, heightfield);
-                const Vector3 endPosition = GetCombatFigureDrawPosition(targetUnit, targetFigure, heightfield);
-                const float figureDistance = GetCombatFigureDistance(
-                    attacker,
-                    attackerFigure,
-                    targetUnit,
-                    targetFigure,
-                    heightfield);
+                const Vector3 endPosition = GetCombatFigureDrawPosition(resolvedTargetUnit, targetFigure, heightfield);
 
                 CombatProjectile projectile{};
                 projectile.m_StartPosition = startPosition;
                 projectile.m_EndPosition = endPosition;
-                projectile.m_TravelTime = 0.24f + figureDistance * 0.03f;
-                projectile.m_TargetUnitIndex = targetUnitIndex;
+                projectile.m_TravelTime = 0.24f + hostileDistance * 0.03f;
+                projectile.m_TargetUnitIndex = hostileUnitIndex;
                 projectile.m_TargetFigureIndex = targetFigureIndex;
                 projectile.m_Damage = damagePerFigure;
                 projectile.m_Active = true;
@@ -703,7 +1279,7 @@ void UpdateCombatUnitsCombat(std::vector<CombatUnitInstance>& units, std::vector
             }
             else
             {
-                ApplyCombatFigureDamage(targetUnit, targetFigureIndex, damagePerFigure);
+                ApplyCombatFigureDamage(resolvedTargetUnit, targetFigureIndex, damagePerFigure);
             }
 
             const float cooldownJitter = static_cast<float>(GetRandomValue(0, 250)) / 1000.0f;
@@ -774,18 +1350,20 @@ Vector2 GetCombatUnitFormationOffset(CombatUnitType type, int row, int column)
     };
 }
 
-Vector3 TransformCombatFormationOffset(LittlePeopleDirection facing, float localX, float localZ)
+Vector3 TransformCombatFormationOffset(float facingAngleRadians, float localX, float localZ)
 {
-    const int directionIndex = static_cast<int>(facing) % LITTLEPEOPLE_DIRECTION_COUNT;
-    const float angle = static_cast<float>(directionIndex) * (6.28318530718f / static_cast<float>(LITTLEPEOPLE_DIRECTION_COUNT));
-
-    const float cosAngle = std::cosf(angle);
-    const float sinAngle = std::sinf(angle);
+    const float cosAngle = std::cosf(facingAngleRadians);
+    const float sinAngle = std::sinf(facingAngleRadians);
     return Vector3{
         localX * cosAngle + localZ * sinAngle,
         0.0f,
         -localX * sinAngle + localZ * cosAngle
     };
+}
+
+Vector3 TransformCombatFormationOffset(LittlePeopleDirection facing, float localX, float localZ)
+{
+    return TransformCombatFormationOffset(FacingDirectionToAngle(facing), localX, localZ);
 }
 
 float GetCombatUnitSpriteHeight(CombatUnitType type)
@@ -833,21 +1411,9 @@ int GetCombatUnitPickSlotCount(const CombatUnitInstance& unit)
 
 Vector3 GetCombatFigureWorldPosition(const CombatUnitInstance& unit, const CombatFigure& figure, const RegionHeightfield& heightfield)
 {
-    if (unit.m_Type == CombatUnitType::Catapult)
-    {
-        const float y = heightfield.SampleHeight(unit.m_Anchor.x, unit.m_Anchor.z);
-        return Vector3{ unit.m_Anchor.x, y, unit.m_Anchor.z };
-    }
-
-    const Vector2 localOffset = GetCombatUnitFormationOffset(
-        unit.m_Type,
-        figure.m_FormationRow,
-        figure.m_FormationColumn);
-    const Vector3 worldOffset = TransformCombatFormationOffset(unit.m_Facing, localOffset.x, localOffset.y);
-    const float worldX = unit.m_Anchor.x + worldOffset.x;
-    const float worldZ = unit.m_Anchor.z + worldOffset.z;
-    const float worldY = heightfield.SampleHeight(worldX, worldZ);
-    return Vector3{ worldX, worldY, worldZ };
+    (void)unit;
+    const float worldY = heightfield.SampleHeight(figure.m_WorldX, figure.m_WorldZ);
+    return Vector3{ figure.m_WorldX, worldY, figure.m_WorldZ };
 }
 
 Vector3 GetCombatFigureDrawPosition(const CombatUnitInstance& unit, const CombatFigure& figure, const RegionHeightfield& heightfield)
@@ -1026,7 +1592,15 @@ float GetCombatUnitMoveSpeed(CombatUnitType type)
 
 bool IsCombatUnitMoving(const CombatUnitInstance& unit)
 {
-    return unit.m_IsMoving;
+    for (const CombatFigure& figure : unit.m_Figures)
+    {
+        if (IsCombatFigureAlive(figure) && figure.m_IsMoving)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void FaceCombatUnitToward(CombatUnitInstance& unit, Vector3 worldTarget)
@@ -1036,6 +1610,18 @@ void FaceCombatUnitToward(CombatUnitInstance& unit, Vector3 worldTarget)
     if ((dx * dx + dz * dz) > 0.05f)
     {
         unit.m_Facing = LittlePeopleDirectionFromVector(dx, dz);
+        unit.m_TargetFacingAngle = FacingAngleFromVector(dx, dz);
+        unit.m_FacingAngle = unit.m_TargetFacingAngle;
+    }
+
+    for (CombatFigure& figure : unit.m_Figures)
+    {
+        if (!IsCombatFigureAlive(figure))
+        {
+            continue;
+        }
+
+        FaceCombatFigureToward(figure, worldTarget.x, worldTarget.z);
     }
 }
 
@@ -1046,60 +1632,70 @@ void BeginCombatUnitMove(CombatUnitInstance& unit, Vector3 targetAnchor, bool cl
         ClearCombatUnitAttackTarget(unit);
     }
 
+    SyncCombatUnitAnchorFromFigures(unit);
+    const float formationFacing = ResolveFormationFacingForMove(unit, targetAnchor);
     FaceCombatUnitToward(unit, targetAnchor);
-
-    unit.m_MoveTargetAnchor.x = std::clamp(targetAnchor.x, 2.0f, static_cast<float>(REGION_CELLS) - 2.0f);
-    unit.m_MoveTargetAnchor.z = std::clamp(targetAnchor.z, 2.0f, static_cast<float>(REGION_CELLS) - 2.0f);
-    unit.m_MoveTargetAnchor.y = 0.0f;
-
-    const float dx = unit.m_MoveTargetAnchor.x - unit.m_Anchor.x;
-    const float dz = unit.m_MoveTargetAnchor.z - unit.m_Anchor.z;
-    if ((dx * dx + dz * dz) <= 0.05f)
+    if (std::fabs(ShortestAngleDelta(formationFacing, unit.m_FacingAngle)) > 0.1f)
     {
-        unit.m_IsMoving = false;
-        return;
+        unit.m_FacingAngle = formationFacing;
+        unit.m_TargetFacingAngle = formationFacing;
+        unit.m_Facing = VisualFacingFromAngle(formationFacing);
     }
 
-    unit.m_IsMoving = true;
+    AssignFigureMoveOrder(unit, targetAnchor, formationFacing);
 }
 
-void UpdateCombatUnitMovement(CombatUnitInstance& unit, float deltaTime)
+void UpdateCombatUnitsFormationRecovery(std::vector<CombatUnitInstance>& units)
 {
-    if (!unit.m_IsMoving)
+    for (CombatUnitInstance& unit : units)
     {
-        return;
+        UpdateCombatUnitFormationRecovery(unit, units);
     }
+}
 
-    const float dx = unit.m_MoveTargetAnchor.x - unit.m_Anchor.x;
-    const float dz = unit.m_MoveTargetAnchor.z - unit.m_Anchor.z;
-    const float distance = std::sqrt(dx * dx + dz * dz);
-    if (distance <= 0.05f)
-    {
-        unit.m_Anchor.x = unit.m_MoveTargetAnchor.x;
-        unit.m_Anchor.z = unit.m_MoveTargetAnchor.z;
-        unit.m_IsMoving = false;
-        return;
-    }
-
-    const float moveStep = GetCombatUnitMoveSpeed(unit.m_Type) * deltaTime;
-    if (moveStep >= distance)
-    {
-        unit.m_Anchor.x = unit.m_MoveTargetAnchor.x;
-        unit.m_Anchor.z = unit.m_MoveTargetAnchor.z;
-        unit.m_IsMoving = false;
-        return;
-    }
-
-    const float invDistance = 1.0f / distance;
-    unit.m_Anchor.x += dx * invDistance * moveStep;
-    unit.m_Anchor.z += dz * invDistance * moveStep;
+bool IsCombatFigureMoving(const CombatFigure& figure)
+{
+    return figure.m_IsMoving;
 }
 
 void UpdateCombatUnitsMovement(std::vector<CombatUnitInstance>& units, float deltaTime)
 {
+    for (int unitIndex = 0; unitIndex < static_cast<int>(units.size()); ++unitIndex)
+    {
+        CombatUnitInstance& unit = units[static_cast<size_t>(unitIndex)];
+        if (!IsCombatUnitAlive(unit))
+        {
+            continue;
+        }
+
+        bool anyMoving = false;
+        for (int figureIndex = 0; figureIndex < static_cast<int>(unit.m_Figures.size()); ++figureIndex)
+        {
+            CombatFigure& figure = unit.m_Figures[static_cast<size_t>(figureIndex)];
+            if (!IsCombatFigureAlive(figure))
+            {
+                continue;
+            }
+
+            UpdateCombatFigureFacing(figure, deltaTime);
+            UpdateCombatFigureMovement(units, unitIndex, unit, figureIndex, figure, deltaTime);
+            anyMoving = anyMoving || figure.m_IsMoving;
+        }
+
+        unit.m_IsMoving = anyMoving;
+    }
+
+    ApplyFriendlyArmySeparation(units);
+    ApplyFriendlyArmySeparation(units);
+
     for (CombatUnitInstance& unit : units)
     {
-        UpdateCombatUnitMovement(unit, deltaTime);
+        if (!IsCombatUnitAlive(unit))
+        {
+            continue;
+        }
+
+        SyncCombatUnitAnchorFromFigures(unit);
     }
 }
 
@@ -1119,12 +1715,23 @@ void DrawCombatUnit(const Camera3D& camera, const RegionHeightfield& heightfield
 
     if (unit.m_Type == CombatUnitType::Catapult)
     {
-        const float y = heightfield.SampleHeight(unit.m_Anchor.x, unit.m_Anchor.z);
-        DrawCatapultPlaceholder(Vector3{ unit.m_Anchor.x, y, unit.m_Anchor.z });
+        for (const CombatFigure& figure : unit.m_Figures)
+        {
+            if (!IsCombatFigureAlive(figure))
+            {
+                continue;
+            }
+
+            const Vector3 groundPosition = GetCombatFigureWorldPosition(unit, figure, heightfield);
+            DrawCatapultPlaceholder(groundPosition);
+            break;
+        }
+
         return;
     }
 
     const float spriteHeight = GetCombatUnitSpriteHeight(unit.m_Type);
+    const double currentTime = GetTime();
     for (const CombatFigure& figure : unit.m_Figures)
     {
         if (!IsCombatFigureAlive(figure))
@@ -1132,12 +1739,15 @@ void DrawCombatUnit(const Camera3D& camera, const RegionHeightfield& heightfield
             continue;
         }
 
+        const int figureWalkFrame = figure.m_IsMoving
+            ? LittlePeopleWalkFrameFromTime(currentTime)
+            : 0;
         const Vector3 groundPosition = GetCombatFigureWorldPosition(unit, figure, heightfield);
         DrawLittlePersonBillboard(
             camera,
             unit.m_Army,
-            unit.m_Facing,
-            walkFrame,
+            VisualFacingFromAngle(figure.m_FacingAngle),
+            figureWalkFrame,
             groundPosition,
             spriteHeight,
             tint
@@ -1152,9 +1762,38 @@ void DrawCombatUnitSelectionIndicator(const RegionHeightfield& heightfield, cons
         return;
     }
 
-    const float terrainY = heightfield.SampleHeight(unit.m_Anchor.x, unit.m_Anchor.z) + 0.08f;
-    const float radius = GetCombatUnitSelectionRadius(unit.m_Type);
-    const Vector3 center{ unit.m_Anchor.x, terrainY, unit.m_Anchor.z };
+    float minX = unit.m_Anchor.x;
+    float maxX = unit.m_Anchor.x;
+    float minZ = unit.m_Anchor.z;
+    float maxZ = unit.m_Anchor.z;
+    bool hasFigure = false;
+
+    for (const CombatFigure& figure : unit.m_Figures)
+    {
+        if (!IsCombatFigureAlive(figure))
+        {
+            continue;
+        }
+
+        minX = std::min(minX, figure.m_WorldX);
+        maxX = std::max(maxX, figure.m_WorldX);
+        minZ = std::min(minZ, figure.m_WorldZ);
+        maxZ = std::max(maxZ, figure.m_WorldZ);
+        hasFigure = true;
+    }
+
+    if (!hasFigure)
+    {
+        return;
+    }
+
+    const float centerX = (minX + maxX) * 0.5f;
+    const float centerZ = (minZ + maxZ) * 0.5f;
+    const float halfSpanX = (maxX - minX) * 0.5f + 0.8f;
+    const float halfSpanZ = (maxZ - minZ) * 0.5f + 0.8f;
+    const float radius = std::max(halfSpanX, halfSpanZ);
+    const float terrainY = heightfield.SampleHeight(centerX, centerZ) + 0.08f;
+    const Vector3 center{ centerX, terrainY, centerZ };
     DrawCircle3D(center, radius, Vector3{ 0.0f, 1.0f, 0.0f }, 32, Color{ 255, 230, 80, 220 });
 }
 

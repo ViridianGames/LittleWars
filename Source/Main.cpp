@@ -19,6 +19,7 @@
 #include "GameGlobals.h"
 #include "SetupGameState.h"
 #include "LittlePeopleSprites.h"
+#include "MapTilesSprites.h"
 #include "RegionMinimap.h"
 #include "RegionView.h"
 #include "TerrainTextures.h"
@@ -82,6 +83,7 @@ int main(int argv, char** argc)
 
 	InitTerrainTextures();
 	InitLittlePeopleSprites();
+	InitMapTilesSprites();
 	g_RegionView.Init();
 
    // Create and register our example state

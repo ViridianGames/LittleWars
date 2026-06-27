@@ -261,6 +261,7 @@ void CombatState::Update()
     {
         const float deltaTime = GetFrameTime();
         UpdateCombatUnitsAttackOrders(m_Units, *heightfield);
+        UpdateCombatUnitsFormationRecovery(m_Units);
         UpdateCombatUnitsMovement(m_Units, deltaTime);
         UpdateCombatProjectiles(m_Projectiles, m_Units, deltaTime);
         UpdateCombatUnitsCombat(m_Units, m_Projectiles, *heightfield, deltaTime);
@@ -311,8 +312,6 @@ void CombatState::Draw()
     }
 
     const RegionHeightfield& heightfield = region->m_Heightfield;
-    const double currentTime = GetTime();
-
     g_RegionTerrainMesh.SetHeightfield(&heightfield);
     g_RegionTerrainMesh.RebuildIfNeeded();
 
@@ -328,14 +327,11 @@ void CombatState::Draw()
         }
 
         const bool selected = (unitIndex == m_SelectedUnitIndex);
-        const int animationFrame = unit.m_IsMoving
-            ? LittlePeopleWalkFrameFromTime(currentTime)
-            : 0;
         DrawCombatUnit(
             g_RegionView.GetCamera(),
             heightfield,
             unit,
-            animationFrame,
+            0,
             selected
         );
     }

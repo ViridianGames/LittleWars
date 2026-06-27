@@ -142,6 +142,7 @@ set(PROJECT_SOURCES
         Source/CombatUnits.cpp
         Source/GameGlobals.cpp
         Source/LittlePeopleSprites.cpp
+        Source/MapTilesSprites.cpp
         Source/Main.cpp
         Source/MainState.cpp
         Source/OverworldMap.cpp
