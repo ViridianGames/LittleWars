@@ -1,14 +1,103 @@
 #include "LittlePeopleSprites.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include "../Geist/Source/Config.h"
 #include "../Geist/Source/Globals.h"
 #include "../Geist/Source/ResourceManager.h"
+#include "rlgl.h"
 
 namespace
 {
     bool g_LittlePeopleSpritesInitialized = false;
+    Shader g_LittlePeopleBillboardShader{};
+    bool g_LittlePeopleBillboardShaderReady = false;
+
+    const char* kLittlePeopleBillboardVertexShader =
+        "#version 330\n"
+        "in vec3 vertexPosition;\n"
+        "in vec2 vertexTexCoord;\n"
+        "in vec4 vertexColor;\n"
+        "out vec2 fragTexCoord;\n"
+        "out vec4 fragColor;\n"
+        "uniform mat4 mvp;\n"
+        "void main()\n"
+        "{\n"
+        "    fragTexCoord = vertexTexCoord;\n"
+        "    fragColor = vertexColor;\n"
+        "    gl_Position = mvp * vec4(vertexPosition, 1.0);\n"
+        "}\n";
+
+    const char* kLittlePeopleBillboardFragmentShader =
+        "#version 330\n"
+        "in vec2 fragTexCoord;\n"
+        "in vec4 fragColor;\n"
+        "out vec4 finalColor;\n"
+        "uniform sampler2D texture0;\n"
+        "uniform vec4 colDiffuse;\n"
+        "void main()\n"
+        "{\n"
+        "    vec4 texelColor = texture(texture0, fragTexCoord);\n"
+        "    if (texelColor.a < 0.5)\n"
+        "    {\n"
+        "        discard;\n"
+        "    }\n"
+        "    finalColor = texelColor * colDiffuse * fragColor;\n"
+        "}\n";
+
+    void EnsureLittlePeopleBillboardShader()
+    {
+        if (g_LittlePeopleBillboardShaderReady)
+        {
+            return;
+        }
+
+        g_LittlePeopleBillboardShader = LoadShaderFromMemory(
+            kLittlePeopleBillboardVertexShader,
+            kLittlePeopleBillboardFragmentShader);
+        g_LittlePeopleBillboardShaderReady = g_LittlePeopleBillboardShader.id != 0;
+    }
+
+    float GetLittlePersonBillboardSortDepth(const Camera3D& camera, const LittlePersonBillboardDrawRequest& request)
+    {
+        const Vector3 drawPosition{
+            request.m_GroundPosition.x,
+            request.m_GroundPosition.y + request.m_WorldHeight * 0.5f,
+            request.m_GroundPosition.z
+        };
+        const float dx = drawPosition.x - camera.position.x;
+        const float dy = drawPosition.y - camera.position.y;
+        const float dz = drawPosition.z - camera.position.z;
+        return dx * dx + dy * dy + dz * dz;
+    }
+
+    void DrawLittlePersonBillboardInternal(const Camera3D& camera, const LittlePersonBillboardDrawRequest& request)
+    {
+        Texture* texture = GetLittlePeopleAtlasTexture();
+        if (!texture || texture->id == 0)
+        {
+            return;
+        }
+
+        const LittlePeopleDirection spriteDirection = LittlePeopleDirectionForCamera(
+            request.m_WorldDirection,
+            camera);
+        const Rectangle source = GetLittlePeopleSpriteSourceRect(
+            request.m_Army,
+            spriteDirection,
+            request.m_Frame);
+        const float aspect = static_cast<float>(LITTLEPEOPLE_CELL_WIDTH)
+            / static_cast<float>(LITTLEPEOPLE_CELL_HEIGHT);
+        const Vector2 size{ request.m_WorldHeight * aspect, request.m_WorldHeight };
+        const Vector3 drawPosition{
+            request.m_GroundPosition.x,
+            request.m_GroundPosition.y + request.m_WorldHeight * 0.5f,
+            request.m_GroundPosition.z
+        };
+
+        DrawBillboardRec(camera, *texture, source, drawPosition, size, request.m_Tint);
+    }
 }
 
 Rectangle GetLittlePeopleSpriteSourceRect(LittlePeopleArmy army, LittlePeopleDirection direction, int frame)
@@ -82,11 +171,19 @@ void InitLittlePeopleSprites()
     }
 
     g_ResourceManager->AddTexture(LITTLEPEOPLE_ATLAS_PATH, false);
+    EnsureLittlePeopleBillboardShader();
     g_LittlePeopleSpritesInitialized = true;
 }
 
 void ShutdownLittlePeopleSprites()
 {
+    if (g_LittlePeopleBillboardShaderReady)
+    {
+        UnloadShader(g_LittlePeopleBillboardShader);
+        g_LittlePeopleBillboardShader = Shader{};
+        g_LittlePeopleBillboardShaderReady = false;
+    }
+
     g_LittlePeopleSpritesInitialized = false;
 }
 
@@ -103,21 +200,57 @@ Texture* GetLittlePeopleAtlasTexture()
 void DrawLittlePersonBillboard(const Camera3D& camera, LittlePeopleArmy army, LittlePeopleDirection worldDirection,
     int frame, Vector3 groundPosition, float worldHeight, Color tint)
 {
-    Texture* texture = GetLittlePeopleAtlasTexture();
-    if (!texture || texture->id == 0)
+    const std::vector<LittlePersonBillboardDrawRequest> requests{
+        LittlePersonBillboardDrawRequest{
+            army,
+            worldDirection,
+            frame,
+            groundPosition,
+            worldHeight,
+            tint
+        }
+    };
+    DrawLittlePeopleBillboardsSorted(camera, requests);
+}
+
+void DrawLittlePeopleBillboardsSorted(const Camera3D& camera,
+    const std::vector<LittlePersonBillboardDrawRequest>& requests)
+{
+    if (requests.empty())
     {
         return;
     }
 
-    const LittlePeopleDirection spriteDirection = LittlePeopleDirectionForCamera(worldDirection, camera);
-    const Rectangle source = GetLittlePeopleSpriteSourceRect(army, spriteDirection, frame);
-    const float aspect = static_cast<float>(LITTLEPEOPLE_CELL_WIDTH) / static_cast<float>(LITTLEPEOPLE_CELL_HEIGHT);
-    const Vector2 size = { worldHeight * aspect, worldHeight };
-    const Vector3 drawPosition = {
-        groundPosition.x,
-        groundPosition.y + worldHeight * 0.5f,
-        groundPosition.z
-    };
+    if (!g_LittlePeopleSpritesInitialized)
+    {
+        InitLittlePeopleSprites();
+    }
 
-    DrawBillboardRec(camera, *texture, source, drawPosition, size, tint);
+    std::vector<LittlePersonBillboardDrawRequest> sortedRequests = requests;
+    std::sort(sortedRequests.begin(), sortedRequests.end(),
+        [&camera](const LittlePersonBillboardDrawRequest& left, const LittlePersonBillboardDrawRequest& right)
+        {
+            return GetLittlePersonBillboardSortDepth(camera, left) > GetLittlePersonBillboardSortDepth(camera, right);
+        });
+
+    EnsureLittlePeopleBillboardShader();
+
+    if (g_LittlePeopleBillboardShaderReady)
+    {
+        BeginShaderMode(g_LittlePeopleBillboardShader);
+    }
+
+    rlDisableDepthMask();
+
+    for (const LittlePersonBillboardDrawRequest& request : sortedRequests)
+    {
+        DrawLittlePersonBillboardInternal(camera, request);
+    }
+
+    rlEnableDepthMask();
+
+    if (g_LittlePeopleBillboardShaderReady)
+    {
+        EndShaderMode();
+    }
 }

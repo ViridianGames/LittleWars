@@ -3,6 +3,8 @@
 
 #include "raylib.h"
 
+#include <vector>
+
 constexpr int LITTLEPEOPLE_CELL_WIDTH = 8;
 constexpr int LITTLEPEOPLE_CELL_HEIGHT = 11;
 constexpr int LITTLEPEOPLE_ARMY_COUNT = 4;
@@ -32,6 +34,16 @@ enum class LittlePeopleDirection : int
     SouthWest
 };
 
+struct LittlePersonBillboardDrawRequest
+{
+    LittlePeopleArmy m_Army = LittlePeopleArmy::Blue;
+    LittlePeopleDirection m_WorldDirection = LittlePeopleDirection::South;
+    int m_Frame = 0;
+    Vector3 m_GroundPosition{ 0.0f, 0.0f, 0.0f };
+    float m_WorldHeight = 1.2f;
+    Color m_Tint = WHITE;
+};
+
 Rectangle GetLittlePeopleSpriteSourceRect(LittlePeopleArmy army, LittlePeopleDirection direction, int frame);
 
 Rectangle GetLittlePeopleAtlasSourceRect(int column, int row);
@@ -52,5 +64,8 @@ Texture* GetLittlePeopleAtlasTexture();
 // worldDirection is the unit's facing on the map; sprite row is chosen relative to camera yaw.
 void DrawLittlePersonBillboard(const Camera3D& camera, LittlePeopleArmy army, LittlePeopleDirection worldDirection,
     int frame, Vector3 groundPosition, float worldHeight, Color tint = WHITE);
+
+void DrawLittlePeopleBillboardsSorted(const Camera3D& camera,
+    const std::vector<LittlePersonBillboardDrawRequest>& requests);
 
 #endif

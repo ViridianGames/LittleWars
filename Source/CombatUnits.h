@@ -139,6 +139,8 @@ void BeginCombatUnitMove(CombatUnitInstance& unit, Vector3 targetAnchor, bool cl
 void UpdateCombatUnitsFormationRecovery(std::vector<CombatUnitInstance>& units);
 void UpdateCombatUnitsMovement(std::vector<CombatUnitInstance>& units, float deltaTime);
 
+void AppendCombatUnitBillboardDrawRequests(const Camera3D& camera, const RegionHeightfield& heightfield,
+    const CombatUnitInstance& unit, bool selected, std::vector<LittlePersonBillboardDrawRequest>& outRequests);
 void DrawCombatUnit(const Camera3D& camera, const RegionHeightfield& heightfield, const CombatUnitInstance& unit,
     int walkFrame, bool selected = false);
 void DrawCombatUnitSelectionIndicator(const RegionHeightfield& heightfield, const CombatUnitInstance& unit);

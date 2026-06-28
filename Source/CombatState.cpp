@@ -6,6 +6,8 @@
 #include "CombatUnits.h"
 #include "GameGlobals.h"
 #include "LittlePeopleSprites.h"
+
+#include <vector>
 #include "RegionMinimap.h"
 #include "RegionTerrainMesh.h"
 #include "RegionView.h"
@@ -318,6 +320,8 @@ void CombatState::Draw()
     g_RegionView.Begin3D();
     g_RegionTerrainMesh.Draw();
 
+    std::vector<LittlePersonBillboardDrawRequest> billboardDrawRequests;
+    billboardDrawRequests.reserve(128);
     for (int unitIndex = 0; unitIndex < static_cast<int>(m_Units.size()); ++unitIndex)
     {
         const CombatUnitInstance& unit = m_Units[static_cast<size_t>(unitIndex)];
@@ -327,6 +331,12 @@ void CombatState::Draw()
         }
 
         const bool selected = (unitIndex == m_SelectedUnitIndex);
+        AppendCombatUnitBillboardDrawRequests(
+            g_RegionView.GetCamera(),
+            heightfield,
+            unit,
+            selected,
+            billboardDrawRequests);
         DrawCombatUnit(
             g_RegionView.GetCamera(),
             heightfield,
@@ -335,6 +345,8 @@ void CombatState::Draw()
             selected
         );
     }
+
+    DrawLittlePeopleBillboardsSorted(g_RegionView.GetCamera(), billboardDrawRequests);
 
     DrawCombatProjectiles(m_Projectiles);
 

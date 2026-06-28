@@ -1699,35 +1699,20 @@ void UpdateCombatUnitsMovement(std::vector<CombatUnitInstance>& units, float del
     }
 }
 
-void DrawCombatUnit(const Camera3D& camera, const RegionHeightfield& heightfield, const CombatUnitInstance& unit,
-    int walkFrame, bool selected)
+void AppendCombatUnitBillboardDrawRequests(const Camera3D& camera, const RegionHeightfield& heightfield,
+    const CombatUnitInstance& unit, bool selected, std::vector<LittlePersonBillboardDrawRequest>& outRequests)
 {
+    (void)camera;
+
+    if (!IsCombatUnitAlive(unit) || unit.m_Type == CombatUnitType::Catapult)
+    {
+        return;
+    }
+
     Color tint = WHITE;
     if (selected)
     {
         tint = Color{ 255, 255, 160, 255 };
-    }
-
-    if (!IsCombatUnitAlive(unit))
-    {
-        return;
-    }
-
-    if (unit.m_Type == CombatUnitType::Catapult)
-    {
-        for (const CombatFigure& figure : unit.m_Figures)
-        {
-            if (!IsCombatFigureAlive(figure))
-            {
-                continue;
-            }
-
-            const Vector3 groundPosition = GetCombatFigureWorldPosition(unit, figure, heightfield);
-            DrawCatapultPlaceholder(groundPosition);
-            break;
-        }
-
-        return;
     }
 
     const float spriteHeight = GetCombatUnitSpriteHeight(unit.m_Type);
@@ -1743,15 +1728,39 @@ void DrawCombatUnit(const Camera3D& camera, const RegionHeightfield& heightfield
             ? LittlePeopleWalkFrameFromTime(currentTime)
             : 0;
         const Vector3 groundPosition = GetCombatFigureWorldPosition(unit, figure, heightfield);
-        DrawLittlePersonBillboard(
-            camera,
+        outRequests.push_back(LittlePersonBillboardDrawRequest{
             unit.m_Army,
             VisualFacingFromAngle(figure.m_FacingAngle),
             figureWalkFrame,
             groundPosition,
             spriteHeight,
             tint
-        );
+        });
+    }
+}
+
+void DrawCombatUnit(const Camera3D& camera, const RegionHeightfield& heightfield, const CombatUnitInstance& unit,
+    int walkFrame, bool selected)
+{
+    (void)camera;
+    (void)walkFrame;
+    (void)selected;
+
+    if (!IsCombatUnitAlive(unit) || unit.m_Type != CombatUnitType::Catapult)
+    {
+        return;
+    }
+
+    for (const CombatFigure& figure : unit.m_Figures)
+    {
+        if (!IsCombatFigureAlive(figure))
+        {
+            continue;
+        }
+
+        const Vector3 groundPosition = GetCombatFigureWorldPosition(unit, figure, heightfield);
+        DrawCatapultPlaceholder(groundPosition);
+        break;
     }
 }
 
