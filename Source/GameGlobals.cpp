@@ -52,7 +52,7 @@ int MapSizeRegionCount(MapSize size)
     case MapSize::Large:
         return 64;
     case MapSize::Huge:
-        return 100;
+        return 80;
     default:
         return 35;
     }

@@ -830,7 +830,6 @@ void OverworldMap::CarveInterRegionMountains()
                     continue;
                 }
 
-                carve[static_cast<size_t>(GetCellIndex(x, y))] = true;
                 carve[static_cast<size_t>(GetCellIndex(neighborX, neighborY))] = true;
             }
         }
@@ -1600,7 +1599,9 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
     const int mapPixelWidth = OVERWORLD_MAP_SIZE * pixelsPerCell;
     const int mapPixelHeight = OVERWORLD_MAP_SIZE * pixelsPerCell;
     constexpr int kRegionBorderWidth = 1;
-    const Color regionBorderColor = WHITE;
+    constexpr int kMountainBorderWidth = 2;
+    const Color unownedRegionBorderColor = WHITE;
+    const Color mountainBorderColor = CellColor(OW_MOUNTAIN);
 
     auto RegionTint = [](int regionId) -> Color
     {
@@ -1645,6 +1646,156 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
         return region && !region->m_IsWater;
     };
 
+    constexpr int kFortifiedBorderWidth = 2;
+
+    std::vector<bool> fortifiedRegions(m_Regions.size(), false);
+    for (const OverworldRegionData& region : m_Regions)
+    {
+        if (!region.m_HasCastle)
+        {
+            continue;
+        }
+
+        fortifiedRegions[static_cast<size_t>(region.m_Id)] = true;
+        for (int neighborId : GetTraversableAdjacentRegions(region.m_Id))
+        {
+            if (neighborId >= 0 && neighborId < static_cast<int>(fortifiedRegions.size()))
+            {
+                fortifiedRegions[static_cast<size_t>(neighborId)] = true;
+            }
+        }
+    }
+
+    auto IsFortifiedRegion = [&](int regionId) -> bool
+    {
+        return regionId >= 0
+            && regionId < static_cast<int>(fortifiedRegions.size())
+            && fortifiedRegions[static_cast<size_t>(regionId)];
+    };
+
+    auto IsMountainBorderBetween = [&](int regionA, int regionB) -> bool
+    {
+        return IsLandRegion(regionA)
+            && IsLandRegion(regionB)
+            && regionA != regionB
+            && GetBorderType(regionA, regionB) == RegionBorderType::Mountain;
+    };
+
+    auto IsMountainBorderEdge = [&](int landRegionId, int cellX, int cellY, int deltaX, int deltaY) -> bool
+    {
+        const int towardX = cellX + deltaX;
+        const int towardY = cellY + deltaY;
+        if (!IsInBounds(towardX, towardY) || GetCell(towardX, towardY) != OW_MOUNTAIN)
+        {
+            return false;
+        }
+
+        int probeX = towardX + deltaX;
+        int probeY = towardY + deltaY;
+        while (IsInBounds(probeX, probeY) && GetCell(probeX, probeY) == OW_MOUNTAIN)
+        {
+            probeX += deltaX;
+            probeY += deltaY;
+        }
+
+        if (!IsInBounds(probeX, probeY))
+        {
+            return false;
+        }
+
+        const int beyondRegionId = GetRegionId(probeX, probeY);
+        return IsMountainBorderBetween(landRegionId, beyondRegionId);
+    };
+
+    auto ResolveBorderWidth = [&](int regionA, int regionB) -> int
+    {
+        if (IsMountainBorderBetween(regionA, regionB))
+        {
+            return kMountainBorderWidth;
+        }
+
+        if (IsFortifiedRegion(regionA) || IsFortifiedRegion(regionB))
+        {
+            return kFortifiedBorderWidth;
+        }
+
+        return kRegionBorderWidth;
+    };
+
+    auto ResolveRegionEdgeBorderColor = [&](int landRegionId, int otherRegionId, bool& outShouldDraw) -> Color
+    {
+        outShouldDraw = false;
+        const OverworldRegionData* landRegion = GetRegion(landRegionId);
+        if (!landRegion || landRegion->m_OwnerId < 0)
+        {
+            return unownedRegionBorderColor;
+        }
+
+        if (!IsLandRegion(otherRegionId) || landRegionId != otherRegionId)
+        {
+            outShouldDraw = true;
+            return PlayerOwnerColor(landRegion->m_OwnerId);
+        }
+
+        return unownedRegionBorderColor;
+    };
+
+    auto ResolveHorizontalBorderColor = [&](int leftRegionId, int rightRegionId, bool& outShouldDraw) -> Color
+    {
+        outShouldDraw = false;
+
+        if (IsLandRegion(leftRegionId))
+        {
+            bool shouldDrawLeftEdge = false;
+            const Color leftColor = ResolveRegionEdgeBorderColor(leftRegionId, rightRegionId, shouldDrawLeftEdge);
+            if (shouldDrawLeftEdge)
+            {
+                outShouldDraw = true;
+                return leftColor;
+            }
+        }
+
+        if (IsLandRegion(rightRegionId))
+        {
+            bool shouldDrawRightEdge = false;
+            const Color rightColor = ResolveRegionEdgeBorderColor(rightRegionId, leftRegionId, shouldDrawRightEdge);
+            if (shouldDrawRightEdge)
+            {
+                outShouldDraw = true;
+                return rightColor;
+            }
+        }
+
+        if (IsLandRegion(leftRegionId) && IsLandRegion(rightRegionId) && leftRegionId != rightRegionId)
+        {
+            outShouldDraw = true;
+            return unownedRegionBorderColor;
+        }
+
+        return unownedRegionBorderColor;
+    };
+
+    auto ResolveVerticalBorderColor = [&](int topRegionId, int bottomRegionId, bool& outShouldDraw) -> Color
+    {
+        return ResolveHorizontalBorderColor(topRegionId, bottomRegionId, outShouldDraw);
+    };
+
+    auto DrawOwnedMapEdgeBorder = [&](int pixelX, int pixelY, int drawWidth, int drawHeight,
+        const OverworldRegionData& region)
+    {
+        if (region.m_OwnerId < 0)
+        {
+            return;
+        }
+
+        DrawRectangle(
+            pixelX,
+            pixelY,
+            drawWidth,
+            drawHeight,
+            PlayerOwnerColor(region.m_OwnerId));
+    };
+
     for (int cellY = 0; cellY < OVERWORLD_MAP_SIZE; ++cellY)
     {
         for (int cellX = 0; cellX < OVERWORLD_MAP_SIZE; ++cellX)
@@ -1657,25 +1808,122 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
 
             const int pixelX = x + (cellX * pixelsPerCell);
             const int pixelY = y + (cellY * pixelsPerCell);
+            const OverworldRegionData* region = GetRegion(regionId);
+            if (!region)
+            {
+                continue;
+            }
+
+            const int edgeBorderWidth = IsFortifiedRegion(regionId) ? kFortifiedBorderWidth : kRegionBorderWidth;
+
+            if (cellX == 0)
+            {
+                DrawOwnedMapEdgeBorder(
+                    pixelX,
+                    pixelY,
+                    edgeBorderWidth,
+                    pixelsPerCell,
+                    *region);
+            }
+
+            if (cellY == 0)
+            {
+                DrawOwnedMapEdgeBorder(
+                    pixelX,
+                    pixelY,
+                    pixelsPerCell,
+                    edgeBorderWidth,
+                    *region);
+            }
 
             if (cellX + 1 < OVERWORLD_MAP_SIZE)
             {
                 const int rightRegionId = GetRegionId(cellX + 1, cellY);
-                if (IsLandRegion(rightRegionId) && regionId != rightRegionId)
+                const int boundaryX = x + ((cellX + 1) * pixelsPerCell);
+
+                if (IsMountainBorderEdge(regionId, cellX, cellY, 1, 0))
                 {
-                    const int boundaryX = x + ((cellX + 1) * pixelsPerCell);
-                    DrawRectangle(boundaryX - 1, pixelY, kRegionBorderWidth, pixelsPerCell, regionBorderColor);
+                    DrawRectangle(
+                        boundaryX - kMountainBorderWidth,
+                        pixelY,
+                        kMountainBorderWidth,
+                        pixelsPerCell,
+                        mountainBorderColor);
                 }
+                else if (IsMountainBorderBetween(regionId, rightRegionId))
+                {
+                    DrawRectangle(
+                        boundaryX - kMountainBorderWidth,
+                        pixelY,
+                        kMountainBorderWidth,
+                        pixelsPerCell,
+                        mountainBorderColor);
+                }
+                else
+                {
+                    bool shouldDrawBorder = false;
+                    const Color borderColor = ResolveHorizontalBorderColor(regionId, rightRegionId, shouldDrawBorder);
+                    if (shouldDrawBorder)
+                    {
+                        const int borderWidth = ResolveBorderWidth(regionId, rightRegionId);
+                        DrawRectangle(boundaryX - borderWidth, pixelY, borderWidth, pixelsPerCell, borderColor);
+                    }
+                }
+            }
+            else
+            {
+                const int boundaryX = x + ((cellX + 1) * pixelsPerCell);
+                DrawOwnedMapEdgeBorder(
+                    boundaryX - edgeBorderWidth,
+                    pixelY,
+                    edgeBorderWidth,
+                    pixelsPerCell,
+                    *region);
             }
 
             if (cellY + 1 < OVERWORLD_MAP_SIZE)
             {
                 const int downRegionId = GetRegionId(cellX, cellY + 1);
-                if (IsLandRegion(downRegionId) && regionId != downRegionId)
+                const int boundaryY = y + ((cellY + 1) * pixelsPerCell);
+
+                if (IsMountainBorderEdge(regionId, cellX, cellY, 0, 1))
                 {
-                    const int boundaryY = y + ((cellY + 1) * pixelsPerCell);
-                    DrawRectangle(pixelX, boundaryY - 1, pixelsPerCell, kRegionBorderWidth, regionBorderColor);
+                    DrawRectangle(
+                        pixelX,
+                        boundaryY - kMountainBorderWidth,
+                        pixelsPerCell,
+                        kMountainBorderWidth,
+                        mountainBorderColor);
                 }
+                else if (IsMountainBorderBetween(regionId, downRegionId))
+                {
+                    DrawRectangle(
+                        pixelX,
+                        boundaryY - kMountainBorderWidth,
+                        pixelsPerCell,
+                        kMountainBorderWidth,
+                        mountainBorderColor);
+                }
+                else
+                {
+                    bool shouldDrawBorder = false;
+                    const Color borderColor = ResolveVerticalBorderColor(regionId, downRegionId, shouldDrawBorder);
+                    if (shouldDrawBorder)
+                    {
+                        const int borderWidth = ResolveBorderWidth(regionId, downRegionId);
+                        DrawRectangle(pixelX, boundaryY - borderWidth, pixelsPerCell, borderWidth, borderColor);
+                    }
+                }
+            }
+            else
+            {
+                const int boundaryY = y + ((cellY + 1) * pixelsPerCell);
+                DrawOwnedMapEdgeBorder(
+                    pixelX,
+                    boundaryY - edgeBorderWidth,
+                    pixelsPerCell,
+                    edgeBorderWidth,
+                    *region);
             }
         }
     }
@@ -1742,9 +1990,6 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
         };
     };
 
-    constexpr int kOwnedMarkerGap = 0;
-    constexpr int kOwnedIconLeftOffset = -1;
-    constexpr int kOwnedIconDownOffset = 1;
     constexpr int kResourceIconUpOffset = 1;
     for (const OverworldRegionData& region : m_Regions)
     {
@@ -1756,45 +2001,11 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
         const Vector2 regionCenter = RegionCenterPixels(region);
         const int centerX = static_cast<int>(regionCenter.x);
         const int centerY = static_cast<int>(regionCenter.y);
-        const MapTilesSpriteSpec resourceSpec = GetMapTilesResourceSpec(region.m_Resource);
 
-        if (region.m_OwnerId >= 0)
-        {
-            const int flagLeft = 0;
-            const int flagTop = 0;
-            const int iconLeft = MAP_TILES_FLAG_WIDTH + kOwnedMarkerGap + kOwnedIconLeftOffset;
-            const int iconTop = ((MAP_TILES_FLAG_HEIGHT - resourceSpec.m_Height) / 2) + kOwnedIconDownOffset;
-
-            const int boundsLeft = std::min(flagLeft, iconLeft);
-            const int boundsTop = std::min(flagTop, iconTop);
-            const int boundsRight = std::max(flagLeft + MAP_TILES_FLAG_WIDTH, iconLeft + resourceSpec.m_Width);
-            const int boundsBottom = std::max(flagTop + MAP_TILES_FLAG_HEIGHT, iconTop + resourceSpec.m_Height);
-            const int groupWidth = boundsRight - boundsLeft;
-            const int groupHeight = boundsBottom - boundsTop;
-            const int anchorX = centerX - (groupWidth / 2) - boundsLeft;
-            const int anchorY = centerY - (groupHeight / 2) - boundsTop;
-
-            DrawRegionFlag(
-                Vector2{
-                    static_cast<float>(anchorX + flagLeft + (MAP_TILES_FLAG_WIDTH / 2)),
-                    static_cast<float>(anchorY + flagTop + (MAP_TILES_FLAG_HEIGHT / 2))
-                },
-                PlayerOwnerColor(region.m_OwnerId));
-            DrawRegionResourceIcon(
-                region.m_Resource,
-                Vector2{
-                    static_cast<float>(anchorX + iconLeft + (resourceSpec.m_Width / 2)),
-                    static_cast<float>(anchorY + iconTop + (resourceSpec.m_Height / 2) - kResourceIconUpOffset)
-                },
-                WHITE);
-        }
-        else
-        {
-            DrawRegionResourceIcon(
-                region.m_Resource,
-                Vector2{ static_cast<float>(centerX), static_cast<float>(centerY - kResourceIconUpOffset) },
-                WHITE);
-        }
+        DrawRegionResourceIcon(
+            region.m_Resource,
+            Vector2{ static_cast<float>(centerX), static_cast<float>(centerY - kResourceIconUpOffset) },
+            WHITE);
     }
 
     DrawRectangleLines(x, y, mapPixelWidth, mapPixelHeight, Color{ 0, 0, 0, 255 });
@@ -1951,7 +2162,7 @@ void OverworldMap::DrawAccessibilityGrid(int x, int y, int width, int height, in
             }
             else if (GetBorderType(region.m_Id, neighborId) == RegionBorderType::Mountain)
             {
-                thickness = 2.5f;
+                thickness = 2.0f;
             }
 
             DrawLineEx(from, nodePositions[static_cast<size_t>(neighborId)], thickness, edgeColor);
