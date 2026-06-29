@@ -1,24 +1,26 @@
- Sat Jun 27 21:13:45 2026.368 Starting Engine::Init()
- Sat Jun 27 21:13:45 2026.369 Starting StateMachine::Init
- Sat Jun 27 21:13:45 2026.369 Leaving StateMachine::Init
- Sat Jun 27 21:13:45 2026.369 Starting InputSystem::Init()
- Sat Jun 27 21:13:45 2026.369 Done With InputSystem::Init()
- Sat Jun 27 21:13:45 2026.614 Done with Engine::Init()
- Sat Jun 27 21:13:45 2026.614 Loading texture Images/terrain.png
- Sat Jun 27 21:13:45 2026.615 Texture ID: 7, Width: 64, Height: 64
- Sat Jun 27 21:13:45 2026.615 Load successful.
- Sat Jun 27 21:13:45 2026.615 Loading texture Images/littlepeople.png
- Sat Jun 27 21:13:45 2026.615 Texture ID: 8, Width: 196, Height: 176
- Sat Jun 27 21:13:45 2026.615 Load successful.
- Sat Jun 27 21:13:45 2026.615 Loading texture Images/tiles256.png
- Sat Jun 27 21:13:45 2026.616 Texture ID: 9, Width: 112, Height: 832
- Sat Jun 27 21:13:45 2026.616 Load successful.
- Sat Jun 27 21:13:45 2026.616 Created state TitleState with ID 0
- Sat Jun 27 21:13:45 2026.616 Created state SetupGameState with ID 5
- Sat Jun 27 21:13:45 2026.616 Created state CastleDesignState with ID 4
- Sat Jun 27 21:13:45 2026.616 Created state MainState with ID 1
- Sat Jun 27 21:13:45 2026.616 Created state CombatState with ID 3
- Sat Jun 27 21:13:45 2026.616 Created state OptionsState with ID 2
- Sat Jun 27 21:13:45 2026.616 StateMachine: Transitioning to state TitleState, ID 0
- Sat Jun 27 21:13:47 2026.852 StateMachine: Transitioning to state SetupGameState, ID 5
- Sat Jun 27 21:13:56 2026.533 StateMachine: Transitioning to state MainState, ID 1
+ Sun Jun 28 19:50:23 2026.871 Starting Engine::Init()
+ Sun Jun 28 19:50:23 2026.871 Starting StateMachine::Init
+ Sun Jun 28 19:50:23 2026.871 Leaving StateMachine::Init
+ Sun Jun 28 19:50:23 2026.872 Starting InputSystem::Init()
+ Sun Jun 28 19:50:23 2026.872 Done With InputSystem::Init()
+ Sun Jun 28 19:50:24 2026.044 Done with Engine::Init()
+ Sun Jun 28 19:50:24 2026.045 Loading texture Images/terrain.png
+ Sun Jun 28 19:50:24 2026.046 Texture ID: 7, Width: 64, Height: 64
+ Sun Jun 28 19:50:24 2026.046 Load successful.
+ Sun Jun 28 19:50:24 2026.046 Loading texture Images/littlepeople.png
+ Sun Jun 28 19:50:24 2026.046 Texture ID: 8, Width: 196, Height: 176
+ Sun Jun 28 19:50:24 2026.046 Load successful.
+ Sun Jun 28 19:50:24 2026.047 Loading texture Images/tiles256.png
+ Sun Jun 28 19:50:24 2026.047 Texture ID: 9, Width: 112, Height: 832
+ Sun Jun 28 19:50:24 2026.047 Load successful.
+ Sun Jun 28 19:50:24 2026.047 Created state TitleState with ID 0
+ Sun Jun 28 19:50:24 2026.047 Created state SetupGameState with ID 5
+ Sun Jun 28 19:50:24 2026.047 Created state CastleDesignState with ID 4
+ Sun Jun 28 19:50:24 2026.047 Created state MainState with ID 1
+ Sun Jun 28 19:50:24 2026.047 Created state CombatState with ID 3
+ Sun Jun 28 19:50:24 2026.047 Created state OptionsState with ID 2
+ Sun Jun 28 19:50:24 2026.047 StateMachine: Transitioning to state TitleState, ID 0
+ Sun Jun 28 19:51:16 2026.695 StateMachine: Transitioning to state SetupGameState, ID 5
+ Sun Jun 28 19:51:42 2026.022 StateMachine: Transitioning to state MainState, ID 1
+ Sun Jun 28 19:55:17 2026.154 StateMachine: Transitioning to state TitleState, ID 0
+ Sun Jun 28 19:55:19 2026.179 StateMachine: Transitioning to state CombatState, ID 3

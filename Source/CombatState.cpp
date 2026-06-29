@@ -315,6 +315,7 @@ void CombatState::Draw()
 
     const RegionHeightfield& heightfield = region->m_Heightfield;
     g_RegionTerrainMesh.SetHeightfield(&heightfield);
+    g_RegionTerrainMesh.SetFlatShaded(true);
     g_RegionTerrainMesh.RebuildIfNeeded();
 
     g_RegionView.Begin3D();

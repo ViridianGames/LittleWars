@@ -6,9 +6,10 @@
 class RegionTerrainMesh
 {
 public:
-    static constexpr unsigned int MESH_BUILD_VERSION = 6;
+    static constexpr unsigned int MESH_BUILD_VERSION = 7;
 
     void SetHeightfield(const RegionHeightfield* heightfield);
+    void SetFlatShaded(bool flatShaded);
     void RebuildIfNeeded();
     void Draw();
 
@@ -24,8 +25,10 @@ private:
     void UnloadTypeMesh(int terrainType);
 
     const RegionHeightfield* m_Heightfield = nullptr;
+    bool m_FlatShaded = false;
     unsigned int m_BuiltSeed = 0;
     unsigned int m_BuiltMeshVersion = 0;
+    bool m_BuiltFlatShaded = false;
     bool m_BuiltGenerated = false;
     TypeMesh m_TypeMeshes[RTT_LASTTERRAINTYPE];
 };

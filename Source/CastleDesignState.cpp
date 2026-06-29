@@ -68,6 +68,7 @@ void CastleDesignState::Draw()
     const RegionHeightfield& heightfield = region->m_Heightfield;
 
     g_RegionTerrainMesh.SetHeightfield(&heightfield);
+    g_RegionTerrainMesh.SetFlatShaded(false);
     g_RegionTerrainMesh.RebuildIfNeeded();
 
     g_RegionView.Begin3D();
