@@ -2,6 +2,7 @@
 #define _SETUPGAMESTATE_H_
 
 #include "../Geist/Source/State.h"
+#include "CampaignSetupConfig.h"
 #include "GameGlobals.h"
 
 #include <string>
@@ -21,16 +22,6 @@ public:
     void OnExit() override;
 
 private:
-    enum class Option : int
-    {
-        Opponents = 0,
-        MapSize,
-        BattleMode,
-        ResourceDistribution,
-        Start,
-        Count
-    };
-
     CampaignSetup m_DraftSetup;
     int m_SelectedOption = 0;
 
@@ -42,7 +33,6 @@ private:
     Rectangle GetOptionRect(int optionIndex) const;
     Rectangle GetAdjustLeftRect(int optionIndex) const;
     Rectangle GetAdjustRightRect(int optionIndex) const;
-    std::string GetOptionValueLabel(Option option) const;
 };
 
 #endif

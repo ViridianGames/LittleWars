@@ -137,6 +137,7 @@ set(GEIST_SOURCES
 # Project Sources
 # ============================================================================
 set(PROJECT_SOURCES
+        Source/CampaignSetupConfig.cpp
         Source/CastleDesignState.cpp
         Source/CombatState.cpp
         Source/CombatUnits.cpp
@@ -147,6 +148,7 @@ set(PROJECT_SOURCES
         Source/MainState.cpp
         Source/OverworldMap.cpp
         Source/Player.cpp
+        Source/PlayerTasksConfig.cpp
         Source/OptionsState.cpp
         Source/RegionMinimap.cpp
         Source/RegionTerrainMesh.cpp
@@ -211,6 +213,17 @@ else()
             OUTPUT_NAME_RELEASE "littlewars"
     )
 endif()
+
+add_custom_command(TARGET LittleWars POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${REDIST_DIR}/Data"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/Data/campaign_setup.json"
+        "${REDIST_DIR}/Data/campaign_setup.json"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/Data/player_tasks.json"
+        "${REDIST_DIR}/Data/player_tasks.json"
+        COMMENT "Copying campaign setup data to Redist folder"
+)
 
 # Asset copy
 #add_custom_command(TARGET LittleWars POST_BUILD

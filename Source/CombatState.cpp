@@ -19,6 +19,15 @@ namespace
 {
     constexpr double kGestureTimeThreshold = 0.25;
 
+    Vector2 GetScaledMousePosition()
+    {
+        Vector2 mouse = GetMousePosition();
+        const float inputScale = g_Engine->GetInputScale();
+        mouse.x /= inputScale;
+        mouse.y /= inputScale;
+        return mouse;
+    }
+
     const char* LittlePeopleArmyName(LittlePeopleArmy army)
     {
         switch (army)
@@ -150,6 +159,11 @@ void CombatState::HandleCombatInput(const RegionHeightfield& heightfield)
     const Camera3D& camera = g_RegionView.GetCamera();
     const Vector2 mousePosition = GetCombatScaledMousePosition();
 
+    if (CheckCollisionPointRec(mousePosition, g_RegionMinimap.GetScreenBounds()))
+    {
+        return;
+    }
+
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
         m_LeftMousePressTime = GetTime();
@@ -255,6 +269,15 @@ void CombatState::Update()
     if (RegionData* region = g_GameDatabase.GetActiveRegion())
     {
         heightfield = g_GameDatabase.EnsureRegionHeightfield(region->m_Id);
+    }
+
+    float minimapWorldX = 0.0f;
+    float minimapWorldZ = 0.0f;
+    bool minimapClicked = false;
+    g_RegionMinimap.HandleInput(GetScaledMousePosition(), minimapWorldX, minimapWorldZ, minimapClicked);
+    if (minimapClicked)
+    {
+        g_RegionView.SetLookAtPosition(minimapWorldX, minimapWorldZ);
     }
 
     g_RegionView.Update(heightfield);
@@ -411,7 +434,7 @@ void CombatState::Draw()
         &minimapMarkers);
 
     DrawOutlinedText(g_font, "Combat  Red units only  Click enemy to attack", { 4.0f, 4.0f }, g_fontDrawSize, 1, WHITE);
-    DrawOutlinedText(g_smallFont, "Terrain:move  Hold:aim  WASD:pan  Wheel:zoom  Esc:title", { 4.0f, 16.0f }, g_smallFontDrawSize, 1, WHITE);
+    DrawOutlinedText(g_smallFont, "Terrain:move  Hold:aim  WASD:pan  Wheel:zoom  Minimap:go  Esc:title", { 4.0f, 16.0f }, g_smallFontDrawSize, 1, WHITE);
 
     float labelY = 30.0f;
     for (int typeIndex = 0; typeIndex < 4; ++typeIndex)

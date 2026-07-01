@@ -1,5 +1,6 @@
 #include "RegionView.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include "../Geist/Source/Engine.h"
@@ -21,6 +22,15 @@ void RegionView::Init()
 
     m_Camera.up = Vector3{ 0.0f, 1.0f, 0.0f };
     m_Camera.projection = CAMERA_PERSPECTIVE;
+}
+
+void RegionView::SetLookAtPosition(float x, float z)
+{
+    const float minBound = 0.0f;
+    const float maxBound = static_cast<float>(REGION_CELLS);
+    m_LookAtX = std::clamp(x, minBound, maxBound);
+    m_LookAtZ = std::clamp(z, minBound, maxBound);
+    SyncCamera();
 }
 
 void RegionView::SyncCamera()
@@ -45,10 +55,9 @@ void RegionView::Update(const RegionHeightfield* heightfield)
     const float rotateSpeed = g_Engine->m_EngineConfig.GetNumber("camera_rotate_topspeed");
     const float minZoom = g_Engine->m_EngineConfig.GetNumber("camera_close_limit");
     float maxZoom = g_Engine->m_EngineConfig.GetNumber("camera_far_limit");
-    const float mapMaxZoom = static_cast<float>(REGION_CELLS) * 0.92f;
-    if (maxZoom <= 0.0f || maxZoom > mapMaxZoom)
+    if (maxZoom <= 0.0f)
     {
-        maxZoom = mapMaxZoom;
+        maxZoom = static_cast<float>(REGION_CELLS) * 0.92f;
     }
     const float zoomSpeed = g_Engine->m_EngineConfig.GetNumber("camera_zoom_speed");
     const float panTopSpeed = g_Engine->m_EngineConfig.GetNumber("camera_pan_topspeed");
@@ -56,11 +65,11 @@ void RegionView::Update(const RegionHeightfield* heightfield)
 
     if (IsKeyDown(KEY_Q))
     {
-        m_Angle -= rotateSpeed * frameScale;
+        m_Angle += rotateSpeed * frameScale;
     }
     if (IsKeyDown(KEY_E))
     {
-        m_Angle += rotateSpeed * frameScale;
+        m_Angle -= rotateSpeed * frameScale;
     }
 
     const float wheelMove = GetMouseWheelMove();

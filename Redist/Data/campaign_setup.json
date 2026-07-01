@@ -1,0 +1,83 @@
+{
+  "title": "New Campaign",
+  "helpText": "Arrows: select/adjust   Enter: start   Esc: title",
+  "layout": {
+    "rowHeight": 18,
+    "rowStartY": 44,
+    "panelX": 24,
+    "panelWidth": 220,
+    "labelX": 32,
+    "valueX": 150,
+    "arrowWidth": 14,
+    "startButtonHeight": 20,
+    "startButtonX": 96,
+    "startButtonWidth": 96
+  },
+  "options": [
+    {
+      "id": "difficulty",
+      "label": "Difficulty",
+      "type": "enum",
+      "field": "difficulty",
+      "defaultValue": "baron",
+      "values": [
+        { "id": "squire", "label": "Squire" },
+        { "id": "baron", "label": "Baron" },
+        { "id": "viscount", "label": "Viscount" },
+        { "id": "marquis", "label": "Marquis" },
+        { "id": "king", "label": "King" }
+      ]
+    },
+    {
+      "id": "opponents",
+      "label": "Opponents",
+      "type": "range",
+      "field": "enemyCount",
+      "min": 3,
+      "max": 7,
+      "default": 4
+    },
+    {
+      "id": "mapSize",
+      "label": "Map Size",
+      "type": "enum",
+      "field": "mapSize",
+      "defaultValue": "medium",
+      "valueFormat": "{label} ({regionCount})",
+      "values": [
+        { "id": "small", "label": "Small", "regionCount": 24 },
+        { "id": "medium", "label": "Medium", "regionCount": 35 },
+        { "id": "large", "label": "Large", "regionCount": 64 },
+        { "id": "huge", "label": "Huge", "regionCount": 80 }
+      ]
+    },
+    {
+      "id": "battleMode",
+      "label": "Battles",
+      "type": "enum",
+      "field": "battleMode",
+      "defaultValue": "onMap",
+      "values": [
+        { "id": "automatic", "label": "Automatic" },
+        { "id": "onMap", "label": "On Map" }
+      ]
+    },
+    {
+      "id": "resourceDistribution",
+      "label": "Resources",
+      "type": "enum",
+      "field": "resourceDistribution",
+      "defaultValue": "balanced",
+      "values": [
+        { "id": "clumped", "label": "Clumped" },
+        { "id": "random", "label": "Random" },
+        { "id": "balanced", "label": "Balanced" }
+      ]
+    },
+    {
+      "id": "start",
+      "label": "Start Game",
+      "type": "action"
+    }
+  ]
+}

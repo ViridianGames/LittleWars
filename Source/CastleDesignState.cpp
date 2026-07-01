@@ -48,6 +48,19 @@ void CastleDesignState::Update()
         heightfield = g_GameDatabase.EnsureRegionHeightfield(region->m_Id);
     }
 
+    float minimapWorldX = 0.0f;
+    float minimapWorldZ = 0.0f;
+    bool minimapClicked = false;
+    Vector2 mouse = GetMousePosition();
+    const float inputScale = g_Engine->GetInputScale();
+    mouse.x /= inputScale;
+    mouse.y /= inputScale;
+    g_RegionMinimap.HandleInput(mouse, minimapWorldX, minimapWorldZ, minimapClicked);
+    if (minimapClicked)
+    {
+        g_RegionView.SetLookAtPosition(minimapWorldX, minimapWorldZ);
+    }
+
     g_RegionView.Update(heightfield);
 
     if (IsKeyPressed(KEY_ESCAPE))

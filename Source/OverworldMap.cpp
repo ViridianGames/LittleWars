@@ -142,6 +142,22 @@ char CountyResourceMarker(CountyResource resource)
     }
 }
 
+int GetRegionIncomeMultiplier(const OverworldRegionData& region)
+{
+    int multiplier = std::max(1, region.m_OutputMultiplier);
+    if (region.m_HasCastle)
+    {
+        multiplier *= kCastleOutputMultiplier;
+    }
+
+    return multiplier;
+}
+
+int GetRegionTurnIncome(const OverworldRegionData& region)
+{
+    return kRegionBaseIncome * GetRegionIncomeMultiplier(region);
+}
+
 void OverworldMap::Clear()
 {
     m_Generated = false;
@@ -240,6 +256,23 @@ OverworldRegionData* OverworldMap::GetRegion(int regionId)
     }
 
     return nullptr;
+}
+
+void OverworldMap::ApplyRegionCampaignOverlay(
+    int regionId,
+    int outputMultiplier,
+    int castleBuildTurnsRemaining,
+    bool hasCastle)
+{
+    OverworldRegionData* region = GetRegion(regionId);
+    if (!region || region->m_IsWater)
+    {
+        return;
+    }
+
+    region->m_OutputMultiplier = std::max(1, outputMultiplier);
+    region->m_CastleBuildTurnsRemaining = std::max(0, castleBuildTurnsRemaining);
+    region->m_HasCastle = hasCastle;
 }
 
 void OverworldMap::GenerateTerrain(RNG& rng)

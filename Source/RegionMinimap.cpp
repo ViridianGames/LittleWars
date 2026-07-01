@@ -121,17 +121,7 @@ namespace
             return;
         }
 
-        const Color viewportFill = Color{ 255, 255, 255, 28 };
-        const Color viewportOutline = Color{ 255, 255, 255, 220 };
-
-        for (int cornerIndex = 1; cornerIndex < validCornerCount - 1; ++cornerIndex)
-        {
-            DrawTriangle(
-                minimapCorners[0],
-                minimapCorners[cornerIndex],
-                minimapCorners[cornerIndex + 1],
-                viewportFill);
-        }
+        const Color viewportOutline = Color{ 255, 255, 255, 255 };
 
         for (int cornerIndex = 0; cornerIndex < validCornerCount; ++cornerIndex)
         {
@@ -139,6 +129,17 @@ namespace
             DrawLineEx(minimapCorners[cornerIndex], minimapCorners[nextCorner], 1.0f, viewportOutline);
         }
     }
+
+}
+
+Vector2 MinimapPointToWorldPosition(Vector2 minimapPoint, int minimapX, int minimapY, int minimapSize)
+{
+    const float normalizedX = (minimapPoint.x - static_cast<float>(minimapX)) / static_cast<float>(minimapSize);
+    const float normalizedZ = (minimapPoint.y - static_cast<float>(minimapY)) / static_cast<float>(minimapSize);
+    return Vector2{
+        normalizedX * static_cast<float>(REGION_CELLS),
+        normalizedZ * static_cast<float>(REGION_CELLS)
+    };
 }
 
 void RegionMinimap::Shutdown()
@@ -199,7 +200,7 @@ void RegionMinimap::Draw(const RegionHeightfield& heightfield, unsigned int heig
     const int minimapX = static_cast<int>(g_Engine->m_RenderWidth) - kMinimapPixelSize - kMinimapMargin;
     const int minimapY = kMinimapMargin;
 
-    DrawRectangle(minimapX - 1, minimapY - 1, kMinimapPixelSize + 2, kMinimapPixelSize + 2, Color{ 16, 18, 24, 230 });
+    DrawRectangle(minimapX - 1, minimapY - 1, kMinimapPixelSize + 2, kMinimapPixelSize + 2, Color{ 16, 18, 24, 255 });
     DrawTexturePro(
         m_Texture,
         Rectangle{ 0.0f, 0.0f, static_cast<float>(m_Texture.width), static_cast<float>(m_Texture.height) },
@@ -230,4 +231,48 @@ void RegionMinimap::Draw(const RegionHeightfield& heightfield, unsigned int heig
     }
 
     DrawRectangleLines(minimapX, minimapY, kMinimapPixelSize, kMinimapPixelSize, Color{ 220, 220, 230, 255 });
+}
+
+Rectangle RegionMinimap::GetScreenBounds() const
+{
+    const int minimapX = static_cast<int>(g_Engine->m_RenderWidth) - kMinimapPixelSize - kMinimapMargin;
+    const int minimapY = kMinimapMargin;
+    return Rectangle{
+        static_cast<float>(minimapX),
+        static_cast<float>(minimapY),
+        static_cast<float>(kMinimapPixelSize),
+        static_cast<float>(kMinimapPixelSize)
+    };
+}
+
+bool RegionMinimap::TryGetClickWorldPosition(Vector2 scaledMousePosition, float& outWorldX, float& outWorldZ) const
+{
+    const Rectangle bounds = GetScreenBounds();
+    if (!CheckCollisionPointRec(scaledMousePosition, bounds))
+    {
+        return false;
+    }
+
+    const Vector2 worldPosition = MinimapPointToWorldPosition(
+        scaledMousePosition,
+        static_cast<int>(bounds.x),
+        static_cast<int>(bounds.y),
+        static_cast<int>(bounds.width));
+    outWorldX = worldPosition.x;
+    outWorldZ = worldPosition.y;
+    return true;
+}
+
+void RegionMinimap::HandleInput(Vector2 scaledMousePosition, float& outWorldX, float& outWorldZ, bool& outClicked) const
+{
+    outClicked = false;
+    if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    {
+        return;
+    }
+
+    if (TryGetClickWorldPosition(scaledMousePosition, outWorldX, outWorldZ))
+    {
+        outClicked = true;
+    }
 }

@@ -15,6 +15,7 @@
 
 #include "GameGlobals.h"
 #include "OverworldMap.h"
+#include "PlayerTasksConfig.h"
 
 #include "Engine.h"
 #include "raylib.h"
@@ -75,6 +76,25 @@ int MapSizeStartingRegions(MapSize size)
     }
 }
 
+const char* DifficultyName(Difficulty difficulty)
+{
+    switch (difficulty)
+    {
+    case Difficulty::Squire:
+        return "Squire";
+    case Difficulty::Baron:
+        return "Baron";
+    case Difficulty::Viscount:
+        return "Viscount";
+    case Difficulty::Marquis:
+        return "Marquis";
+    case Difficulty::King:
+        return "King";
+    default:
+        return "Unknown";
+    }
+}
+
 const char* BattleModeName(BattleMode mode)
 {
     switch (mode)
@@ -105,6 +125,12 @@ const char* ResourceDistributionName(ResourceDistribution distribution)
 
 void ClampCampaignSetup(CampaignSetup& setup)
 {
+    const int difficultyValue = static_cast<int>(setup.m_Difficulty);
+    if (difficultyValue < 0 || difficultyValue >= kDifficultyCount)
+    {
+        setup.m_Difficulty = Difficulty::Baron;
+    }
+
     setup.m_EnemyCount = std::clamp(setup.m_EnemyCount, kMinOpponents, kMaxOpponents);
 
     const int mapSizeValue = static_cast<int>(setup.m_MapSize);
@@ -134,12 +160,22 @@ namespace
         IO::Serialize(stream, player.m_Archers);
         IO::Serialize(stream, player.m_Knights);
         IO::Serialize(stream, player.m_Catapults);
+        IO::Serialize(stream, player.m_SiegeTowers);
+        IO::Serialize(stream, player.m_Happiness);
 
         const unsigned int relationCount = static_cast<unsigned int>(player.m_Relations.size());
         IO::Serialize(stream, relationCount);
         for (int relation : player.m_Relations)
         {
             IO::Serialize(stream, relation);
+        }
+
+        const unsigned int activeTaskCount = static_cast<unsigned int>(player.m_ActiveTasks.size());
+        IO::Serialize(stream, activeTaskCount);
+        for (const auto& activeTask : player.m_ActiveTasks)
+        {
+            IO::Serialize(stream, activeTask.first);
+            IO::Serialize(stream, activeTask.second);
         }
     }
 
@@ -161,6 +197,8 @@ namespace
         IO::Serialize(stream, player.m_Archers);
         IO::Serialize(stream, player.m_Knights);
         IO::Serialize(stream, player.m_Catapults);
+        IO::Serialize(stream, player.m_SiegeTowers);
+        IO::Serialize(stream, player.m_Happiness);
 
         unsigned int relationCount = 0;
         IO::Serialize(stream, relationCount);
@@ -168,6 +206,22 @@ namespace
         for (unsigned int i = 0; i < relationCount; ++i)
         {
             IO::Serialize(stream, player.m_Relations[i]);
+        }
+
+        unsigned int activeTaskCount = 0;
+        IO::Serialize(stream, activeTaskCount);
+        player.m_ActiveTasks.clear();
+        player.m_ActiveTasks.reserve(activeTaskCount);
+        for (unsigned int taskIndex = 0; taskIndex < activeTaskCount; ++taskIndex)
+        {
+            std::string taskId;
+            int taskCount = 0;
+            IO::Serialize(stream, taskId);
+            IO::Serialize(stream, taskCount);
+            if (!taskId.empty() && taskCount > 0)
+            {
+                player.m_ActiveTasks.emplace_back(taskId, taskCount);
+            }
         }
     }
 
@@ -1124,7 +1178,7 @@ void GameDatabase::SyncPlayersFromOverworld(const OverworldMap& map, bool resetA
     ::SyncPlayersFromOverworld(map, m_Players, resetAssets);
 }
 
-void GameDatabase::AdvanceTurn(const OverworldMap& map)
+void GameDatabase::AdvanceTurn(OverworldMap& map)
 {
     if (m_Players.empty())
     {
@@ -1133,6 +1187,11 @@ void GameDatabase::AdvanceTurn(const OverworldMap& map)
     }
 
     CollectTurnIncomeFromRegions(map, m_Players);
+    ProcessCastleConstruction(map, m_Players);
+    for (Player& player : m_Players)
+    {
+        g_PlayerTasksConfig.ApplyMaintenance(player);
+    }
     ++m_Turn;
 }
 
@@ -1149,7 +1208,7 @@ bool GameDatabase::SaveCampaign(const std::string& path) const
     IO::Serialize(stream, SAVE_VERSION);
 
     IO::Serialize(stream, m_Setup.m_Seed);
-    IO::Serialize(stream, m_Setup.m_Difficulty);
+    IO::Serialize(stream, static_cast<int>(m_Setup.m_Difficulty));
     IO::Serialize(stream, m_Setup.m_EnemyCount);
     IO::Serialize(stream, static_cast<int>(m_Setup.m_BattleMode));
     IO::Serialize(stream, static_cast<int>(m_Setup.m_ResourceDistribution));
@@ -1179,6 +1238,35 @@ bool GameDatabase::SaveCampaign(const std::string& path) const
         IO::Serialize(stream, region.m_HasCastle);
         IO::Serialize(stream, region.m_HeightfieldSeed);
         SerializeHeightfield(stream, region.m_Heightfield);
+    }
+
+    unsigned int overworldOverlayCount = 0;
+    if (g_OverworldMap.IsGenerated())
+    {
+        for (const OverworldRegionData& region : g_OverworldMap.GetRegions())
+        {
+            if (!region.m_IsWater)
+            {
+                ++overworldOverlayCount;
+            }
+        }
+    }
+
+    IO::Serialize(stream, overworldOverlayCount);
+    if (g_OverworldMap.IsGenerated())
+    {
+        for (const OverworldRegionData& region : g_OverworldMap.GetRegions())
+        {
+            if (region.m_IsWater)
+            {
+                continue;
+            }
+
+            IO::Serialize(stream, region.m_Id);
+            IO::Serialize(stream, region.m_OutputMultiplier);
+            IO::Serialize(stream, region.m_CastleBuildTurnsRemaining);
+            IO::Serialize(stream, region.m_HasCastle);
+        }
     }
 
     Log("GameDatabase::SaveCampaign - saved to " + path);
@@ -1213,7 +1301,9 @@ bool GameDatabase::LoadCampaign(const std::string& path)
     Clear();
 
     IO::Serialize(stream, m_Setup.m_Seed);
-    IO::Serialize(stream, m_Setup.m_Difficulty);
+    int difficulty = 0;
+    IO::Serialize(stream, difficulty);
+    m_Setup.m_Difficulty = static_cast<Difficulty>(difficulty);
     IO::Serialize(stream, m_Setup.m_EnemyCount);
     int battleMode = 0;
     IO::Serialize(stream, battleMode);
@@ -1253,6 +1343,29 @@ bool GameDatabase::LoadCampaign(const std::string& path)
         IO::Serialize(stream, region.m_HeightfieldSeed);
         SerializeHeightfield(stream, region.m_Heightfield);
     }
+
+    unsigned int overworldOverlayCount = 0;
+    IO::Serialize(stream, overworldOverlayCount);
+
+    g_OverworldMap.Generate(m_Setup.m_Seed, m_Setup);
+    for (unsigned int overlayIndex = 0; overlayIndex < overworldOverlayCount; ++overlayIndex)
+    {
+        int regionId = 0;
+        int outputMultiplier = 1;
+        int castleBuildTurnsRemaining = 0;
+        bool hasCastle = false;
+        IO::Serialize(stream, regionId);
+        IO::Serialize(stream, outputMultiplier);
+        IO::Serialize(stream, castleBuildTurnsRemaining);
+        IO::Serialize(stream, hasCastle);
+        g_OverworldMap.ApplyRegionCampaignOverlay(
+            regionId,
+            outputMultiplier,
+            castleBuildTurnsRemaining,
+            hasCastle);
+    }
+
+    SyncPlayersFromOverworld(g_OverworldMap, false);
 
     Log("GameDatabase::LoadCampaign - loaded from " + path);
     return true;

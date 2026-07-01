@@ -75,6 +75,7 @@ struct CombatProjectile
     Vector3 m_EndPosition{};
     float m_TravelTime = 0.4f;
     float m_Elapsed = 0.0f;
+    int m_SourceUnitIndex = -1;
     int m_TargetUnitIndex = -1;
     int m_TargetFigureIndex = -1;
     int m_Damage = 0;
@@ -105,7 +106,8 @@ bool CanCombatFiguresEngage(const CombatUnitInstance& attacker, const CombatUnit
 Vector3 GetCombatApproachPosition(const CombatUnitInstance& attacker, const CombatUnitInstance& target);
 void InitCombatUnitHealth(CombatUnitInstance& unit);
 void CompactCombatUnitFormation(CombatUnitInstance& unit);
-void ApplyCombatFigureDamage(CombatUnitInstance& unit, int figureIndex, int damage);
+void ApplyCombatFigureDamage(CombatUnitInstance& unit, int figureIndex, int damage,
+    int attackerUnitIndex, const std::vector<CombatUnitInstance>& units);
 void ClearCombatUnitAttackTarget(CombatUnitInstance& unit);
 void BeginCombatUnitAttackMove(CombatUnitInstance& attacker, int targetUnitIndex, const std::vector<CombatUnitInstance>& units);
 void UpdateCombatUnitsAttackOrders(std::vector<CombatUnitInstance>& units, const RegionHeightfield& heightfield);

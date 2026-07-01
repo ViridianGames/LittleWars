@@ -39,12 +39,19 @@ struct OverworldRegionData
     int m_OwnerId = -1;
     CountyResource m_Resource = CountyResource::Food;
     bool m_HasCastle = false;
+    int m_OutputMultiplier = 1;
+    int m_CastleBuildTurnsRemaining = 0;
     int m_SeedX = 0;
     int m_SeedY = 0;
     int m_CellCount = 0;
     bool m_IsWater = false;
     std::vector<int> m_AdjacentRegionIds;
 };
+
+constexpr int kCastleOutputMultiplier = 2;
+
+int GetRegionIncomeMultiplier(const OverworldRegionData& region);
+int GetRegionTurnIncome(const OverworldRegionData& region);
 
 const char* CountyResourceName(CountyResource resource);
 char CountyResourceMarker(CountyResource resource);
@@ -61,6 +68,7 @@ public:
     const OverworldRegionData* GetRegion(int regionId) const;
     OverworldRegionData* GetRegion(int regionId);
     const std::vector<OverworldRegionData>& GetRegions() const { return m_Regions; }
+    void ApplyRegionCampaignOverlay(int regionId, int outputMultiplier, int castleBuildTurnsRemaining, bool hasCastle);
 
     bool IsGenerated() const { return m_Generated; }
     unsigned int GetSeed() const { return m_Seed; }

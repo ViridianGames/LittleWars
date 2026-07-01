@@ -16,7 +16,9 @@
 #include <filesystem>
 
 #include "llimits.h"
+#include "CampaignSetupConfig.h"
 #include "GameGlobals.h"
+#include "PlayerTasksConfig.h"
 #include "SetupGameState.h"
 #include "LittlePeopleSprites.h"
 #include "MapTilesSprites.h"
@@ -80,6 +82,8 @@ int main(int argv, char** argc)
 	g_drawScale = g_Engine->GetInputScale();
 
 	InitGameFonts();
+	g_CampaignSetupScreenConfig.LoadDefaults();
+	g_PlayerTasksConfig.LoadDefaults();
 
 	InitTerrainTextures();
 	InitLittlePeopleSprites();

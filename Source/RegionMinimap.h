@@ -19,6 +19,9 @@ public:
     void Shutdown();
     void Draw(const RegionHeightfield& heightfield, unsigned int heightfieldSeed, const Camera3D& camera,
         const std::vector<RegionMinimapMarker>* markers = nullptr);
+    Rectangle GetScreenBounds() const;
+    bool TryGetClickWorldPosition(Vector2 scaledMousePosition, float& outWorldX, float& outWorldZ) const;
+    void HandleInput(Vector2 scaledMousePosition, float& outWorldX, float& outWorldZ, bool& outClicked) const;
 
 private:
     void RebuildTexture(const RegionHeightfield& heightfield);

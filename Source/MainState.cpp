@@ -5,8 +5,10 @@
 #include "../Geist/Source/StateMachine.h"
 
 #include "GameGlobals.h"
+#include "MapTilesSprites.h"
 #include "OverworldMap.h"
 #include "Player.h"
+#include "PlayerTasksConfig.h"
 
 using namespace std;
 
@@ -14,8 +16,10 @@ namespace
 {
     constexpr int kMapPixelsPerCell = 2;
     constexpr int kMapDrawX = 4;
-    constexpr int kMapDrawY = 4;
-    constexpr int kCountyInfoHeight = 52;
+    constexpr int kResourceBarHeight = 12;
+    constexpr int kResourceBarY = 4;
+    constexpr int kMapDrawY = kResourceBarY + kResourceBarHeight + 1;
+    constexpr int kCountyInfoHeight = 64;
     constexpr int kPlayerBoxHeight = 40;
     constexpr int kPlayerBoxGap = 2;
     constexpr int kPlayerColumnGap = 2;
@@ -25,6 +29,16 @@ namespace
     constexpr int kPanelMargin = 4;
     constexpr bool kShowPlayerStatusBoxes = false;
     constexpr bool kShowAccessibilityGrid = true;
+    constexpr int kResourceTooltipPadding = 4;
+    constexpr int kResourceTooltipLineHeight = 12;
+    constexpr int kResourceIconCenterOffset = 5;
+
+    constexpr CountyResource kResourceBarSlotOrder[4] = {
+        CountyResource::Food,
+        CountyResource::Wood,
+        CountyResource::Iron,
+        CountyResource::Gold
+    };
 
     Rectangle GetNextTurnButtonRect()
     {
@@ -40,6 +54,44 @@ namespace
         mouse.x /= inputScale;
         mouse.y /= inputScale;
         return mouse;
+    }
+
+    void DrawResourceBarEntry(
+        int slotX,
+        int barY,
+        CountyResource resource,
+        int amount,
+        int delta)
+    {
+        const float centerY = static_cast<float>(barY) + static_cast<float>(kResourceBarHeight) * 0.5f;
+        const Vector2 iconCenter{
+            static_cast<float>(slotX + kResourceIconCenterOffset),
+            centerY
+        };
+        DrawRegionResourceIcon(resource, iconCenter, WHITE);
+
+        const string amountText = to_string(amount);
+        const Vector2 amountSize = MeasureTextEx(*g_smallFont, amountText.c_str(), g_smallFontDrawSize, 1.0f);
+        const float textX = static_cast<float>(slotX + 12);
+        const float textY = centerY - amountSize.y * 0.5f;
+
+        DrawOutlinedText(g_smallFont, amountText, Vector2{ textX, textY }, g_smallFontDrawSize, 1, WHITE);
+
+        if (delta != 0)
+        {
+            const string deltaText = delta > 0 ? "+" + to_string(delta) : to_string(delta);
+            const Color deltaColor = delta > 0
+                ? Color{ 120, 220, 120, 255 }
+                : Color{ 220, 120, 120, 255 };
+
+            DrawOutlinedText(
+                g_smallFont,
+                deltaText,
+                Vector2{ textX + amountSize.x + 3.0f, textY },
+                g_smallFontDrawSize,
+                1,
+                deltaColor);
+        }
     }
 
 }
@@ -135,6 +187,137 @@ void MainState::HandleMapSelection()
     g_GameDatabase.SetActiveRegion(regionId);
 }
 
+Rectangle MainState::GetResourceBarSlotRect(int barX, int barWidth, int slotIndex) const
+{
+    const int slotWidth = barWidth / 4;
+    return Rectangle{
+        static_cast<float>(barX + (slotIndex * slotWidth)),
+        static_cast<float>(kResourceBarY),
+        static_cast<float>(slotWidth),
+        static_cast<float>(kResourceBarHeight)
+    };
+}
+
+void MainState::HandleResourceBarInput(int barX, int barWidth)
+{
+    m_HoveredResourceBarSlot = -1;
+    const Vector2 mouse = GetScaledMousePosition();
+
+    for (int slotIndex = 0; slotIndex < 4; ++slotIndex)
+    {
+        if (CheckCollisionPointRec(mouse, GetResourceBarSlotRect(barX, barWidth, slotIndex)))
+        {
+            m_HoveredResourceBarSlot = slotIndex;
+            break;
+        }
+    }
+}
+
+int MainState::GetResourceBarIconLeftX(int barX, int barWidth, int slotIndex) const
+{
+    const int slotWidth = barWidth / 4;
+    const int slotX = barX + (slotIndex * slotWidth);
+    const CountyResource resource = kResourceBarSlotOrder[slotIndex];
+    const MapTilesSpriteSpec iconSpec = GetMapTilesResourceSpec(resource);
+    return slotX + kResourceIconCenterOffset - (iconSpec.m_Width / 2);
+}
+
+void MainState::DrawResourceBarTooltip(int barX, int barWidth) const
+{
+    if (m_HoveredResourceBarSlot < 0 || m_HoveredResourceBarSlot >= 4)
+    {
+        return;
+    }
+
+    const Player* humanPlayer = GetHumanPlayer(g_GameDatabase.m_Players);
+    if (!humanPlayer)
+    {
+        return;
+    }
+
+    const CountyResource resource = kResourceBarSlotOrder[m_HoveredResourceBarSlot];
+    std::vector<ResourceTurnLine> lines;
+    ComputePlayerResourceBreakdown(g_OverworldMap, *humanPlayer, resource, lines);
+    if (lines.empty())
+    {
+        return;
+    }
+
+    struct TooltipRow
+    {
+        string m_Text;
+        Color m_Color;
+    };
+
+    std::vector<TooltipRow> rows;
+    rows.reserve(lines.size());
+    for (const ResourceTurnLine& line : lines)
+    {
+        TooltipRow row{};
+        if (line.m_Amount > 0)
+        {
+            row.m_Text = "+" + to_string(line.m_Amount) + " " + line.m_Label;
+            row.m_Color = Color{ 120, 220, 120, 255 };
+        }
+        else
+        {
+            row.m_Text = to_string(line.m_Amount) + " " + line.m_Label;
+            row.m_Color = Color{ 220, 120, 120, 255 };
+        }
+
+        rows.push_back(row);
+    }
+
+    float maxTextWidth = 0.0f;
+    for (const TooltipRow& row : rows)
+    {
+        const Vector2 textSize = MeasureTextEx(*g_smallFont, row.m_Text.c_str(), g_smallFontDrawSize, 1.0f);
+        maxTextWidth = std::max(maxTextWidth, textSize.x);
+    }
+
+    const int tooltipX = GetResourceBarIconLeftX(barX, barWidth, m_HoveredResourceBarSlot);
+    const int tooltipY = kMapDrawY;
+    const int tooltipWidth = static_cast<int>(maxTextWidth) + (kResourceTooltipPadding * 2);
+    const int tooltipHeight = (kResourceTooltipPadding * 2) + (static_cast<int>(rows.size()) * kResourceTooltipLineHeight);
+
+    DrawRectangle(tooltipX, tooltipY, tooltipWidth, tooltipHeight, Color{ 24, 28, 36, 245 });
+    DrawRectangleLines(tooltipX, tooltipY, tooltipWidth, tooltipHeight, Color{ 90, 90, 100, 255 });
+
+    int lineY = tooltipY + kResourceTooltipPadding;
+    for (const TooltipRow& row : rows)
+    {
+        DrawOutlinedText(
+            g_smallFont,
+            row.m_Text,
+            Vector2{ static_cast<float>(tooltipX + kResourceTooltipPadding), static_cast<float>(lineY) },
+            g_smallFontDrawSize,
+            1,
+            row.m_Color);
+        lineY += kResourceTooltipLineHeight;
+    }
+}
+
+void MainState::DrawPlayerResourceBar(int barX, int barY, int barWidth) const
+{
+    const Player* humanPlayer = GetHumanPlayer(g_GameDatabase.m_Players);
+    if (!humanPlayer)
+    {
+        return;
+    }
+
+    DrawRectangle(barX, barY, barWidth, kResourceBarHeight, Color{ 30, 34, 42, 255 });
+    DrawRectangleLines(barX, barY, barWidth, kResourceBarHeight, Color{ 90, 90, 100, 255 });
+
+    ResourceAmount turnDelta{};
+    ComputePlayerTurnDelta(g_OverworldMap, *humanPlayer, turnDelta);
+
+    const int slotWidth = barWidth / 4;
+    DrawResourceBarEntry(barX, barY, CountyResource::Food, humanPlayer->m_Food, turnDelta.m_Food);
+    DrawResourceBarEntry(barX + slotWidth, barY, CountyResource::Wood, humanPlayer->m_Wood, turnDelta.m_Wood);
+    DrawResourceBarEntry(barX + (slotWidth * 2), barY, CountyResource::Iron, humanPlayer->m_Iron, turnDelta.m_Iron);
+    DrawResourceBarEntry(barX + (slotWidth * 3), barY, CountyResource::Gold, humanPlayer->m_Gold, turnDelta.m_Gold);
+}
+
 void MainState::DrawCountyInfo(int panelX, int panelY, int panelWidth) const
 {
     DrawRectangle(panelX, panelY, panelWidth, kCountyInfoHeight, Color{ 40, 44, 54, 255 });
@@ -191,7 +374,22 @@ void MainState::DrawCountyInfo(int panelX, int panelY, int panelWidth) const
 
     const string resourceText = string("Resource: ") + CountyResourceName(region->m_Resource);
     const string ownerText = string("Owner: ") + PlayerOwnerName(region->m_OwnerId);
-    const string castleText = string("Castle: ") + (region->m_HasCastle ? "Yes" : "No");
+    string castleText = string("Castle: ");
+    if (region->m_HasCastle)
+    {
+        castleText += "Yes";
+    }
+    else if (region->m_CastleBuildTurnsRemaining > 0)
+    {
+        castleText += "Building (" + to_string(region->m_CastleBuildTurnsRemaining) + " turns)";
+    }
+    else
+    {
+        castleText += "No";
+    }
+
+    const string outputText = "Output: " + to_string(GetRegionTurnIncome(*region))
+        + "/turn (x" + to_string(GetRegionIncomeMultiplier(*region)) + ")";
 
     DrawOutlinedText(g_smallFont, resourceText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 16) },
         g_smallFontDrawSize, 1, WHITE);
@@ -199,6 +397,8 @@ void MainState::DrawCountyInfo(int panelX, int panelY, int panelWidth) const
         g_smallFontDrawSize, 1, WHITE);
     DrawOutlinedText(g_smallFont, castleText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 40) },
         g_smallFontDrawSize, 1, WHITE);
+    DrawOutlinedText(g_smallFont, outputText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 52) },
+        g_smallFontDrawSize, 1, Color{ 180, 220, 180, 255 });
 }
 
 bool MainState::IsMouseOverNextTurnButton() const
@@ -219,6 +419,167 @@ void MainState::HandleNextTurnButton()
     }
 
     g_GameDatabase.AdvanceTurn(g_OverworldMap);
+}
+
+int MainState::GetTaskPanelHeight() const
+{
+    const int taskCount = g_PlayerTasksConfig.GetTaskCount();
+    if (taskCount <= 0)
+    {
+        return 0;
+    }
+
+    const PlayerTaskLayout& layout = g_PlayerTasksConfig.GetLayout();
+    return 16 + (taskCount * layout.m_RowHeight) + 14;
+}
+
+Rectangle MainState::GetTaskRowRect(int panelX, int panelY, int taskIndex) const
+{
+    const PlayerTaskLayout& layout = g_PlayerTasksConfig.GetLayout();
+    const float y = static_cast<float>(panelY + 16 + (taskIndex * layout.m_RowHeight));
+    return Rectangle{
+        static_cast<float>(panelX),
+        y,
+        static_cast<float>(layout.m_CostX + 80),
+        static_cast<float>(layout.m_RowHeight)
+    };
+}
+
+bool MainState::IsMouseOverTaskRow(int panelX, int panelY, int taskIndex) const
+{
+    return CheckCollisionPointRec(GetScaledMousePosition(), GetTaskRowRect(panelX, panelY, taskIndex));
+}
+
+void MainState::HandleTaskPanelInput(int panelX, int panelY, int panelWidth)
+{
+    (void)panelWidth;
+    const int taskCount = g_PlayerTasksConfig.GetTaskCount();
+    if (taskCount <= 0)
+    {
+        m_HoveredTaskIndex = -1;
+        return;
+    }
+
+    m_HoveredTaskIndex = -1;
+    for (int taskIndex = 0; taskIndex < taskCount; ++taskIndex)
+    {
+        if (IsMouseOverTaskRow(panelX, panelY, taskIndex))
+        {
+            m_HoveredTaskIndex = taskIndex;
+            break;
+        }
+    }
+
+    if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || m_HoveredTaskIndex < 0)
+    {
+        return;
+    }
+
+    Player* humanPlayer = GetHumanPlayer(g_GameDatabase.m_Players);
+    if (!humanPlayer)
+    {
+        return;
+    }
+
+    const PlayerTaskDefinition& task = g_PlayerTasksConfig.GetTask(m_HoveredTaskIndex);
+    if (g_PlayerTasksConfig.ExecuteTask(*humanPlayer, task, g_OverworldMap, m_SelectedRegionId))
+    {
+        m_TaskStatusMessage = "Performed: " + task.m_Name;
+        if (task.m_Effect.m_Type == "startCastleBuild")
+        {
+            m_TaskStatusMessage += " (construction started)";
+        }
+        else if (!task.m_Maintenance.IsEmpty())
+        {
+            m_TaskStatusMessage += " (+" + task.m_Maintenance.ToShortLabel() + "/turn)";
+        }
+        else if (task.m_Effect.m_Type == "scouting"
+            || task.m_Effect.m_Type == "attack"
+            || task.m_Effect.m_Type == "saboteur"
+            || task.m_Effect.m_Type == "merchant"
+            || task.m_Effect.m_Type == "sendDiplomat"
+            || task.m_Effect.m_Type == "sendSpy")
+        {
+            m_TaskStatusMessage += " (not yet implemented)";
+        }
+    }
+    else
+    {
+        m_TaskStatusMessage = g_PlayerTasksConfig.GetTaskFailureReason(
+            *humanPlayer, task, g_OverworldMap, m_SelectedRegionId);
+    }
+}
+
+void MainState::DrawTaskPanel(int panelX, int panelY, int panelWidth) const
+{
+    const int taskCount = g_PlayerTasksConfig.GetTaskCount();
+    if (taskCount <= 0)
+    {
+        return;
+    }
+
+    const int panelHeight = GetTaskPanelHeight();
+    const PlayerTaskLayout& layout = g_PlayerTasksConfig.GetLayout();
+    const Player* humanPlayer = GetHumanPlayer(g_GameDatabase.m_Players);
+
+    DrawRectangle(panelX, panelY, panelWidth, panelHeight, Color{ 34, 38, 48, 255 });
+    DrawRectangleLines(panelX, panelY, panelWidth, panelHeight, Color{ 90, 90, 100, 255 });
+
+    DrawOutlinedText(g_font, g_PlayerTasksConfig.GetTitle(),
+        Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 2) },
+        g_fontDrawSize, 1, Color{ 255, 230, 90, 255 });
+
+    for (int taskIndex = 0; taskIndex < taskCount; ++taskIndex)
+    {
+        const PlayerTaskDefinition& task = g_PlayerTasksConfig.GetTask(taskIndex);
+        const Rectangle rowRect = GetTaskRowRect(panelX, panelY, taskIndex);
+        const bool hovered = taskIndex == m_HoveredTaskIndex;
+        const bool affordable = humanPlayer
+            && g_PlayerTasksConfig.CanPlayerPerformTask(*humanPlayer, task, g_OverworldMap, m_SelectedRegionId);
+
+        if (hovered)
+        {
+            DrawRectangle(static_cast<int>(rowRect.x), static_cast<int>(rowRect.y),
+                panelWidth, static_cast<int>(rowRect.height), Color{ 58, 72, 98, 255 });
+        }
+
+        const Color textColor = affordable ? WHITE : Color{ 140, 140, 150, 255 };
+        const Vector2 iconCenter{
+            rowRect.x + static_cast<float>(layout.m_IconX) + static_cast<float>(layout.m_IconSize) * 0.5f,
+            rowRect.y + rowRect.height * 0.5f
+        };
+        DrawPlayerTaskIcon(task, iconCenter, textColor);
+
+        DrawOutlinedText(g_smallFont, task.m_Name,
+            Vector2{ rowRect.x + static_cast<float>(layout.m_NameX), rowRect.y + 3.0f },
+            g_smallFontDrawSize, 1, textColor);
+
+        std::string costLabel = task.m_Cost.ToShortLabel();
+        const bool hasUpkeep = humanPlayer
+            && GetPlayerActiveTaskCount(*humanPlayer, task.m_Id) > 0
+            && !task.m_Maintenance.IsEmpty();
+        if (hasUpkeep)
+        {
+            costLabel += "  Upkeep " + task.m_Maintenance.ToShortLabel();
+        }
+
+        DrawOutlinedText(g_smallFont, costLabel,
+            Vector2{ rowRect.x + static_cast<float>(layout.m_CostX), rowRect.y + 3.0f },
+            g_smallFontDrawSize, 1, Color{ 255, 220, 120, 255 });
+    }
+
+    if (!m_TaskStatusMessage.empty())
+    {
+        DrawOutlinedText(g_smallFont, m_TaskStatusMessage,
+            Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + panelHeight - 12) },
+            g_smallFontDrawSize, 1, Color{ 180, 220, 180, 255 });
+    }
+    else
+    {
+        DrawOutlinedText(g_smallFont, g_PlayerTasksConfig.GetHelpText(),
+            Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + panelHeight - 12) },
+            g_smallFontDrawSize, 1, Color{ 170, 170, 180, 255 });
+    }
 }
 
 void MainState::DrawNextTurnButton() const
@@ -300,7 +661,8 @@ void MainState::DrawPlayerSummaries(int panelX, int panelY, int panelWidth) cons
             + " Sw" + to_string(player.m_Swordsmen)
             + " Ar" + to_string(player.m_Archers)
             + " Kn" + to_string(player.m_Knights)
-            + " Ct" + to_string(player.m_Catapults);
+            + " Ct" + to_string(player.m_Catapults)
+            + " St" + to_string(player.m_SiegeTowers);
         DrawOutlinedText(g_smallFont, units,
             Vector2{ static_cast<float>(boxX + 3), static_cast<float>(boxY + 29) },
             g_smallFontDrawSize, 1, Color{ 210, 210, 210, 255 });
@@ -322,7 +684,16 @@ void MainState::Update()
         g_GameDatabase.SyncPlayersFromOverworld(g_OverworldMap, true);
     }
 
+    const int mapRight = kMapDrawX + (OVERWORLD_MAP_SIZE * kMapPixelsPerCell);
+    const int panelX = mapRight + 8;
+    const int panelWidth = static_cast<int>(g_Engine->m_RenderWidth) - panelX - 4;
+    const int taskPanelY = kMapDrawY + kCountyInfoHeight + kPlayerBoxGap;
+
+    const int mapPixelWidth = OVERWORLD_MAP_SIZE * kMapPixelsPerCell;
+
     HandleNextTurnButton();
+    HandleResourceBarInput(kMapDrawX, mapPixelWidth);
+    HandleTaskPanelInput(panelX, taskPanelY, panelWidth);
     HandleMapSelection();
 }
 
@@ -331,17 +702,23 @@ void MainState::Draw()
     DrawRectangle(0, 0, static_cast<int>(g_Engine->m_RenderWidth), static_cast<int>(g_Engine->m_RenderHeight),
         Color{ 24, 28, 36, 255 });
 
+    const int mapPixelWidth = OVERWORLD_MAP_SIZE * kMapPixelsPerCell;
+    DrawPlayerResourceBar(kMapDrawX, kResourceBarY, mapPixelWidth);
     g_OverworldMap.Draw(kMapDrawX, kMapDrawY, kMapPixelsPerCell, m_SelectedRegionId);
+    DrawResourceBarTooltip(kMapDrawX, mapPixelWidth);
 
-    const int mapRight = kMapDrawX + (OVERWORLD_MAP_SIZE * kMapPixelsPerCell);
+    const int mapRight = kMapDrawX + mapPixelWidth;
     const int panelX = mapRight + 8;
     const int panelWidth = static_cast<int>(g_Engine->m_RenderWidth) - panelX - 4;
-    const int sidePanelY = kMapDrawY + kCountyInfoHeight + kPlayerBoxGap;
+    const int taskPanelY = kMapDrawY + kCountyInfoHeight + kPlayerBoxGap;
+    const int taskPanelHeight = GetTaskPanelHeight();
+    const int sidePanelY = taskPanelY + taskPanelHeight + kPlayerBoxGap;
     const int sidePanelHeight = static_cast<int>(g_Engine->m_RenderHeight) - sidePanelY - kNextTurnButtonHeight - (kPanelMargin * 2);
 
     DrawCountyInfo(panelX, kMapDrawY, panelWidth);
+    DrawTaskPanel(panelX, taskPanelY, panelWidth);
 
-    if (kShowAccessibilityGrid)
+    if (kShowAccessibilityGrid && sidePanelHeight > 0)
     {
         g_OverworldMap.DrawAccessibilityGrid(panelX, sidePanelY, panelWidth, sidePanelHeight, m_SelectedRegionId);
     }

@@ -17,6 +17,7 @@ public:
     float GetLookAtZ() const { return m_LookAtZ; }
     float GetZoom() const { return m_Zoom; }
     float GetAngle() const { return m_Angle; }
+    void SetLookAtPosition(float x, float z);
 
 private:
     void SyncCamera();

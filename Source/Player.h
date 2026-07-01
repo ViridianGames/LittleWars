@@ -17,10 +17,7 @@ enum class DiplomaticRelation : int
 
 constexpr int kMaxCampaignPlayers = 8;
 
-constexpr int kRegionFoodIncome = 12;
-constexpr int kRegionIronIncome = 8;
-constexpr int kRegionGoldIncome = 10;
-constexpr int kRegionWoodIncome = 10;
+constexpr int kRegionBaseIncome = 1;
 
 struct Player
 {
@@ -43,8 +40,11 @@ struct Player
     int m_Archers = 0;
     int m_Knights = 0;
     int m_Catapults = 0;
+    int m_SiegeTowers = 0;
+    int m_Happiness = 50;
 
     std::vector<int> m_Relations;
+    std::vector<std::pair<std::string, int>> m_ActiveTasks;
 
     Color GetColor() const;
     const char* GetColorName() const;
@@ -58,5 +58,7 @@ const char* DiplomaticRelationName(DiplomaticRelation relation);
 void InitializeCampaignPlayers(std::vector<Player>& players, int playerCount);
 void SyncPlayersFromOverworld(const class OverworldMap& map, std::vector<Player>& players, bool resetAssets);
 void CollectTurnIncomeFromRegions(const class OverworldMap& map, std::vector<Player>& players);
+void ProcessCastleConstruction(class OverworldMap& map, std::vector<Player>& players);
+void ComputePlayerTurnDelta(const class OverworldMap& map, const Player& player, struct ResourceAmount& outDelta);
 
 #endif

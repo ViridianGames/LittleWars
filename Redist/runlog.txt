@@ -1,26 +1,25 @@
- Sun Jun 28 19:50:23 2026.871 Starting Engine::Init()
- Sun Jun 28 19:50:23 2026.871 Starting StateMachine::Init
- Sun Jun 28 19:50:23 2026.871 Leaving StateMachine::Init
- Sun Jun 28 19:50:23 2026.872 Starting InputSystem::Init()
- Sun Jun 28 19:50:23 2026.872 Done With InputSystem::Init()
- Sun Jun 28 19:50:24 2026.044 Done with Engine::Init()
- Sun Jun 28 19:50:24 2026.045 Loading texture Images/terrain.png
- Sun Jun 28 19:50:24 2026.046 Texture ID: 7, Width: 64, Height: 64
- Sun Jun 28 19:50:24 2026.046 Load successful.
- Sun Jun 28 19:50:24 2026.046 Loading texture Images/littlepeople.png
- Sun Jun 28 19:50:24 2026.046 Texture ID: 8, Width: 196, Height: 176
- Sun Jun 28 19:50:24 2026.046 Load successful.
- Sun Jun 28 19:50:24 2026.047 Loading texture Images/tiles256.png
- Sun Jun 28 19:50:24 2026.047 Texture ID: 9, Width: 112, Height: 832
- Sun Jun 28 19:50:24 2026.047 Load successful.
- Sun Jun 28 19:50:24 2026.047 Created state TitleState with ID 0
- Sun Jun 28 19:50:24 2026.047 Created state SetupGameState with ID 5
- Sun Jun 28 19:50:24 2026.047 Created state CastleDesignState with ID 4
- Sun Jun 28 19:50:24 2026.047 Created state MainState with ID 1
- Sun Jun 28 19:50:24 2026.047 Created state CombatState with ID 3
- Sun Jun 28 19:50:24 2026.047 Created state OptionsState with ID 2
- Sun Jun 28 19:50:24 2026.047 StateMachine: Transitioning to state TitleState, ID 0
- Sun Jun 28 19:51:16 2026.695 StateMachine: Transitioning to state SetupGameState, ID 5
- Sun Jun 28 19:51:42 2026.022 StateMachine: Transitioning to state MainState, ID 1
- Sun Jun 28 19:55:17 2026.154 StateMachine: Transitioning to state TitleState, ID 0
- Sun Jun 28 19:55:19 2026.179 StateMachine: Transitioning to state CombatState, ID 3
+ Tue Jun 30 21:43:09 2026.586 Starting Engine::Init()
+ Tue Jun 30 21:43:09 2026.586 Starting StateMachine::Init
+ Tue Jun 30 21:43:09 2026.586 Leaving StateMachine::Init
+ Tue Jun 30 21:43:09 2026.586 Starting InputSystem::Init()
+ Tue Jun 30 21:43:09 2026.586 Done With InputSystem::Init()
+ Tue Jun 30 21:43:09 2026.817 Done with Engine::Init()
+ Tue Jun 30 21:43:09 2026.819 CampaignSetupScreenConfig::LoadFromFile - loaded Data/campaign_setup.json
+ Tue Jun 30 21:43:09 2026.819 PlayerTasksConfig::LoadFromFile - loaded Data/player_tasks.json
+ Tue Jun 30 21:43:09 2026.819 Loading texture Images/terrain.png
+ Tue Jun 30 21:43:09 2026.819 Texture ID: 7, Width: 64, Height: 64
+ Tue Jun 30 21:43:09 2026.819 Load successful.
+ Tue Jun 30 21:43:09 2026.820 Loading texture Images/littlepeople.png
+ Tue Jun 30 21:43:09 2026.821 Texture ID: 8, Width: 196, Height: 176
+ Tue Jun 30 21:43:09 2026.821 Load successful.
+ Tue Jun 30 21:43:09 2026.821 Loading texture Images/tiles256.png
+ Tue Jun 30 21:43:09 2026.821 Texture ID: 9, Width: 112, Height: 832
+ Tue Jun 30 21:43:09 2026.821 Load successful.
+ Tue Jun 30 21:43:09 2026.821 Created state TitleState with ID 0
+ Tue Jun 30 21:43:09 2026.821 Created state SetupGameState with ID 5
+ Tue Jun 30 21:43:09 2026.821 Created state CastleDesignState with ID 4
+ Tue Jun 30 21:43:09 2026.821 Created state MainState with ID 1
+ Tue Jun 30 21:43:09 2026.821 Created state CombatState with ID 3
+ Tue Jun 30 21:43:09 2026.821 Created state OptionsState with ID 2
+ Tue Jun 30 21:43:09 2026.821 StateMachine: Transitioning to state TitleState, ID 0
+ Tue Jun 30 21:43:19 2026.436 StateMachine: Transitioning to state CombatState, ID 3

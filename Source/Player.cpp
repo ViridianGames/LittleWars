@@ -1,6 +1,7 @@
 #include "Player.h"
 
 #include "OverworldMap.h"
+#include "PlayerTasksConfig.h"
 
 #include <algorithm>
 
@@ -189,15 +190,17 @@ void SyncPlayersFromOverworld(const OverworldMap& map, std::vector<Player>& play
 
         if (resetAssets || (player.m_Food == 0 && player.m_Gold == 0 && player.m_TotalRegions > 0))
         {
-            player.m_Food = player.m_FoodRegions * 12 + 20;
-            player.m_Iron = player.m_IronRegions * 8 + 10;
-            player.m_Gold = player.m_GoldRegions * 10 + 25;
-            player.m_Wood = player.m_WoodRegions * 10 + 15;
+            player.m_Food = player.m_FoodRegions * kRegionBaseIncome + 20;
+            player.m_Iron = player.m_IronRegions * kRegionBaseIncome + 10;
+            player.m_Gold = player.m_GoldRegions * kRegionBaseIncome + 25;
+            player.m_Wood = player.m_WoodRegions * kRegionBaseIncome + 15;
 
             player.m_Swordsmen = std::max(1, player.m_TotalRegions / 2);
             player.m_Archers = std::max(0, player.m_TotalRegions / 3);
             player.m_Knights = player.m_Castles;
             player.m_Catapults = player.m_Castles / 2;
+            player.m_SiegeTowers = 0;
+            player.m_Happiness = 50;
         }
         else if (resetAssets)
         {
@@ -209,6 +212,8 @@ void SyncPlayersFromOverworld(const OverworldMap& map, std::vector<Player>& play
             player.m_Archers = 0;
             player.m_Knights = 0;
             player.m_Catapults = 0;
+            player.m_SiegeTowers = 0;
+            player.m_Happiness = 50;
         }
     }
 }
@@ -217,7 +222,13 @@ void CollectTurnIncomeFromRegions(const OverworldMap& map, std::vector<Player>& 
 {
     for (const OverworldRegionData& region : map.GetRegions())
     {
-        if (region.m_OwnerId < 0 || region.m_OwnerId >= static_cast<int>(players.size()))
+        if (region.m_IsWater || region.m_OwnerId < 0 || region.m_OwnerId >= static_cast<int>(players.size()))
+        {
+            continue;
+        }
+
+        const int income = GetRegionTurnIncome(region);
+        if (income <= 0)
         {
             continue;
         }
@@ -226,17 +237,122 @@ void CollectTurnIncomeFromRegions(const OverworldMap& map, std::vector<Player>& 
         switch (region.m_Resource)
         {
         case CountyResource::Food:
-            player.m_Food += kRegionFoodIncome;
+            player.m_Food += income;
             break;
         case CountyResource::Iron:
-            player.m_Iron += kRegionIronIncome;
+            player.m_Iron += income;
             break;
         case CountyResource::Gold:
-            player.m_Gold += kRegionGoldIncome;
+            player.m_Gold += income;
             break;
         case CountyResource::Wood:
-            player.m_Wood += kRegionWoodIncome;
+            player.m_Wood += income;
             break;
+        }
+    }
+}
+
+void ComputePlayerTurnDelta(const OverworldMap& map, const Player& player, ResourceAmount& outDelta)
+{
+    outDelta = ResourceAmount{};
+
+    for (const OverworldRegionData& region : map.GetRegions())
+    {
+        if (region.m_IsWater || region.m_OwnerId != player.m_Id)
+        {
+            continue;
+        }
+
+        const int income = GetRegionTurnIncome(region);
+        switch (region.m_Resource)
+        {
+        case CountyResource::Food:
+            outDelta.m_Food += income;
+            break;
+        case CountyResource::Iron:
+            outDelta.m_Iron += income;
+            break;
+        case CountyResource::Gold:
+            outDelta.m_Gold += income;
+            break;
+        case CountyResource::Wood:
+            outDelta.m_Wood += income;
+            break;
+        }
+    }
+
+    for (const auto& activeTaskEntry : player.m_ActiveTasks)
+    {
+        const PlayerTaskDefinition* task = g_PlayerTasksConfig.FindTaskById(activeTaskEntry.first);
+        if (!task || task->m_Maintenance.IsEmpty())
+        {
+            continue;
+        }
+
+        outDelta.m_Food -= task->m_Maintenance.m_Food;
+        outDelta.m_Iron -= task->m_Maintenance.m_Iron;
+        outDelta.m_Gold -= task->m_Maintenance.m_Gold;
+        outDelta.m_Wood -= task->m_Maintenance.m_Wood;
+    }
+
+    const PlayerTaskDefinition* buildCastleTask = g_PlayerTasksConfig.FindTaskById("buildCastle");
+    if (buildCastleTask)
+    {
+        const ResourceAmount& constructionUpkeep = buildCastleTask->m_ConstructionMaintenance;
+        for (const OverworldRegionData& region : map.GetRegions())
+        {
+            if (region.m_IsWater || region.m_CastleBuildTurnsRemaining <= 0 || region.m_OwnerId != player.m_Id)
+            {
+                continue;
+            }
+
+            outDelta.m_Food -= constructionUpkeep.m_Food;
+            outDelta.m_Iron -= constructionUpkeep.m_Iron;
+            outDelta.m_Gold -= constructionUpkeep.m_Gold;
+            outDelta.m_Wood -= constructionUpkeep.m_Wood;
+        }
+    }
+}
+
+void ProcessCastleConstruction(OverworldMap& map, std::vector<Player>& players)
+{
+    const PlayerTaskDefinition* buildCastleTask = g_PlayerTasksConfig.FindTaskById("buildCastle");
+    if (!buildCastleTask)
+    {
+        return;
+    }
+
+    const ResourceAmount& upkeep = buildCastleTask->m_ConstructionMaintenance;
+    for (const OverworldRegionData& regionData : map.GetRegions())
+    {
+        if (regionData.m_IsWater || regionData.m_CastleBuildTurnsRemaining <= 0)
+        {
+            continue;
+        }
+
+        if (regionData.m_OwnerId < 0 || regionData.m_OwnerId >= static_cast<int>(players.size()))
+        {
+            continue;
+        }
+
+        Player& player = players[static_cast<size_t>(regionData.m_OwnerId)];
+        if (!upkeep.CanAfford(player))
+        {
+            continue;
+        }
+
+        OverworldRegionData* region = map.GetRegion(regionData.m_Id);
+        if (!region)
+        {
+            continue;
+        }
+
+        upkeep.Deduct(player);
+        --region->m_CastleBuildTurnsRemaining;
+        if (region->m_CastleBuildTurnsRemaining <= 0)
+        {
+            region->m_HasCastle = true;
+            ++player.m_Castles;
         }
     }
 }

@@ -1,0 +1,134 @@
+{
+  "title": "Tasks",
+  "helpText": "Select a county for region tasks",
+  "layout": {
+    "rowHeight": 14,
+    "iconSize": 8,
+    "iconX": 4,
+    "nameX": 16,
+    "costX": 118
+  },
+  "tasks": [
+    {
+      "id": "buildCastle",
+      "name": "Build Castle",
+      "icon": { "preset": "flag" },
+      "requiresRegion": true,
+      "buildTurns": 5,
+      "cost": { "grain": 10, "wood": 30, "iron": 10, "gold": 20 },
+      "constructionMaintenance": { "food": 2, "wood": 2, "gold": 2 },
+      "effect": { "type": "startCastleBuild" }
+    },
+    {
+      "id": "recruitInfantry",
+      "name": "Recruit Infantry",
+      "icon": { "preset": "iron" },
+      "cost": { "iron": 5, "gold": 5 },
+      "maintenance": { "food": 1 },
+      "effect": { "type": "addSwordsmen", "amount": 1 }
+    },
+    {
+      "id": "recruitArchers",
+      "name": "Recruit Archers",
+      "icon": { "preset": "wood" },
+      "cost": { "wood": 5, "gold": 5 },
+      "maintenance": { "food": 1 },
+      "effect": { "type": "addArchers", "amount": 1 }
+    },
+    {
+      "id": "recruitKnights",
+      "name": "Recruit Knights",
+      "icon": { "preset": "gold" },
+      "cost": { "iron": 5, "food": 5, "gold": 5 },
+      "maintenance": { "food": 1, "gold": 1 },
+      "effect": { "type": "addKnights", "amount": 1 }
+    },
+    {
+      "id": "buildCatapult",
+      "name": "Build Catapult",
+      "icon": { "preset": "wood" },
+      "cost": { "wood": 10, "iron": 5, "gold": 10 },
+      "effect": { "type": "addCatapults", "amount": 1 }
+    },
+    {
+      "id": "buildSiegeTower",
+      "name": "Build Siege Tower",
+      "icon": { "preset": "wood" },
+      "cost": { "wood": 10, "iron": 5, "gold": 10 },
+      "effect": { "type": "addSiegeTowers", "amount": 1 }
+    },
+    {
+      "id": "sendDiplomat",
+      "name": "Send Diplomat",
+      "icon": { "preset": "gold" },
+      "cost": { "gold": 5 },
+      "effect": { "type": "sendDiplomat" }
+    },
+    {
+      "id": "sendSpy",
+      "name": "Send Spy",
+      "icon": { "preset": "gold" },
+      "cost": { "gold": 5 },
+      "effect": { "type": "sendSpy" }
+    },
+    {
+      "id": "improveRegion",
+      "name": "Improve Region",
+      "icon": { "preset": "food" },
+      "requiresRegion": true,
+      "cost": { "grain": 10, "wood": 10, "iron": 10, "gold": 2 },
+      "effect": { "type": "improveRegion" }
+    },
+    {
+      "id": "attack",
+      "name": "Attack",
+      "icon": { "preset": "iron" },
+      "cost": { "iron": 1 },
+      "effect": { "type": "attack" }
+    },
+    {
+      "id": "saboteur",
+      "name": "Saboteur",
+      "icon": { "preset": "gold" },
+      "cost": { "gold": 1 },
+      "effect": { "type": "saboteur" }
+    },
+    {
+      "id": "scouting",
+      "name": "Scouting",
+      "icon": { "preset": "food" },
+      "cost": {},
+      "effect": { "type": "scouting" }
+    },
+    {
+      "id": "spying",
+      "name": "Spying",
+      "icon": { "preset": "gold" },
+      "cost": { "gold": 1 },
+      "maintenance": { "gold": 1 },
+      "effect": { "type": "spying" }
+    },
+    {
+      "id": "diplomat",
+      "name": "Diplomat",
+      "icon": { "preset": "gold" },
+      "cost": { "gold": 1 },
+      "maintenance": { "gold": 1 },
+      "effect": { "type": "diplomat" }
+    },
+    {
+      "id": "merchant",
+      "name": "Merchant",
+      "icon": { "preset": "gold" },
+      "cost": {},
+      "effect": { "type": "merchant" }
+    },
+    {
+      "id": "throwFestival",
+      "name": "Throw Festival",
+      "icon": { "preset": "food" },
+      "cost": { "food": 5, "wood": 5, "gold": 2 },
+      "effect": { "type": "throwFestival" }
+    }
+  ]
+}

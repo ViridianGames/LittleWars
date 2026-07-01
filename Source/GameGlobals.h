@@ -85,9 +85,20 @@ enum class ResourceDistribution
     Balanced
 };
 
+enum class Difficulty : int
+{
+    Squire = 0,
+    Baron,
+    Viscount,
+    Marquis,
+    King
+};
+
+constexpr int kDifficultyCount = 5;
 constexpr int kMinOpponents = 3;
 constexpr int kMaxOpponents = 7;
 
+const char* DifficultyName(Difficulty difficulty);
 const char* MapSizeName(MapSize size);
 int MapSizeRegionCount(MapSize size);
 int MapSizeStartingRegions(MapSize size);
@@ -112,7 +123,7 @@ enum RegionTerrainType : unsigned char
 struct CampaignSetup
 {
     unsigned int m_Seed = 0;
-    int m_Difficulty = 1;
+    Difficulty m_Difficulty = Difficulty::Baron;
     int m_EnemyCount = 4;
     BattleMode m_BattleMode = BattleMode::OnMap;
     ResourceDistribution m_ResourceDistribution = ResourceDistribution::Balanced;
@@ -155,7 +166,7 @@ class GameDatabase
 {
 public:
     static constexpr const char* SAVE_MAGIC = "LWAR";
-    static constexpr int SAVE_VERSION = 6;
+    static constexpr int SAVE_VERSION = 8;
 
     CampaignSetup m_Setup;
     int m_Turn = 0;
@@ -166,7 +177,7 @@ public:
     void Clear();
     void InitNewCampaign(const CampaignSetup& setup);
     void SyncPlayersFromOverworld(const class OverworldMap& map, bool resetAssets);
-    void AdvanceTurn(const class OverworldMap& map);
+    void AdvanceTurn(class OverworldMap& map);
 
     RegionData* GetRegion(int regionId);
     const RegionData* GetRegion(int regionId) const;
