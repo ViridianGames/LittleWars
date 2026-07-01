@@ -2,10 +2,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "../Geist/Source/Engine.h"
 #include "../Geist/Source/Globals.h"
 #include "GameGlobals.h"
+#include "RegionUILayout.h"
 #include "raymath.h"
 
 namespace
@@ -73,6 +75,27 @@ namespace
     constexpr float kFacingAngleSlice = kTwoPi / static_cast<float>(LITTLEPEOPLE_DIRECTION_COUNT);
     constexpr float kUnitRotateSpeed = 5.5f;
     constexpr float kFigureMinSeparation = 0.85f;
+    constexpr float kCombatRetaliationDelaySeconds = 0.25f;
+
+    bool UnitHasCombatOrders(const CombatUnitInstance& unit)
+    {
+        return unit.m_AttackTargetUnitIndex >= 0 || unit.m_HasPlayerMoveOrder;
+    }
+
+    bool CanUnitEngageInCombat(const CombatUnitInstance& unit)
+    {
+        if (!CanCombatUnitAttack(unit))
+        {
+            return false;
+        }
+
+        if (unit.m_RetaliationDelayRemaining > 0.0f)
+        {
+            return false;
+        }
+
+        return unit.m_AttackTargetUnitIndex >= 0;
+    }
 
     float FacingDirectionToAngle(LittlePeopleDirection facing)
     {
@@ -648,6 +671,7 @@ namespace
             unit.m_Anchor.x = reformAnchorX;
             unit.m_Anchor.z = reformAnchorZ;
             unit.m_IsMoving = false;
+            unit.m_HasPlayerMoveOrder = false;
             return;
         }
 
@@ -744,52 +768,25 @@ namespace
     int ResolveCombatTargetUnitIndex(const CombatUnitInstance& attacker, const std::vector<CombatUnitInstance>& units,
         const RegionHeightfield& heightfield)
     {
-        if (!CanCombatUnitAttack(attacker))
+        if (!CanUnitEngageInCombat(attacker))
         {
             return -1;
         }
 
-        if (attacker.m_AttackTargetUnitIndex >= 0
-            && attacker.m_AttackTargetUnitIndex < static_cast<int>(units.size()))
-        {
-            const CombatUnitInstance& preferredTarget = units[static_cast<size_t>(attacker.m_AttackTargetUnitIndex)];
-            if (AreCombatUnitsHostile(attacker, preferredTarget)
-                && CanCombatFiguresEngage(attacker, preferredTarget, heightfield))
-            {
-                return attacker.m_AttackTargetUnitIndex;
-            }
-
-            if (IsCombatUnitPlayerControlled(attacker))
-            {
-                return -1;
-            }
-        }
-
-        if (IsCombatUnitPlayerControlled(attacker))
+        if (attacker.m_AttackTargetUnitIndex >= static_cast<int>(units.size()))
         {
             return -1;
         }
 
-        int bestTargetIndex = -1;
-        float bestDistance = 0.0f;
-        for (int targetIndex = 0; targetIndex < static_cast<int>(units.size()); ++targetIndex)
+        const CombatUnitInstance& preferredTarget = units[static_cast<size_t>(attacker.m_AttackTargetUnitIndex)];
+        if (!IsCombatUnitAlive(preferredTarget)
+            || !AreCombatUnitsHostile(attacker, preferredTarget)
+            || !CanCombatFiguresEngage(attacker, preferredTarget, heightfield))
         {
-            const CombatUnitInstance& target = units[static_cast<size_t>(targetIndex)];
-            if (!AreCombatUnitsHostile(attacker, target)
-                || !CanCombatFiguresEngage(attacker, target, heightfield))
-            {
-                continue;
-            }
-
-            const float distance = GetCombatUnitDistance(attacker, target);
-            if (bestTargetIndex < 0 || distance < bestDistance)
-            {
-                bestTargetIndex = targetIndex;
-                bestDistance = distance;
-            }
+            return -1;
         }
 
-        return bestTargetIndex;
+        return attacker.m_AttackTargetUnitIndex;
     }
 
     Vector3 GetProjectilePosition(const CombatProjectile& projectile)
@@ -802,48 +799,6 @@ namespace
         const float arcHeight = 2.2f + Vector3Distance(projectile.m_StartPosition, projectile.m_EndPosition) * 0.08f;
         position.y += std::sinf(t * 3.14159265f) * arcHeight;
         return position;
-    }
-
-    void DrawFigureHealthBar(const Camera3D& camera, Vector3 worldPosition, float spriteHeight, int currentHP, int maxHP)
-    {
-        const Vector3 markerPosition{
-            worldPosition.x,
-            worldPosition.y + spriteHeight + 0.35f,
-            worldPosition.z
-        };
-        const Vector2 screenPosition = GetCombatWorldToScreen(markerPosition, camera);
-        if (screenPosition.x < -20.0f || screenPosition.y < -20.0f
-            || screenPosition.x > static_cast<float>(g_Engine->m_RenderWidth) + 20.0f
-            || screenPosition.y > static_cast<float>(g_Engine->m_RenderHeight) + 20.0f)
-        {
-            return;
-        }
-
-        constexpr int kBarWidth = 14;
-        constexpr int kBarHeight = 3;
-        const int barX = static_cast<int>(screenPosition.x - (kBarWidth * 0.5f));
-        const int barY = static_cast<int>(screenPosition.y - 6.0f);
-        const float healthFraction = maxHP > 0
-            ? static_cast<float>(currentHP) / static_cast<float>(maxHP)
-            : 0.0f;
-        const int fillWidth = static_cast<int>(kBarWidth * healthFraction);
-
-        Color fillColor = Color{ 80, 200, 90, 255 };
-        if (healthFraction <= 0.25f)
-        {
-            fillColor = Color{ 220, 70, 60, 255 };
-        }
-        else if (healthFraction <= 0.5f)
-        {
-            fillColor = Color{ 220, 180, 50, 255 };
-        }
-
-        DrawRectangle(barX, barY, kBarWidth, kBarHeight, Color{ 24, 26, 32, 200 });
-        if (fillWidth > 0)
-        {
-            DrawRectangle(barX, barY, fillWidth, kBarHeight, fillColor);
-        }
-        DrawRectangleLines(barX, barY, kBarWidth, kBarHeight, Color{ 0, 0, 0, 180 });
     }
 
     void MaybeAssignCombatRetaliationTarget(CombatUnitInstance& victim, int attackerUnitIndex,
@@ -865,7 +820,19 @@ namespace
             return;
         }
 
-        victim.m_AttackTargetUnitIndex = attackerUnitIndex;
+        if (UnitHasCombatOrders(victim))
+        {
+            victim.m_AttackTargetUnitIndex = attackerUnitIndex;
+            return;
+        }
+
+        if (victim.m_PendingRetaliationAttackerIndex >= 0)
+        {
+            return;
+        }
+
+        victim.m_PendingRetaliationAttackerIndex = attackerUnitIndex;
+        victim.m_RetaliationDelayRemaining = kCombatRetaliationDelaySeconds;
     }
 }
 
@@ -1123,6 +1090,9 @@ Vector3 GetCombatApproachPosition(const CombatUnitInstance& attacker, const Comb
 void InitCombatUnitHealth(CombatUnitInstance& unit)
 {
     unit.m_AttackTargetUnitIndex = -1;
+    unit.m_PendingRetaliationAttackerIndex = -1;
+    unit.m_RetaliationDelayRemaining = 0.0f;
+    unit.m_HasPlayerMoveOrder = false;
     unit.m_Figures.clear();
 
     const int soldierCount = GetCombatUnitSoldierCount(unit.m_Type);
@@ -1216,6 +1186,8 @@ void ApplyCombatFigureDamage(CombatUnitInstance& unit, int figureIndex, int dama
 void ClearCombatUnitAttackTarget(CombatUnitInstance& unit)
 {
     unit.m_AttackTargetUnitIndex = -1;
+    unit.m_PendingRetaliationAttackerIndex = -1;
+    unit.m_RetaliationDelayRemaining = 0.0f;
 
     for (CombatFigure& figure : unit.m_Figures)
     {
@@ -1250,9 +1222,52 @@ void BeginCombatUnitAttackMove(CombatUnitInstance& attacker, int targetUnitIndex
         return;
     }
 
+    attacker.m_PendingRetaliationAttackerIndex = -1;
+    attacker.m_RetaliationDelayRemaining = 0.0f;
     attacker.m_AttackTargetUnitIndex = targetUnitIndex;
     const Vector3 approachPosition = GetCombatApproachPosition(attacker, target);
     BeginCombatUnitMove(attacker, approachPosition, false);
+}
+
+void UpdateCombatUnitsRetaliationDelays(std::vector<CombatUnitInstance>& units, float deltaTime)
+{
+    for (CombatUnitInstance& unit : units)
+    {
+        if (!CanCombatUnitAttack(unit) || unit.m_PendingRetaliationAttackerIndex < 0)
+        {
+            continue;
+        }
+
+        if (unit.m_AttackTargetUnitIndex >= 0)
+        {
+            unit.m_PendingRetaliationAttackerIndex = -1;
+            unit.m_RetaliationDelayRemaining = 0.0f;
+            continue;
+        }
+
+        unit.m_RetaliationDelayRemaining -= deltaTime;
+        if (unit.m_RetaliationDelayRemaining > 0.0f)
+        {
+            continue;
+        }
+
+        const int attackerUnitIndex = unit.m_PendingRetaliationAttackerIndex;
+        unit.m_PendingRetaliationAttackerIndex = -1;
+        unit.m_RetaliationDelayRemaining = 0.0f;
+
+        if (attackerUnitIndex < 0 || attackerUnitIndex >= static_cast<int>(units.size()))
+        {
+            continue;
+        }
+
+        const CombatUnitInstance& attacker = units[static_cast<size_t>(attackerUnitIndex)];
+        if (!IsCombatUnitAlive(attacker) || !AreCombatUnitsHostile(unit, attacker))
+        {
+            continue;
+        }
+
+        unit.m_AttackTargetUnitIndex = attackerUnitIndex;
+    }
 }
 
 void UpdateCombatUnitsAttackOrders(std::vector<CombatUnitInstance>& units, const RegionHeightfield& heightfield)
@@ -1341,7 +1356,7 @@ void UpdateCombatUnitsCombat(std::vector<CombatUnitInstance>& units, std::vector
     for (int attackerUnitIndex = 0; attackerUnitIndex < static_cast<int>(units.size()); ++attackerUnitIndex)
     {
         CombatUnitInstance& attacker = units[static_cast<size_t>(attackerUnitIndex)];
-        if (!CanCombatUnitAttack(attacker))
+        if (!CanUnitEngageInCombat(attacker))
         {
             continue;
         }
@@ -1530,21 +1545,6 @@ float GetCombatUnitSpriteHeight(CombatUnitType type)
     return 1.2f;
 }
 
-float GetCombatUnitPickRadiusPixels(CombatUnitType type)
-{
-    if (type == CombatUnitType::Catapult)
-    {
-        return 28.0f;
-    }
-
-    if (type == CombatUnitType::Knights)
-    {
-        return 16.0f;
-    }
-
-    return 12.0f;
-}
-
 float GetCombatUnitSelectionRadius(CombatUnitType type)
 {
     const CombatUnitFormation& formation = GetCombatUnitFormation(type);
@@ -1589,6 +1589,408 @@ Vector3 GetCombatFigureDrawPosition(const CombatUnitInstance& unit, const Combat
     };
 }
 
+    constexpr float kCombatUnitMarkerSize = 16.0f;
+    constexpr float kCombatUnitMarkerHalf = kCombatUnitMarkerSize * 0.5f;
+    constexpr float kCombatUnitMarkerScreenBaseOffset = 11.0f;
+    constexpr float kCombatUnitMarkerScreenPixelsPerRow = 5.5f;
+
+    enum class CombatUnitMarkerEdge
+    {
+        Top,
+        Right,
+        Bottom,
+        Left
+    };
+
+    struct CombatUnitMarkerPlacement
+    {
+        int unitIndex = -1;
+        bool onScreen = false;
+        CombatUnitMarkerEdge edge = CombatUnitMarkerEdge::Top;
+        Vector2 idealCenter{};
+        Vector2 center{};
+    };
+
+    Color GetLittlePeopleArmyColor(LittlePeopleArmy army)
+    {
+        switch (army)
+        {
+        case LittlePeopleArmy::White:
+            return Color{ 235, 235, 235, 255 };
+        case LittlePeopleArmy::Blue:
+            return Color{ 80, 140, 255, 255 };
+        case LittlePeopleArmy::Red:
+            return Color{ 230, 70, 70, 255 };
+        case LittlePeopleArmy::Green:
+            return Color{ 70, 200, 90, 255 };
+        default:
+            return Color{ 200, 200, 200, 255 };
+        }
+    }
+
+    char GetCombatUnitTypeIndicatorLetter(CombatUnitType type)
+    {
+        switch (type)
+        {
+        case CombatUnitType::Swordsmen:
+            return 'S';
+        case CombatUnitType::Archers:
+            return 'A';
+        case CombatUnitType::Knights:
+            return 'K';
+        case CombatUnitType::Catapult:
+            return 'C';
+        default:
+            return '?';
+        }
+    }
+
+    Vector3 GetCombatUnitCenterWorldPosition(const CombatUnitInstance& unit, const RegionHeightfield& heightfield)
+    {
+        Vector3 center = unit.m_Anchor;
+        center.y = heightfield.SampleHeight(center.x, center.z);
+        return center;
+    }
+
+    bool IsCombatUnitCenterOnScreen(const Camera3D& camera, const RegionHeightfield& heightfield,
+        const CombatUnitInstance& unit)
+    {
+        const Vector2 screenPosition = GetCombatWorldToScreen(
+            GetCombatUnitCenterWorldPosition(unit, heightfield),
+            camera);
+        const Rectangle worldView = GetRegionWorldViewBounds();
+        return screenPosition.x >= 0.0f && screenPosition.x <= worldView.width
+            && screenPosition.y >= 0.0f && screenPosition.y <= worldView.height;
+    }
+
+    float GetCombatUnitMarkerScreenYOffset(CombatUnitType type)
+    {
+        const int formationRows = GetCombatUnitFormation(type).m_Rows;
+        return kCombatUnitMarkerScreenBaseOffset
+            + static_cast<float>(formationRows) * kCombatUnitMarkerScreenPixelsPerRow;
+    }
+
+    Vector2 GetCombatUnitMarkerScreenCenter(const Camera3D& camera, const RegionHeightfield& heightfield,
+        const CombatUnitInstance& unit)
+    {
+        Vector2 screenCenter = GetCombatWorldToScreen(
+            GetCombatUnitCenterWorldPosition(unit, heightfield),
+            camera);
+        screenCenter.y -= GetCombatUnitMarkerScreenYOffset(unit.m_Type);
+        return screenCenter;
+    }
+
+    Vector2 GetCombatUnitOffscreenMarkerIdealCenter(const Camera3D& camera, const RegionHeightfield& heightfield,
+        const CombatUnitInstance& unit)
+    {
+        const Rectangle worldView = GetRegionWorldViewBounds();
+        const float centerX = worldView.width * 0.5f;
+        const float centerY = worldView.height * 0.5f;
+
+        const Vector2 unitScreen = GetCombatWorldToScreen(
+            GetCombatUnitCenterWorldPosition(unit, heightfield),
+            camera);
+
+        float dx = unitScreen.x - centerX;
+        float dy = unitScreen.y - centerY;
+        if (std::fabs(dx) < 0.001f && std::fabs(dy) < 0.001f)
+        {
+            dx = 0.0f;
+            dy = -1.0f;
+        }
+
+        float scaleX = std::numeric_limits<float>::max();
+        if (std::fabs(dx) > 0.001f)
+        {
+            const float boundX = dx > 0.0f
+                ? (worldView.width - kCombatUnitMarkerHalf - centerX)
+                : (kCombatUnitMarkerHalf - centerX);
+            scaleX = boundX / dx;
+        }
+
+        float scaleY = std::numeric_limits<float>::max();
+        if (std::fabs(dy) > 0.001f)
+        {
+            const float boundY = dy > 0.0f
+                ? (worldView.height - kCombatUnitMarkerHalf - centerY)
+                : (kCombatUnitMarkerHalf - centerY);
+            scaleY = boundY / dy;
+        }
+
+        const float scale = std::min(scaleX, scaleY);
+        return Vector2{
+            centerX + dx * scale,
+            centerY + dy * scale
+        };
+    }
+
+    CombatUnitMarkerEdge ClassifyCombatUnitMarkerEdge(Vector2 center)
+    {
+        const Rectangle worldView = GetRegionWorldViewBounds();
+
+        const float distTop = center.y - kCombatUnitMarkerHalf;
+        const float distBottom = worldView.height - kCombatUnitMarkerHalf - center.y;
+        const float distLeft = center.x - kCombatUnitMarkerHalf;
+        const float distRight = worldView.width - kCombatUnitMarkerHalf - center.x;
+
+        const float minDist = std::min(std::min(distTop, distBottom), std::min(distLeft, distRight));
+        if (minDist == distTop)
+        {
+            return CombatUnitMarkerEdge::Top;
+        }
+        if (minDist == distRight)
+        {
+            return CombatUnitMarkerEdge::Right;
+        }
+        if (minDist == distBottom)
+        {
+            return CombatUnitMarkerEdge::Bottom;
+        }
+
+        return CombatUnitMarkerEdge::Left;
+    }
+
+    Rectangle CombatUnitMarkerRectFromCenter(Vector2 center)
+    {
+        return Rectangle{
+            center.x - kCombatUnitMarkerHalf,
+            center.y - kCombatUnitMarkerHalf,
+            kCombatUnitMarkerSize,
+            kCombatUnitMarkerSize
+        };
+    }
+
+    Vector2 ClampCombatUnitMarkerCenterToWorldView(Vector2 center)
+    {
+        const Rectangle worldView = GetRegionWorldViewBounds();
+        const float minX = kCombatUnitMarkerHalf;
+        const float maxX = worldView.width - kCombatUnitMarkerHalf;
+        const float minY = kCombatUnitMarkerHalf;
+        const float maxY = worldView.height - kCombatUnitMarkerHalf;
+
+        return Vector2{
+            std::clamp(center.x, minX, maxX),
+            std::clamp(center.y, minY, maxY)
+        };
+    }
+
+    bool IsCombatUnitMarkerPinnedToEdge(Vector2 center)
+    {
+        const Vector2 clamped = ClampCombatUnitMarkerCenterToWorldView(center);
+        constexpr float kEdgeEpsilon = 0.5f;
+        return std::fabs(center.x - clamped.x) > kEdgeEpsilon
+            || std::fabs(center.y - clamped.y) > kEdgeEpsilon;
+    }
+
+    void ResolveCombatUnitMarkerEdgeGroup(std::vector<CombatUnitMarkerPlacement*>& group,
+        bool horizontal, float fixedCoord, float minAlong, float maxAlong)
+    {
+        if (group.empty())
+        {
+            return;
+        }
+
+        std::sort(group.begin(), group.end(), [horizontal](const CombatUnitMarkerPlacement* a,
+            const CombatUnitMarkerPlacement* b)
+        {
+            return horizontal ? (a->idealCenter.x < b->idealCenter.x) : (a->idealCenter.y < b->idealCenter.y);
+        });
+
+        std::vector<float> coords;
+        coords.reserve(group.size());
+        for (const CombatUnitMarkerPlacement* placement : group)
+        {
+            coords.push_back(horizontal ? placement->idealCenter.x : placement->idealCenter.y);
+        }
+
+        if (coords.size() == 1)
+        {
+            coords[0] = std::clamp(coords[0], minAlong, maxAlong);
+        }
+        else
+        {
+            const float span = maxAlong - minAlong;
+            const float neededSpan = static_cast<float>(coords.size() - 1) * kCombatUnitMarkerSize;
+            if (neededSpan > span)
+            {
+                const float step = span / static_cast<float>(coords.size() - 1);
+                for (size_t i = 0; i < coords.size(); ++i)
+                {
+                    coords[i] = minAlong + static_cast<float>(i) * step;
+                }
+            }
+            else
+            {
+                for (size_t i = 1; i < coords.size(); ++i)
+                {
+                    coords[i] = std::max(coords[i], coords[i - 1] + kCombatUnitMarkerSize);
+                }
+
+                if (coords.back() > maxAlong)
+                {
+                    const float shift = coords.back() - maxAlong;
+                    for (float& coord : coords)
+                    {
+                        coord -= shift;
+                    }
+                }
+
+                if (coords.front() < minAlong)
+                {
+                    const float shift = minAlong - coords.front();
+                    for (float& coord : coords)
+                    {
+                        coord += shift;
+                    }
+
+                    for (size_t i = 1; i < coords.size(); ++i)
+                    {
+                        coords[i] = std::max(coords[i], coords[i - 1] + kCombatUnitMarkerSize);
+                    }
+
+                    if (coords.back() > maxAlong)
+                    {
+                        const float step = span / static_cast<float>(coords.size() - 1);
+                        for (size_t i = 0; i < coords.size(); ++i)
+                        {
+                            coords[i] = minAlong + static_cast<float>(i) * step;
+                        }
+                    }
+                }
+            }
+        }
+
+        for (size_t i = 0; i < group.size(); ++i)
+        {
+            if (horizontal)
+            {
+                group[i]->center.x = coords[i];
+                group[i]->center.y = fixedCoord;
+            }
+            else
+            {
+                group[i]->center.x = fixedCoord;
+                group[i]->center.y = coords[i];
+            }
+        }
+    }
+
+    std::vector<CombatUnitMarkerPlacement> BuildCombatUnitMarkerPlacements(
+        const Camera3D& camera, const RegionHeightfield& heightfield,
+        const std::vector<CombatUnitInstance>& units)
+    {
+        std::vector<CombatUnitMarkerPlacement> placements;
+        placements.reserve(units.size());
+
+        for (int unitIndex = 0; unitIndex < static_cast<int>(units.size()); ++unitIndex)
+        {
+            const CombatUnitInstance& unit = units[static_cast<size_t>(unitIndex)];
+            if (!IsCombatUnitAlive(unit))
+            {
+                continue;
+            }
+
+            CombatUnitMarkerPlacement placement{};
+            placement.unitIndex = unitIndex;
+
+            if (IsCombatUnitCenterOnScreen(camera, heightfield, unit))
+            {
+                placement.onScreen = true;
+                placement.idealCenter = GetCombatUnitMarkerScreenCenter(camera, heightfield, unit);
+            }
+            else
+            {
+                placement.onScreen = false;
+                placement.idealCenter = GetCombatUnitOffscreenMarkerIdealCenter(camera, heightfield, unit);
+            }
+
+            placement.center = ClampCombatUnitMarkerCenterToWorldView(placement.idealCenter);
+            placements.push_back(placement);
+        }
+
+        const Rectangle worldView = GetRegionWorldViewBounds();
+        const float minAlong = kCombatUnitMarkerHalf + kCombatUnitMarkerSize;
+        const float maxAlongX = worldView.width - minAlong;
+        const float maxAlongY = worldView.height - minAlong;
+
+        std::vector<CombatUnitMarkerPlacement*> topEdge;
+        std::vector<CombatUnitMarkerPlacement*> rightEdge;
+        std::vector<CombatUnitMarkerPlacement*> bottomEdge;
+        std::vector<CombatUnitMarkerPlacement*> leftEdge;
+
+        for (CombatUnitMarkerPlacement& placement : placements)
+        {
+            if (placement.onScreen && !IsCombatUnitMarkerPinnedToEdge(placement.idealCenter))
+            {
+                continue;
+            }
+
+            placement.edge = ClassifyCombatUnitMarkerEdge(placement.center);
+            switch (placement.edge)
+            {
+            case CombatUnitMarkerEdge::Top:
+                topEdge.push_back(&placement);
+                break;
+            case CombatUnitMarkerEdge::Right:
+                rightEdge.push_back(&placement);
+                break;
+            case CombatUnitMarkerEdge::Bottom:
+                bottomEdge.push_back(&placement);
+                break;
+            case CombatUnitMarkerEdge::Left:
+                leftEdge.push_back(&placement);
+                break;
+            }
+        }
+
+        ResolveCombatUnitMarkerEdgeGroup(topEdge, true, kCombatUnitMarkerHalf, minAlong, maxAlongX);
+        ResolveCombatUnitMarkerEdgeGroup(bottomEdge, true, worldView.height - kCombatUnitMarkerHalf, minAlong, maxAlongX);
+        ResolveCombatUnitMarkerEdgeGroup(leftEdge, false, kCombatUnitMarkerHalf, minAlong, maxAlongY);
+        ResolveCombatUnitMarkerEdgeGroup(rightEdge, false, worldView.width - kCombatUnitMarkerHalf, minAlong, maxAlongY);
+
+        return placements;
+    }
+
+    void DrawCombatUnitMarker(const CombatUnitInstance& unit, Vector2 center, bool selected)
+    {
+        constexpr float kLetterFontSize = 11.0f;
+
+        const Rectangle markerRect = CombatUnitMarkerRectFromCenter(center);
+        const Color fillColor = GetLittlePeopleArmyColor(unit.m_Army);
+
+        DrawRectangle(
+            static_cast<int>(markerRect.x),
+            static_cast<int>(markerRect.y),
+            static_cast<int>(markerRect.width),
+            static_cast<int>(markerRect.height),
+            fillColor);
+
+        if (selected)
+        {
+            DrawRectangleLinesEx(markerRect, 2.0f, WHITE);
+        }
+        else
+        {
+            DrawRectangleLines(
+                static_cast<int>(markerRect.x),
+                static_cast<int>(markerRect.y),
+                static_cast<int>(markerRect.width),
+                static_cast<int>(markerRect.height),
+                Color{ 20, 20, 24, 255 });
+        }
+
+        const char letter[2] = { GetCombatUnitTypeIndicatorLetter(unit.m_Type), '\0' };
+        const Vector2 textSize = MeasureTextEx(*g_smallFont, letter, kLetterFontSize, 1);
+        const Vector2 textPosition{
+            markerRect.x + (markerRect.width - textSize.x) * 0.5f,
+            markerRect.y + (markerRect.height - textSize.y) * 0.5f
+        };
+        const Color letterColor = (fillColor.r + fillColor.g + fillColor.b) > 500
+            ? Color{ 24, 24, 28, 255 }
+            : Color{ 245, 245, 245, 255 };
+        DrawOutlinedText(g_smallFont, letter, textPosition, kLetterFontSize, 1, letterColor);
+    }
+
 Vector2 GetCombatScaledMousePosition()
 {
     Vector2 mouse = GetMousePosition();
@@ -1606,8 +2008,8 @@ Ray GetCombatMouseRay(const Camera3D& camera)
         return GetScreenToWorldRayEx(
             mouse,
             camera,
-            static_cast<int>(g_Engine->m_RenderWidth),
-            static_cast<int>(g_Engine->m_RenderHeight));
+            GetRegionWorldViewWidth(),
+            GetRegionWorldViewHeight());
     }
 
     return GetScreenToWorldRay(mouse, camera);
@@ -1620,8 +2022,8 @@ Vector2 GetCombatWorldToScreen(Vector3 worldPosition, const Camera3D& camera)
         return GetWorldToScreenEx(
             worldPosition,
             camera,
-            static_cast<int>(g_Engine->m_RenderWidth),
-            static_cast<int>(g_Engine->m_RenderHeight));
+            GetRegionWorldViewWidth(),
+            GetRegionWorldViewHeight());
     }
 
     return GetWorldToScreen(worldPosition, camera);
@@ -1686,42 +2088,28 @@ bool RaycastCombatTerrain(const Ray& ray, const RegionHeightfield& heightfield, 
     return false;
 }
 
-int PickCombatUnitAtMouse(const Camera3D& camera, const RegionHeightfield& heightfield,
+int PickCombatUnitMarkerAtMouse(const Camera3D& camera, const RegionHeightfield& heightfield,
     const std::vector<CombatUnitInstance>& units, Vector2 mousePosition)
 {
+    const std::vector<CombatUnitMarkerPlacement> placements =
+        BuildCombatUnitMarkerPlacements(camera, heightfield, units);
+
     int bestUnitIndex = -1;
     float bestDistance = 0.0f;
 
-    for (int unitIndex = 0; unitIndex < static_cast<int>(units.size()); ++unitIndex)
+    for (const CombatUnitMarkerPlacement& placement : placements)
     {
-        const CombatUnitInstance& unit = units[static_cast<size_t>(unitIndex)];
-        if (!IsCombatUnitAlive(unit))
+        const Rectangle markerRect = CombatUnitMarkerRectFromCenter(placement.center);
+        if (!CheckCollisionPointRec(mousePosition, markerRect))
         {
             continue;
         }
 
-        const float pickRadius = GetCombatUnitPickRadiusPixels(unit.m_Type);
-
-        for (const CombatFigure& figure : unit.m_Figures)
+        const float distance = Vector2Distance(mousePosition, placement.center);
+        if (bestUnitIndex < 0 || distance < bestDistance)
         {
-            if (!IsCombatFigureAlive(figure))
-            {
-                continue;
-            }
-
-            const Vector3 drawPosition = GetCombatFigureDrawPosition(unit, figure, heightfield);
-            const Vector2 screenPosition = GetCombatWorldToScreen(drawPosition, camera);
-            const float distance = Vector2Distance(mousePosition, screenPosition);
-            if (distance > pickRadius)
-            {
-                continue;
-            }
-
-            if (bestUnitIndex < 0 || distance < bestDistance)
-            {
-                bestUnitIndex = unitIndex;
-                bestDistance = distance;
-            }
+            bestUnitIndex = placement.unitIndex;
+            bestDistance = distance;
         }
     }
 
@@ -1737,10 +2125,10 @@ float GetCombatUnitMoveSpeed(CombatUnitType type)
     case CombatUnitType::Catapult:
         return 4.5f;
     case CombatUnitType::Archers:
-        return 8.5f;
+        return 5.7f;
     case CombatUnitType::Swordsmen:
     default:
-        return 9.0f;
+        return 6.0f;
     }
 }
 
@@ -1785,7 +2173,13 @@ void BeginCombatUnitMove(CombatUnitInstance& unit, Vector3 targetAnchor, bool cl
     {
         ClearCombatUnitAttackTarget(unit);
     }
+    else
+    {
+        unit.m_PendingRetaliationAttackerIndex = -1;
+        unit.m_RetaliationDelayRemaining = 0.0f;
+    }
 
+    unit.m_HasPlayerMoveOrder = true;
     SyncCombatUnitAnchorFromFigures(unit);
     const float formationFacing = ResolveFormationFacingForMove(unit, targetAnchor);
     const Vector3 formationAnchor = ResolveFormationMoveAnchor(unit, targetAnchor);
@@ -1984,24 +2378,16 @@ void DrawCombatUnitSelectionIndicator(const RegionHeightfield& heightfield, cons
     DrawCircle3D(center, radius, Vector3{ 0.0f, 1.0f, 0.0f }, 32, Color{ 255, 230, 80, 220 });
 }
 
-void DrawCombatUnitHealthMarkers(const Camera3D& camera, const RegionHeightfield& heightfield, const CombatUnitInstance& unit)
+void DrawCombatUnitMarkers(const Camera3D& camera, const RegionHeightfield& heightfield,
+    const std::vector<CombatUnitInstance>& units, int selectedUnitIndex)
 {
-    if (!IsCombatUnitAlive(unit))
-    {
-        return;
-    }
+    const std::vector<CombatUnitMarkerPlacement> placements =
+        BuildCombatUnitMarkerPlacements(camera, heightfield, units);
 
-    const int maxFigureHP = GetCombatUnitHitPointsPerFigure(unit.m_Type);
-    const float spriteHeight = GetCombatUnitSpriteHeight(unit.m_Type);
-    for (const CombatFigure& figure : unit.m_Figures)
+    for (const CombatUnitMarkerPlacement& placement : placements)
     {
-        if (!IsCombatFigureAlive(figure))
-        {
-            continue;
-        }
-
-        const Vector3 worldPosition = GetCombatFigureWorldPosition(unit, figure, heightfield);
-        DrawFigureHealthBar(camera, worldPosition, spriteHeight, figure.m_CurrentHP, maxFigureHP);
+        const CombatUnitInstance& unit = units[static_cast<size_t>(placement.unitIndex)];
+        DrawCombatUnitMarker(unit, placement.center, placement.unitIndex == selectedUnitIndex);
     }
 }
 

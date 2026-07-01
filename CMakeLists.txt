@@ -151,6 +151,7 @@ set(PROJECT_SOURCES
         Source/PlayerTasksConfig.cpp
         Source/OptionsState.cpp
         Source/RegionMinimap.cpp
+        Source/RegionUILayout.cpp
         Source/RegionTerrainMesh.cpp
         Source/RegionView.cpp
         Source/SetupGameState.cpp

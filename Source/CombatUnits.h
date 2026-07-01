@@ -66,6 +66,9 @@ struct CombatUnitInstance
     bool m_IsMoving = false;
     Vector3 m_MoveTargetAnchor{ 0.0f, 0.0f, 0.0f };
     int m_AttackTargetUnitIndex = -1;
+    int m_PendingRetaliationAttackerIndex = -1;
+    float m_RetaliationDelayRemaining = 0.0f;
+    bool m_HasPlayerMoveOrder = false;
     std::vector<CombatFigure> m_Figures;
 };
 
@@ -110,6 +113,7 @@ void ApplyCombatFigureDamage(CombatUnitInstance& unit, int figureIndex, int dama
     int attackerUnitIndex, const std::vector<CombatUnitInstance>& units);
 void ClearCombatUnitAttackTarget(CombatUnitInstance& unit);
 void BeginCombatUnitAttackMove(CombatUnitInstance& attacker, int targetUnitIndex, const std::vector<CombatUnitInstance>& units);
+void UpdateCombatUnitsRetaliationDelays(std::vector<CombatUnitInstance>& units, float deltaTime);
 void UpdateCombatUnitsAttackOrders(std::vector<CombatUnitInstance>& units, const RegionHeightfield& heightfield);
 void UpdateCombatUnitsCombat(std::vector<CombatUnitInstance>& units, std::vector<CombatProjectile>& projectiles,
     const RegionHeightfield& heightfield, float deltaTime);
@@ -120,7 +124,6 @@ Vector3 TransformCombatFormationOffset(float facingAngleRadians, float localX, f
 Vector3 TransformCombatFormationOffset(LittlePeopleDirection facing, float localX, float localZ);
 
 float GetCombatUnitSpriteHeight(CombatUnitType type);
-float GetCombatUnitPickRadiusPixels(CombatUnitType type);
 float GetCombatUnitSelectionRadius(CombatUnitType type);
 int GetCombatUnitPickSlotCount(const CombatUnitInstance& unit);
 Vector3 GetCombatFigureWorldPosition(const CombatUnitInstance& unit, const CombatFigure& figure, const RegionHeightfield& heightfield);
@@ -131,7 +134,7 @@ Ray GetCombatMouseRay(const Camera3D& camera);
 Vector2 GetCombatWorldToScreen(Vector3 worldPosition, const Camera3D& camera);
 bool RaycastCombatTerrain(const Ray& ray, const RegionHeightfield& heightfield, Vector3& outHit);
 
-int PickCombatUnitAtMouse(const Camera3D& camera, const RegionHeightfield& heightfield,
+int PickCombatUnitMarkerAtMouse(const Camera3D& camera, const RegionHeightfield& heightfield,
     const std::vector<CombatUnitInstance>& units, Vector2 mousePosition);
 float GetCombatUnitMoveSpeed(CombatUnitType type);
 bool IsCombatUnitMoving(const CombatUnitInstance& unit);
@@ -146,7 +149,8 @@ void AppendCombatUnitBillboardDrawRequests(const Camera3D& camera, const RegionH
 void DrawCombatUnit(const Camera3D& camera, const RegionHeightfield& heightfield, const CombatUnitInstance& unit,
     int walkFrame, bool selected = false);
 void DrawCombatUnitSelectionIndicator(const RegionHeightfield& heightfield, const CombatUnitInstance& unit);
-void DrawCombatUnitHealthMarkers(const Camera3D& camera, const RegionHeightfield& heightfield, const CombatUnitInstance& unit);
+void DrawCombatUnitMarkers(const Camera3D& camera, const RegionHeightfield& heightfield,
+    const std::vector<CombatUnitInstance>& units, int selectedUnitIndex);
 void DrawCombatMoveMarker(const RegionHeightfield& heightfield, Vector3 target, Color color);
 void DrawCombatProjectiles(const std::vector<CombatProjectile>& projectiles);
 

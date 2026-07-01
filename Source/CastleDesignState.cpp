@@ -6,6 +6,7 @@
 
 #include "GameGlobals.h"
 #include "RegionMinimap.h"
+#include "RegionUILayout.h"
 #include "RegionTerrainMesh.h"
 #include "RegionView.h"
 
@@ -74,7 +75,9 @@ void CastleDesignState::Draw()
     RegionData* region = g_GameDatabase.GetActiveRegion();
     if (!region || !region->m_Heightfield.m_Generated)
     {
-        DrawOutlinedText(g_font, "Castle design (no region terrain)", { 4.0f, 4.0f }, g_fontDrawSize, 1, WHITE);
+        DrawRegionSidePanelBackground();
+        DrawRegionSidePanelOutlinedParagraph("Castle design (no region terrain)", GetRegionSidePanelTextBounds().y,
+            g_fontDrawSize, WHITE);
         return;
     }
 
@@ -88,10 +91,17 @@ void CastleDesignState::Draw()
     g_RegionTerrainMesh.Draw();
     g_RegionView.End3D();
 
+    DrawRegionSidePanelBackground();
+
     g_RegionMinimap.Draw(
         heightfield,
         region->m_HeightfieldSeed,
         g_RegionView.GetCamera());
 
-    DrawOutlinedText(g_font, "Castle  WASD:pan  Wheel:zoom  Q/E:rotate  Esc:title", { 4.0f, 4.0f }, g_fontDrawSize, 1, WHITE);
+    float panelY = GetRegionSidePanelTextBounds().y;
+    panelY = DrawRegionSidePanelOutlinedParagraph("Castle", panelY, g_fontDrawSize, WHITE);
+    panelY += 2.0f;
+    DrawRegionSidePanelOutlinedParagraph(
+        "WASD: pan. Wheel: zoom. Q/E: rotate. Esc: title.",
+        panelY, g_smallFontDrawSize, Color{ 180, 185, 195, 255 });
 }

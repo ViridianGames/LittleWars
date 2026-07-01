@@ -9,6 +9,7 @@
 
 #include <vector>
 #include "RegionMinimap.h"
+#include "RegionUILayout.h"
 #include "RegionTerrainMesh.h"
 #include "RegionView.h"
 #include "raymath.h"
@@ -159,7 +160,7 @@ void CombatState::HandleCombatInput(const RegionHeightfield& heightfield)
     const Camera3D& camera = g_RegionView.GetCamera();
     const Vector2 mousePosition = GetCombatScaledMousePosition();
 
-    if (CheckCollisionPointRec(mousePosition, g_RegionMinimap.GetScreenBounds()))
+    if (IsPointInRegionSidePanel(mousePosition))
     {
         return;
     }
@@ -174,7 +175,8 @@ void CombatState::HandleCombatInput(const RegionHeightfield& heightfield)
         m_PendingQuickClick = false;
         m_HasGestureFacingTarget = false;
 
-        const int pickedUnitIndex = PickCombatUnitAtMouse(camera, heightfield, m_Units, mousePosition);
+        const int pickedUnitIndex = PickCombatUnitMarkerAtMouse(camera, heightfield, m_Units, mousePosition);
+
         if (pickedUnitIndex >= 0)
         {
             const CombatUnitInstance& pickedUnit = m_Units[static_cast<size_t>(pickedUnitIndex)];
@@ -290,6 +292,7 @@ void CombatState::Update()
         UpdateCombatUnitsMovement(m_Units, deltaTime);
         UpdateCombatProjectiles(m_Projectiles, m_Units, deltaTime);
         UpdateCombatUnitsCombat(m_Units, m_Projectiles, *heightfield, deltaTime);
+        UpdateCombatUnitsRetaliationDelays(m_Units, deltaTime);
 
         if (m_SelectedUnitIndex >= 0
             && m_SelectedUnitIndex < static_cast<int>(m_Units.size())
@@ -332,7 +335,9 @@ void CombatState::Draw()
     RegionData* region = g_GameDatabase.GetActiveRegion();
     if (!region || !region->m_Heightfield.m_Generated)
     {
-        DrawOutlinedText(g_font, "Combat (no region terrain)", { 4.0f, 4.0f }, g_fontDrawSize, 1, WHITE);
+        DrawRegionSidePanelBackground();
+        DrawRegionSidePanelOutlinedParagraph("Combat (no region terrain)", GetRegionSidePanelTextBounds().y,
+            g_fontDrawSize, WHITE);
         return;
     }
 
@@ -400,17 +405,6 @@ void CombatState::Draw()
 
     g_RegionView.End3D();
 
-    for (int unitIndex = 0; unitIndex < static_cast<int>(m_Units.size()); ++unitIndex)
-    {
-        const CombatUnitInstance& unit = m_Units[static_cast<size_t>(unitIndex)];
-        if (!IsCombatUnitAlive(unit))
-        {
-            continue;
-        }
-
-        DrawCombatUnitHealthMarkers(g_RegionView.GetCamera(), heightfield, unit);
-    }
-
     std::vector<RegionMinimapMarker> minimapMarkers;
     minimapMarkers.reserve(m_Units.size());
     for (const CombatUnitInstance& unit : m_Units)
@@ -427,16 +421,31 @@ void CombatState::Draw()
         });
     }
 
+    DrawRegionSidePanelBackground();
+
     g_RegionMinimap.Draw(
         heightfield,
         region->m_HeightfieldSeed,
         g_RegionView.GetCamera(),
         &minimapMarkers);
 
-    DrawOutlinedText(g_font, "Combat  Red units only  Click enemy to attack", { 4.0f, 4.0f }, g_fontDrawSize, 1, WHITE);
-    DrawOutlinedText(g_smallFont, "Terrain:move  Hold:aim  WASD:pan  Wheel:zoom  Minimap:go  Esc:title", { 4.0f, 16.0f }, g_smallFontDrawSize, 1, WHITE);
+    DrawCombatUnitMarkers(
+        g_RegionView.GetCamera(),
+        heightfield,
+        m_Units,
+        m_SelectedUnitIndex);
 
-    float labelY = 30.0f;
+    float panelY = GetRegionSidePanelTextBounds().y;
+    panelY = DrawRegionSidePanelOutlinedParagraph("Combat", panelY, g_fontDrawSize, WHITE);
+    panelY += 2.0f;
+    panelY = DrawRegionSidePanelOutlinedParagraph("Red units only. Click markers to select or attack.", panelY,
+        g_smallFontDrawSize, Color{ 220, 220, 220, 255 });
+    panelY += 4.0f;
+    panelY = DrawRegionSidePanelOutlinedParagraph(
+        "Terrain: move. Hold: aim. WASD: pan. Wheel: zoom. Minimap: go. Esc: title.",
+        panelY, g_smallFontDrawSize, Color{ 180, 185, 195, 255 });
+    panelY += 6.0f;
+
     for (int typeIndex = 0; typeIndex < 4; ++typeIndex)
     {
         const auto type = static_cast<CombatUnitType>(typeIndex);
@@ -444,12 +453,12 @@ void CombatState::Draw()
         const string label = string(CombatUnitTypeName(type)) + ": "
             + to_string(formation.m_SoldierCount) + " ("
             + to_string(formation.m_Rows) + "x" + to_string(formation.m_Columns) + ")";
-        DrawOutlinedText(g_smallFont, label, { 4.0f, labelY }, g_smallFontDrawSize, 1, Color{ 210, 210, 210, 255 });
-        labelY += 10.0f;
+        panelY = DrawRegionSidePanelOutlinedLine(label, panelY, Color{ 210, 210, 210, 255 });
     }
 
     if (m_SelectedUnitIndex >= 0 && m_SelectedUnitIndex < static_cast<int>(m_Units.size()))
     {
+        panelY += 4.0f;
         const CombatUnitInstance& selectedUnit = m_Units[static_cast<size_t>(m_SelectedUnitIndex)];
         const int maxHP = GetCombatUnitMaxHitPoints(selectedUnit);
         const int livingSoldiers = GetCombatUnitLivingSoldierCount(selectedUnit);
@@ -457,21 +466,23 @@ void CombatState::Draw()
         const string selectedText = string("Selected: ") + CombatUnitTypeName(selectedUnit.m_Type)
             + " (" + LittlePeopleArmyName(selectedUnit.m_Army) + ")";
         const string hpText = "HP: " + to_string(GetCombatUnitCurrentHitPoints(selectedUnit)) + "/" + to_string(maxHP)
-            + "  Figures: " + to_string(livingSoldiers) + "/" + to_string(maxSoldiers)
+            + "  Figs: " + to_string(livingSoldiers) + "/" + to_string(maxSoldiers)
             + "  Dmg: " + to_string(GetCombatUnitAttackDamage(selectedUnit));
-        DrawOutlinedText(g_smallFont, selectedText, { 4.0f, labelY + 4.0f }, g_smallFontDrawSize, 1, Color{ 255, 230, 90, 255 });
-        DrawOutlinedText(g_smallFont, hpText, { 4.0f, labelY + 14.0f }, g_smallFontDrawSize, 1, Color{ 220, 220, 220, 255 });
 
-        constexpr int kHealthBarWidth = 72;
+        panelY = DrawRegionSidePanelOutlinedLine(selectedText, panelY, Color{ 255, 230, 90, 255 });
+        panelY = DrawRegionSidePanelOutlinedParagraph(hpText, panelY, g_smallFontDrawSize, Color{ 220, 220, 220, 255 });
+        panelY += 2.0f;
+
+        const Rectangle textBounds = GetRegionSidePanelTextBounds();
         constexpr int kHealthBarHeight = 5;
-        const float barX = 4.0f;
-        const float barY = labelY + 26.0f;
+        const int barWidth = static_cast<int>(textBounds.width);
+        const int barX = static_cast<int>(textBounds.x);
+        const int barY = static_cast<int>(panelY);
         const float healthFraction = maxHP > 0
             ? static_cast<float>(GetCombatUnitCurrentHitPoints(selectedUnit)) / static_cast<float>(maxHP)
             : 0.0f;
-        DrawRectangle(static_cast<int>(barX), static_cast<int>(barY), kHealthBarWidth, kHealthBarHeight, Color{ 40, 40, 48, 255 });
-        DrawRectangle(static_cast<int>(barX), static_cast<int>(barY),
-            static_cast<int>(kHealthBarWidth * healthFraction), kHealthBarHeight, Color{ 80, 200, 90, 255 });
-        DrawRectangleLines(static_cast<int>(barX), static_cast<int>(barY), kHealthBarWidth, kHealthBarHeight, Color{ 120, 120, 130, 255 });
+        DrawRectangle(barX, barY, barWidth, kHealthBarHeight, Color{ 40, 40, 48, 255 });
+        DrawRectangle(barX, barY, static_cast<int>(barWidth * healthFraction), kHealthBarHeight, Color{ 80, 200, 90, 255 });
+        DrawRectangleLines(barX, barY, barWidth, kHealthBarHeight, Color{ 120, 120, 130, 255 });
     }
 }
