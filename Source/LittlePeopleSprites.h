@@ -5,8 +5,8 @@
 
 #include <vector>
 
-constexpr int LITTLEPEOPLE_CELL_WIDTH = 14;
-constexpr int LITTLEPEOPLE_CELL_HEIGHT = 20;
+constexpr int LITTLEPEOPLE_CELL_WIDTH = 8;
+constexpr int LITTLEPEOPLE_CELL_HEIGHT = 11;
 constexpr int LITTLEPEOPLE_ARMY_COUNT = 4;
 constexpr int LITTLEPEOPLE_DIRECTION_COUNT = 8;
 constexpr int LITTLEPEOPLE_WALK_FRAMES = 2;
