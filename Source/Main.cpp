@@ -11,11 +11,13 @@
 #include "../Geist/Source/Engine.h"
 #include "../Geist/Source/StateMachine.h"
 #include "raylib.h"
+#include <cstring>
 #include <string>
 #include <memory>
 #include <filesystem>
 
 #include "llimits.h"
+#include "ArrangeSprites.h"
 #include "CampaignSetupConfig.h"
 #include "GameGlobals.h"
 #include "PlayerTasksConfig.h"
@@ -72,6 +74,11 @@ using namespace std::filesystem;
 
 int main(int argv, char** argc)
 {
+   if (argv >= 2 && std::strcmp(argc[1], "--arrange-sprites") == 0)
+   {
+      return RunArrangeSpritesTool(argv - 1, argc + 1);
+   }
+
    // Create global engine instance
    g_Engine = std::make_unique<Engine>();
 

@@ -1,6 +1,8 @@
 #ifndef _COMBATUNITS_H_
 #define _COMBATUNITS_H_
 
+#include "CastleParts.h"
+#include "CombatEnvironment.h"
 #include "LittlePeopleSprites.h"
 #include "raylib.h"
 
@@ -74,14 +76,18 @@ struct CombatUnitInstance
 
 struct CombatProjectile
 {
+    Vector3 m_Position{};
+    Vector3 m_PreviousPosition{};
     Vector3 m_StartPosition{};
-    Vector3 m_EndPosition{};
+    Vector3 m_AimPosition{};
+    Vector3 m_Velocity{};
     float m_TravelTime = 0.4f;
     float m_Elapsed = 0.0f;
+
     int m_SourceUnitIndex = -1;
-    int m_TargetUnitIndex = -1;
-    int m_TargetFigureIndex = -1;
     int m_Damage = 0;
+    int m_BounceCount = 0;
+    bool m_InPhysicsPhase = false;
     bool m_Active = false;
 };
 
@@ -117,7 +123,8 @@ void UpdateCombatUnitsRetaliationDelays(std::vector<CombatUnitInstance>& units, 
 void UpdateCombatUnitsAttackOrders(std::vector<CombatUnitInstance>& units, const RegionHeightfield& heightfield);
 void UpdateCombatUnitsCombat(std::vector<CombatUnitInstance>& units, std::vector<CombatProjectile>& projectiles,
     const RegionHeightfield& heightfield, float deltaTime);
-void UpdateCombatProjectiles(std::vector<CombatProjectile>& projectiles, std::vector<CombatUnitInstance>& units, float deltaTime);
+void UpdateCombatProjectiles(std::vector<CombatProjectile>& projectiles, std::vector<CombatUnitInstance>& units,
+    const RegionHeightfield& heightfield, const CombatEnvironment& environment, float deltaTime);
 bool GetCombatUnitFormationSlot(CombatUnitType type, int slotIndex, int& row, int& column);
 Vector2 GetCombatUnitFormationOffset(CombatUnitType type, int row, int column);
 Vector3 TransformCombatFormationOffset(float facingAngleRadians, float localX, float localZ);

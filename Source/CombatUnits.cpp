@@ -6,6 +6,7 @@
 
 #include "../Geist/Source/Engine.h"
 #include "../Geist/Source/Globals.h"
+#include "../Geist/Source/RNG.h"
 #include "GameGlobals.h"
 #include "RegionUILayout.h"
 #include "raymath.h"
@@ -76,6 +77,21 @@ namespace
     constexpr float kUnitRotateSpeed = 5.5f;
     constexpr float kFigureMinSeparation = 0.85f;
     constexpr float kCombatRetaliationDelaySeconds = 0.25f;
+    constexpr float kArcherBaseSpread = 0.35f;
+    constexpr float kArcherDistanceSpread = 0.028f;
+    constexpr float kArcherLoftHeight = 0.58f;
+    constexpr float kArcherArcBase = 1.25f;
+    constexpr float kArcherArcPerDistance = 0.044f;
+    constexpr float kFigureProjectileHitRadius = 0.42f;
+    constexpr float kProjectileGroundClearance = 0.12f;
+    constexpr int kProjectileGroundSamples = 6;
+    constexpr float kProjectileGravity = 14.0f;
+    constexpr float kProjectileBounceRestitution = 0.42f;
+    constexpr float kProjectileGroundBounceRestitution = 0.18f;
+    constexpr int kProjectileMaxBounces = 2;
+
+    constexpr float kProjectileMinRestSpeed = 1.4f;
+    constexpr float kProjectileVelocitySampleDt = 0.02f;
 
     bool UnitHasCombatOrders(const CombatUnitInstance& unit)
     {
@@ -789,16 +805,400 @@ namespace
         return attacker.m_AttackTargetUnitIndex;
     }
 
-    Vector3 GetProjectilePosition(const CombatProjectile& projectile)
+    Vector3 ComputeProjectileArcPosition(
+        const Vector3& startPosition,
+        const Vector3& aimPosition,
+        float elapsed,
+        float travelTime)
     {
-        const float t = projectile.m_TravelTime > 0.0f
-            ? std::clamp(projectile.m_Elapsed / projectile.m_TravelTime, 0.0f, 1.0f)
+        const float t = travelTime > 0.0f
+            ? std::clamp(elapsed / travelTime, 0.0f, 1.0f)
             : 1.0f;
 
-        Vector3 position = Vector3Lerp(projectile.m_StartPosition, projectile.m_EndPosition, t);
-        const float arcHeight = 2.2f + Vector3Distance(projectile.m_StartPosition, projectile.m_EndPosition) * 0.08f;
-        position.y += std::sinf(t * 3.14159265f) * arcHeight;
+        Vector3 position = Vector3Lerp(startPosition, aimPosition, t);
+        const float horizontalDistance = std::sqrt(
+            (aimPosition.x - startPosition.x) * (aimPosition.x - startPosition.x)
+            + (aimPosition.z - startPosition.z) * (aimPosition.z - startPosition.z));
+        const float arcHeight = kArcherArcBase + horizontalDistance * kArcherArcPerDistance;
+        position.y += std::sinf(t * kPi) * arcHeight;
         return position;
+    }
+
+    Vector3 GetArcherProjectileLoftPosition(
+        const CombatUnitInstance& unit,
+        const CombatFigure& figure,
+        const RegionHeightfield& heightfield)
+    {
+        const Vector3 groundPosition = GetCombatFigureWorldPosition(unit, figure, heightfield);
+        return Vector3{
+            groundPosition.x,
+            groundPosition.y + kArcherLoftHeight,
+            groundPosition.z
+        };
+    }
+
+    Vector3 GetProjectilePosition(const CombatProjectile& projectile)
+    {
+        return ComputeProjectileArcPosition(
+            projectile.m_StartPosition,
+            projectile.m_AimPosition,
+            projectile.m_Elapsed,
+            projectile.m_TravelTime);
+    }
+
+    Vector3 ApplyArcherAimSpread(const Vector3& targetPosition, float distance, RNG& rng)
+    {
+        const float spreadRadius = kArcherBaseSpread + distance * kArcherDistanceSpread;
+        const float offsetX = rng.RandomRangeFloat(-spreadRadius, spreadRadius);
+        const float offsetZ = rng.RandomRangeFloat(-spreadRadius, spreadRadius);
+        const float offsetY = rng.RandomRangeFloat(-0.1f, 0.1f);
+
+        return Vector3{
+            targetPosition.x + offsetX,
+            targetPosition.y + offsetY,
+            targetPosition.z + offsetZ
+        };
+    }
+
+    bool SegmentHitsSphere(
+        Vector3 segmentStart,
+        Vector3 segmentEnd,
+        Vector3 center,
+        float radius,
+        float& outHitDistance)
+    {
+        const Vector3 direction = Vector3Subtract(segmentEnd, segmentStart);
+        const float segmentLength = Vector3Length(direction);
+        if (segmentLength <= 1e-5f)
+        {
+            return false;
+        }
+
+        const Vector3 startToCenter = Vector3Subtract(segmentStart, center);
+        const float directionScale = 1.0f / (segmentLength * segmentLength);
+        float t = -Vector3DotProduct(startToCenter, direction) * directionScale;
+        t = std::clamp(t, 0.0f, 1.0f);
+
+        const Vector3 closestPoint = Vector3Add(segmentStart, Vector3Scale(direction, t));
+        const float distanceSquared = Vector3DistanceSqr(closestPoint, center);
+        if (distanceSquared > radius * radius)
+        {
+            return false;
+        }
+
+        outHitDistance = t * segmentLength;
+        return true;
+    }
+
+    bool SegmentHitsTerrain(
+        Vector3 segmentStart,
+        Vector3 segmentEnd,
+        const RegionHeightfield& heightfield,
+        float& outHitDistance)
+    {
+        float closestDistance = std::numeric_limits<float>::max();
+        bool hit = false;
+
+        for (int sampleIndex = 0; sampleIndex <= kProjectileGroundSamples; ++sampleIndex)
+        {
+            const float t = static_cast<float>(sampleIndex) / static_cast<float>(kProjectileGroundSamples);
+            const Vector3 samplePosition = Vector3Lerp(segmentStart, segmentEnd, t);
+            const float terrainY = heightfield.SampleHeight(samplePosition.x, samplePosition.z);
+            if (samplePosition.y <= terrainY + kProjectileGroundClearance)
+            {
+                const float distanceAlongSegment = t * Vector3Distance(segmentStart, segmentEnd);
+                if (distanceAlongSegment < closestDistance)
+                {
+                    closestDistance = distanceAlongSegment;
+                    hit = true;
+                }
+            }
+        }
+
+        if (hit)
+        {
+            outHitDistance = closestDistance;
+        }
+
+        return hit;
+    }
+
+    enum class ProjectileHitType
+    {
+        None = 0,
+        Figure,
+        Castle,
+        Tree,
+        Terrain
+    };
+
+    struct ProjectileHitResult
+    {
+        ProjectileHitType m_Type = ProjectileHitType::None;
+        float m_DistanceAlongSegment = 0.0f;
+        int m_TargetUnitIndex = -1;
+        int m_TargetFigureIndex = -1;
+        int m_ObstacleIndex = -1;
+        Vector3 m_HitPosition{};
+    };
+
+    void FinalizeProjectileHitResult(
+        Vector3 segmentStart,
+        Vector3 segmentEnd,
+        ProjectileHitResult& hit)
+    {
+        if (hit.m_Type == ProjectileHitType::None)
+        {
+            return;
+        }
+
+        const Vector3 segmentDelta = Vector3Subtract(segmentEnd, segmentStart);
+        const float segmentLength = Vector3Length(segmentDelta);
+        if (segmentLength <= 1e-5f)
+        {
+            hit.m_HitPosition = segmentEnd;
+            return;
+        }
+
+        hit.m_HitPosition = Vector3Add(
+            segmentStart,
+            Vector3Scale(segmentDelta, hit.m_DistanceAlongSegment / segmentLength));
+    }
+
+    Vector3 ComputeProjectileArcVelocity(
+        const Vector3& startPosition,
+        const Vector3& aimPosition,
+        float elapsed,
+        float travelTime)
+    {
+        const float sampleElapsed = std::max(0.0f, elapsed);
+        const Vector3 currentPosition = ComputeProjectileArcPosition(
+            startPosition,
+            aimPosition,
+            sampleElapsed,
+            travelTime);
+        const Vector3 nextPosition = ComputeProjectileArcPosition(
+            startPosition,
+            aimPosition,
+            sampleElapsed + kProjectileVelocitySampleDt,
+            travelTime);
+
+        return Vector3Scale(
+            Vector3Subtract(nextPosition, currentPosition),
+            1.0f / kProjectileVelocitySampleDt);
+    }
+
+    Vector3 ComputeProjectileBounceNormal(
+        const ProjectileHitResult& hit,
+        const RegionHeightfield& heightfield,
+        const CombatEnvironment& environment)
+    {
+        switch (hit.m_Type)
+        {
+        case ProjectileHitType::Terrain:
+            return Vector3{ 0.0f, 1.0f, 0.0f };
+
+        case ProjectileHitType::Tree:
+            if (hit.m_ObstacleIndex >= 0
+                && hit.m_ObstacleIndex < static_cast<int>(environment.m_Trees.size()))
+            {
+                const CombatTreeObstacle& tree = environment.m_Trees[static_cast<size_t>(hit.m_ObstacleIndex)];
+                Vector3 normal{
+                    hit.m_HitPosition.x - tree.m_Position.x,
+                    0.15f,
+                    hit.m_HitPosition.z - tree.m_Position.z
+                };
+                const float normalLength = Vector3Length(normal);
+                if (normalLength > 1e-4f)
+                {
+                    return Vector3Scale(normal, 1.0f / normalLength);
+                }
+            }
+            break;
+
+        case ProjectileHitType::Castle:
+            if (hit.m_ObstacleIndex >= 0
+                && hit.m_ObstacleIndex < static_cast<int>(environment.m_CastleParts.size()))
+            {
+                const CastlePartPlacement& placement =
+                    environment.m_CastleParts[static_cast<size_t>(hit.m_ObstacleIndex)];
+                const float terrainY = heightfield.SampleHeight(placement.m_Position.x, placement.m_Position.z);
+                Vector3 size{};
+                GetCastlePartCollisionSize(placement.m_Type, size);
+                const Vector3 center{
+                    placement.m_Position.x,
+                    terrainY + size.y * 0.5f,
+                    placement.m_Position.z
+                };
+                Vector3 normal = Vector3Subtract(hit.m_HitPosition, center);
+                const float normalLength = Vector3Length(normal);
+                if (normalLength > 1e-4f)
+                {
+                    return Vector3Scale(normal, 1.0f / normalLength);
+                }
+            }
+            break;
+
+        default:
+            break;
+        }
+
+        return Vector3{ 0.0f, 1.0f, 0.0f };
+    }
+
+    void BeginProjectilePhysicsPhase(CombatProjectile& projectile, Vector3 velocity)
+    {
+        projectile.m_InPhysicsPhase = true;
+        projectile.m_Velocity = velocity;
+    }
+
+    void BounceProjectileOffSurface(
+        CombatProjectile& projectile,
+        const Vector3& hitPosition,
+        Vector3 surfaceNormal,
+        float restitution)
+    {
+        const float normalLength = Vector3Length(surfaceNormal);
+        if (normalLength > 1e-4f)
+        {
+            surfaceNormal = Vector3Scale(surfaceNormal, 1.0f / normalLength);
+        }
+        else
+        {
+            surfaceNormal = Vector3{ 0.0f, 1.0f, 0.0f };
+        }
+
+        projectile.m_Position = Vector3Add(hitPosition, Vector3Scale(surfaceNormal, 0.06f));
+        projectile.m_Velocity = Vector3Scale(
+            Vector3Reflect(projectile.m_Velocity, surfaceNormal),
+            restitution);
+        projectile.m_BounceCount += 1;
+        projectile.m_InPhysicsPhase = true;
+    }
+
+    bool ShouldDespawnProjectileOnGround(
+        const CombatProjectile& projectile,
+        const RegionHeightfield& heightfield)
+    {
+        const float terrainY = heightfield.SampleHeight(projectile.m_Position.x, projectile.m_Position.z);
+        const float groundY = terrainY + kProjectileGroundClearance;
+        if (projectile.m_Position.y > groundY)
+        {
+            return false;
+        }
+
+        const float planarSpeed = std::sqrt(
+            projectile.m_Velocity.x * projectile.m_Velocity.x
+            + projectile.m_Velocity.z * projectile.m_Velocity.z);
+
+        return std::fabs(projectile.m_Velocity.y) <= kProjectileMinRestSpeed
+            && planarSpeed <= kProjectileMinRestSpeed;
+    }
+
+    ProjectileHitResult ResolveProjectileSegmentHit(
+        Vector3 segmentStart,
+        Vector3 segmentEnd,
+        int sourceUnitIndex,
+        const std::vector<CombatUnitInstance>& units,
+        const RegionHeightfield& heightfield,
+        const CombatEnvironment& environment)
+    {
+        ProjectileHitResult bestHit{};
+        float bestDistance = std::numeric_limits<float>::max();
+
+        auto considerHit = [&](
+            ProjectileHitType type,
+            float distance,
+            int unitIndex = -1,
+            int figureIndex = -1,
+            int obstacleIndex = -1)
+        {
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                bestHit.m_Type = type;
+                bestHit.m_DistanceAlongSegment = distance;
+                bestHit.m_TargetUnitIndex = unitIndex;
+                bestHit.m_TargetFigureIndex = figureIndex;
+                bestHit.m_ObstacleIndex = obstacleIndex;
+            }
+        };
+
+        for (int unitIndex = 0; unitIndex < static_cast<int>(units.size()); ++unitIndex)
+        {
+            if (unitIndex == sourceUnitIndex)
+            {
+                continue;
+            }
+
+            const CombatUnitInstance& unit = units[static_cast<size_t>(unitIndex)];
+            if (!IsCombatUnitAlive(unit))
+            {
+                continue;
+            }
+
+            if (sourceUnitIndex >= 0
+                && sourceUnitIndex < static_cast<int>(units.size())
+                && !AreCombatUnitsHostile(units[static_cast<size_t>(sourceUnitIndex)], unit))
+            {
+                continue;
+            }
+
+            for (int figureIndex = 0; figureIndex < static_cast<int>(unit.m_Figures.size()); ++figureIndex)
+            {
+                const CombatFigure& figure = unit.m_Figures[static_cast<size_t>(figureIndex)];
+                if (!IsCombatFigureAlive(figure))
+                {
+                    continue;
+                }
+
+                const Vector3 figureCenter = GetCombatFigureDrawPosition(unit, figure, heightfield);
+                float hitDistance = 0.0f;
+                if (SegmentHitsSphere(segmentStart, segmentEnd, figureCenter, kFigureProjectileHitRadius, hitDistance))
+                {
+                    considerHit(ProjectileHitType::Figure, hitDistance, unitIndex, figureIndex);
+                }
+            }
+        }
+
+        for (int castleIndex = 0; castleIndex < static_cast<int>(environment.m_CastleParts.size()); ++castleIndex)
+        {
+            const CastlePartPlacement& placement = environment.m_CastleParts[static_cast<size_t>(castleIndex)];
+            float hitDistance = 0.0f;
+            if (SegmentIntersectsCastlePart(segmentStart, segmentEnd, placement, heightfield, hitDistance))
+            {
+                considerHit(ProjectileHitType::Castle, hitDistance, -1, -1, castleIndex);
+            }
+        }
+
+        for (int treeIndex = 0; treeIndex < static_cast<int>(environment.m_Trees.size()); ++treeIndex)
+        {
+            const CombatTreeObstacle& tree = environment.m_Trees[static_cast<size_t>(treeIndex)];
+            float hitDistance = 0.0f;
+            if (SegmentIntersectsCombatTree(segmentStart, segmentEnd, tree, heightfield, hitDistance))
+            {
+                considerHit(ProjectileHitType::Tree, hitDistance, -1, -1, treeIndex);
+            }
+        }
+
+        float terrainHitDistance = 0.0f;
+        if (SegmentHitsTerrain(segmentStart, segmentEnd, heightfield, terrainHitDistance))
+        {
+            considerHit(ProjectileHitType::Terrain, terrainHitDistance);
+        }
+
+        FinalizeProjectileHitResult(segmentStart, segmentEnd, bestHit);
+        return bestHit;
+    }
+
+    bool ShouldProjectileBounceOffHit(const ProjectileHitResult& hit, const CombatProjectile& projectile)
+    {
+        if (hit.m_Type == ProjectileHitType::Figure || hit.m_Type == ProjectileHitType::Terrain)
+        {
+            return false;
+        }
+
+        return projectile.m_BounceCount < kProjectileMaxBounces;
     }
 
     void MaybeAssignCombatRetaliationTarget(CombatUnitInstance& victim, int attackerUnitIndex,
@@ -1422,16 +1822,26 @@ void UpdateCombatUnitsCombat(std::vector<CombatUnitInstance>& units, std::vector
 
             if (attacker.m_Type == CombatUnitType::Archers)
             {
-                const Vector3 startPosition = GetCombatFigureDrawPosition(attacker, attackerFigure, heightfield);
-                const Vector3 endPosition = GetCombatFigureDrawPosition(resolvedTargetUnit, targetFigure, heightfield);
+                const Vector3 startPosition = GetArcherProjectileLoftPosition(attacker, attackerFigure, heightfield);
+                const Vector3 targetPosition = GetArcherProjectileLoftPosition(resolvedTargetUnit, targetFigure, heightfield);
+
+                RNG spreadRng;
+                spreadRng.SeedRNG(static_cast<unsigned int>(
+                    GetTime() * 1000.0
+                    + static_cast<double>(attackerUnitIndex) * 131.0
+                    + static_cast<double>(attackerFigure.m_FormationRow) * 17.0
+                    + static_cast<double>(attackerFigure.m_FormationColumn) * 5.0
+                    + static_cast<double>(projectiles.size()) * 7.0));
+                const Vector3 aimPosition = ApplyArcherAimSpread(targetPosition, hostileDistance, spreadRng);
 
                 CombatProjectile projectile{};
                 projectile.m_StartPosition = startPosition;
-                projectile.m_EndPosition = endPosition;
+                projectile.m_AimPosition = aimPosition;
+                projectile.m_Position = startPosition;
+                projectile.m_PreviousPosition = startPosition;
                 projectile.m_TravelTime = 0.24f + hostileDistance * 0.03f;
+                projectile.m_Elapsed = 0.0f;
                 projectile.m_SourceUnitIndex = attackerUnitIndex;
-                projectile.m_TargetUnitIndex = hostileUnitIndex;
-                projectile.m_TargetFigureIndex = targetFigureIndex;
                 projectile.m_Damage = damagePerFigure;
                 projectile.m_Active = true;
                 projectiles.push_back(projectile);
@@ -1452,7 +1862,12 @@ void UpdateCombatUnitsCombat(std::vector<CombatUnitInstance>& units, std::vector
     }
 }
 
-void UpdateCombatProjectiles(std::vector<CombatProjectile>& projectiles, std::vector<CombatUnitInstance>& units, float deltaTime)
+void UpdateCombatProjectiles(
+    std::vector<CombatProjectile>& projectiles,
+    std::vector<CombatUnitInstance>& units,
+    const RegionHeightfield& heightfield,
+    const CombatEnvironment& environment,
+    float deltaTime)
 {
     for (CombatProjectile& projectile : projectiles)
     {
@@ -1461,30 +1876,105 @@ void UpdateCombatProjectiles(std::vector<CombatProjectile>& projectiles, std::ve
             continue;
         }
 
-        projectile.m_Elapsed += deltaTime;
-        if (projectile.m_Elapsed < projectile.m_TravelTime)
+        projectile.m_PreviousPosition = projectile.m_Position;
+
+        if (!projectile.m_InPhysicsPhase)
         {
-            continue;
+            projectile.m_Elapsed += deltaTime;
+            projectile.m_Position = ComputeProjectileArcPosition(
+                projectile.m_StartPosition,
+                projectile.m_AimPosition,
+                projectile.m_Elapsed,
+                projectile.m_TravelTime);
+
+            if (projectile.m_Elapsed >= projectile.m_TravelTime)
+            {
+                BeginProjectilePhysicsPhase(
+                    projectile,
+                    ComputeProjectileArcVelocity(
+                        projectile.m_StartPosition,
+                        projectile.m_AimPosition,
+                        projectile.m_TravelTime,
+                        projectile.m_TravelTime));
+            }
+        }
+        else
+        {
+            projectile.m_Velocity.y -= kProjectileGravity * deltaTime;
+            projectile.m_Position = Vector3Add(
+                projectile.m_Position,
+                Vector3Scale(projectile.m_Velocity, deltaTime));
         }
 
-        projectile.m_Active = false;
-        if (projectile.m_TargetUnitIndex < 0
-            || projectile.m_TargetUnitIndex >= static_cast<int>(units.size()))
-        {
-            continue;
-        }
+        const ProjectileHitResult hit = ResolveProjectileSegmentHit(
+            projectile.m_PreviousPosition,
+            projectile.m_Position,
+            projectile.m_SourceUnitIndex,
+            units,
+            heightfield,
+            environment);
 
-        CombatUnitInstance& targetUnit = units[static_cast<size_t>(projectile.m_TargetUnitIndex)];
-        if (IsCombatUnitAlive(targetUnit)
-            && projectile.m_TargetFigureIndex >= 0
-            && projectile.m_TargetFigureIndex < static_cast<int>(targetUnit.m_Figures.size()))
+        if (hit.m_Type == ProjectileHitType::Figure
+            && hit.m_TargetUnitIndex >= 0
+            && hit.m_TargetUnitIndex < static_cast<int>(units.size())
+            && hit.m_TargetFigureIndex >= 0)
         {
+            CombatUnitInstance& targetUnit = units[static_cast<size_t>(hit.m_TargetUnitIndex)];
             ApplyCombatFigureDamage(
                 targetUnit,
-                projectile.m_TargetFigureIndex,
+                hit.m_TargetFigureIndex,
                 projectile.m_Damage,
                 projectile.m_SourceUnitIndex,
                 units);
+            projectile.m_Active = false;
+            continue;
+        }
+
+        if (hit.m_Type != ProjectileHitType::None)
+        {
+            if (!projectile.m_InPhysicsPhase)
+            {
+                BeginProjectilePhysicsPhase(
+                    projectile,
+                    ComputeProjectileArcVelocity(
+                        projectile.m_StartPosition,
+                        projectile.m_AimPosition,
+                        projectile.m_Elapsed,
+                        projectile.m_TravelTime));
+            }
+
+            if (ShouldProjectileBounceOffHit(hit, projectile))
+            {
+                const float restitution = hit.m_Type == ProjectileHitType::Terrain
+                    ? kProjectileGroundBounceRestitution
+                    : kProjectileBounceRestitution;
+                BounceProjectileOffSurface(
+                    projectile,
+                    hit.m_HitPosition,
+                    ComputeProjectileBounceNormal(hit, heightfield, environment),
+                    restitution);
+                continue;
+            }
+
+            if (hit.m_Type == ProjectileHitType::Terrain)
+            {
+                projectile.m_Active = false;
+                continue;
+            }
+            else
+            {
+                const Vector3 normal = ComputeProjectileBounceNormal(hit, heightfield, environment);
+                projectile.m_Position = Vector3Add(hit.m_HitPosition, Vector3Scale(normal, 0.06f));
+                projectile.m_Velocity = Vector3Scale(
+                    Vector3Reflect(projectile.m_Velocity, normal),
+                    0.22f);
+                projectile.m_InPhysicsPhase = true;
+            }
+        }
+
+        if (ShouldDespawnProjectileOnGround(projectile, heightfield))
+        {
+            projectile.m_Active = false;
         }
     }
 
@@ -1610,23 +2100,6 @@ Vector3 GetCombatFigureDrawPosition(const CombatUnitInstance& unit, const Combat
         Vector2 idealCenter{};
         Vector2 center{};
     };
-
-    Color GetLittlePeopleArmyColor(LittlePeopleArmy army)
-    {
-        switch (army)
-        {
-        case LittlePeopleArmy::White:
-            return Color{ 235, 235, 235, 255 };
-        case LittlePeopleArmy::Blue:
-            return Color{ 80, 140, 255, 255 };
-        case LittlePeopleArmy::Red:
-            return Color{ 230, 70, 70, 255 };
-        case LittlePeopleArmy::Green:
-            return Color{ 70, 200, 90, 255 };
-        default:
-            return Color{ 200, 200, 200, 255 };
-        }
-    }
 
     char GetCombatUnitTypeIndicatorLetter(CombatUnitType type)
     {
@@ -2289,6 +2762,16 @@ void AppendCombatUnitBillboardDrawRequests(const Camera3D& camera, const RegionH
 
     const float spriteHeight = GetCombatUnitSpriteHeight(unit.m_Type);
     const double currentTime = GetTime();
+    LittlePersonMaskedSprite maskedSprite = LittlePersonMaskedSprite::None;
+    if (unit.m_Type == CombatUnitType::Swordsmen)
+    {
+        maskedSprite = LittlePersonMaskedSprite::Swordsman;
+    }
+    else if (unit.m_Type == CombatUnitType::Archers)
+    {
+        maskedSprite = LittlePersonMaskedSprite::Archer;
+    }
+
     for (const CombatFigure& figure : unit.m_Figures)
     {
         if (!IsCombatFigureAlive(figure))
@@ -2306,7 +2789,9 @@ void AppendCombatUnitBillboardDrawRequests(const Camera3D& camera, const RegionH
             figureWalkFrame,
             groundPosition,
             spriteHeight,
-            tint
+            tint,
+            maskedSprite,
+            figure.m_IsMoving
         });
     }
 }
@@ -2400,9 +2885,8 @@ void DrawCombatProjectiles(const std::vector<CombatProjectile>& projectiles)
             continue;
         }
 
-        const Vector3 position = GetProjectilePosition(projectile);
-        DrawCube(position, 0.22f, 0.22f, 0.45f, Color{ 120, 82, 48, 255 });
-        DrawCubeWires(position, 0.22f, 0.22f, 0.45f, Color{ 60, 40, 24, 255 });
+        DrawCube(projectile.m_Position, 0.22f, 0.22f, 0.45f, Color{ 120, 82, 48, 255 });
+        DrawCubeWires(projectile.m_Position, 0.22f, 0.22f, 0.45f, Color{ 60, 40, 24, 255 });
     }
 }
 

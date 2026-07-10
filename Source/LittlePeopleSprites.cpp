@@ -6,6 +6,7 @@
 #include "../Geist/Source/Config.h"
 #include "../Geist/Source/Globals.h"
 #include "../Geist/Source/ResourceManager.h"
+#include "Player.h"
 #include "rlgl.h"
 
 namespace
@@ -98,6 +99,63 @@ namespace
 
         DrawBillboardRec(camera, *texture, source, drawPosition, size, request.m_Tint);
     }
+
+    void DrawMaskedBillboardInternal(const Camera3D& camera, const LittlePersonBillboardDrawRequest& request,
+        const char* atlasPath, const char* maskPath, int cellWidth, int sourceHeight, int rowHeight,
+        int displayWidth, int displayHeight)
+    {
+        Texture* texture = g_ResourceManager->GetTexture(atlasPath, false);
+        Texture* maskTexture = g_ResourceManager->GetTexture(maskPath, false);
+        if (!texture || texture->id == 0 || !maskTexture || maskTexture->id == 0)
+        {
+            return;
+        }
+
+        const LittlePeopleDirection spriteDirection = LittlePeopleDirectionForCamera(
+            request.m_WorldDirection,
+            camera);
+        const Rectangle source = GetMaskedUnitSpriteSourceRect(
+            spriteDirection,
+            request.m_Frame,
+            request.m_IsMoving,
+            cellWidth,
+            sourceHeight,
+            rowHeight);
+        const float aspect = static_cast<float>(displayWidth) / static_cast<float>(displayHeight);
+        const Vector2 size{ request.m_WorldHeight * aspect, request.m_WorldHeight };
+        const Vector3 drawPosition{
+            request.m_GroundPosition.x,
+            request.m_GroundPosition.y + request.m_WorldHeight * 0.5f,
+            request.m_GroundPosition.z
+        };
+
+        const Color armyColor = GetLittlePeopleArmyColor(request.m_Army);
+        const Color maskTint = ColorTint(armyColor, request.m_Tint);
+
+        DrawBillboardRec(camera, *texture, source, drawPosition, size, WHITE);
+        DrawBillboardRec(camera, *maskTexture, source, drawPosition, size, maskTint);
+    }
+}
+
+int GetLittlePeopleArmyOwnerId(LittlePeopleArmy army)
+{
+    switch (army)
+    {
+    case LittlePeopleArmy::Blue:
+        return 0;
+    case LittlePeopleArmy::Red:
+        return 1;
+    case LittlePeopleArmy::Green:
+        return 4;
+    case LittlePeopleArmy::White:
+    default:
+        return -1;
+    }
+}
+
+Color GetLittlePeopleArmyColor(LittlePeopleArmy army)
+{
+    return PlayerOwnerColor(GetLittlePeopleArmyOwnerId(army));
 }
 
 Rectangle GetLittlePeopleSpriteSourceRect(LittlePeopleArmy army, LittlePeopleDirection direction, int frame)
@@ -117,6 +175,23 @@ Rectangle GetLittlePeopleAtlasSourceRect(int column, int row)
         static_cast<float>(row * LITTLEPEOPLE_CELL_HEIGHT),
         static_cast<float>(LITTLEPEOPLE_CELL_WIDTH),
         static_cast<float>(LITTLEPEOPLE_CELL_HEIGHT)
+    };
+}
+
+Rectangle GetMaskedUnitSpriteSourceRect(LittlePeopleDirection direction, int walkFrame, bool isMoving,
+    int cellWidth, int sourceHeight, int rowHeight)
+{
+    const int directionIndex = static_cast<int>(direction);
+    const int sheetRow = (LITTLEPEOPLE_DIRECTION_COUNT - 1) - directionIndex;
+    const int frameColumn = isMoving
+        ? 1 + (walkFrame % LITTLEPEOPLE_WALK_FRAMES)
+        : 0;
+
+    return Rectangle{
+        static_cast<float>(frameColumn * cellWidth),
+        static_cast<float>(sheetRow * rowHeight),
+        static_cast<float>(cellWidth),
+        static_cast<float>(sourceHeight)
     };
 }
 
@@ -171,6 +246,10 @@ void InitLittlePeopleSprites()
     }
 
     g_ResourceManager->AddTexture(LITTLEPEOPLE_ATLAS_PATH, false);
+    g_ResourceManager->AddTexture(SWORDSMAN_ATLAS_PATH, false);
+    g_ResourceManager->AddTexture(SWORDSMAN_MASK_PATH, false);
+    g_ResourceManager->AddTexture(ARCHER_ATLAS_PATH, false);
+    g_ResourceManager->AddTexture(ARCHER_MASK_PATH, false);
     EnsureLittlePeopleBillboardShader();
     g_LittlePeopleSpritesInitialized = true;
 }
@@ -235,22 +314,53 @@ void DrawLittlePeopleBillboardsSorted(const Camera3D& camera,
 
     EnsureLittlePeopleBillboardShader();
 
-    if (g_LittlePeopleBillboardShaderReady)
-    {
-        BeginShaderMode(g_LittlePeopleBillboardShader);
-    }
-
     rlDisableDepthMask();
 
+    bool littlePeopleShaderActive = false;
     for (const LittlePersonBillboardDrawRequest& request : sortedRequests)
     {
-        DrawLittlePersonBillboardInternal(camera, request);
+        if (!littlePeopleShaderActive && g_LittlePeopleBillboardShaderReady)
+        {
+            BeginShaderMode(g_LittlePeopleBillboardShader);
+            littlePeopleShaderActive = true;
+        }
+
+        if (request.m_MaskedSprite == LittlePersonMaskedSprite::Swordsman)
+        {
+            DrawMaskedBillboardInternal(
+                camera,
+                request,
+                SWORDSMAN_ATLAS_PATH,
+                SWORDSMAN_MASK_PATH,
+                SWORDSMAN_CELL_WIDTH,
+                SWORDSMAN_CELL_HEIGHT,
+                SWORDSMAN_CELL_HEIGHT,
+                SWORDSMAN_CELL_WIDTH,
+                SWORDSMAN_CELL_HEIGHT);
+        }
+        else if (request.m_MaskedSprite == LittlePersonMaskedSprite::Archer)
+        {
+            DrawMaskedBillboardInternal(
+                camera,
+                request,
+                ARCHER_ATLAS_PATH,
+                ARCHER_MASK_PATH,
+                ARCHER_CELL_WIDTH,
+                ARCHER_ROW_HEIGHT,
+                ARCHER_ROW_HEIGHT,
+                SWORDSMAN_CELL_WIDTH,
+                SWORDSMAN_CELL_HEIGHT);
+        }
+        else
+        {
+            DrawLittlePersonBillboardInternal(camera, request);
+        }
     }
 
-    rlEnableDepthMask();
-
-    if (g_LittlePeopleBillboardShaderReady)
+    if (littlePeopleShaderActive)
     {
         EndShaderMode();
     }
+
+    rlEnableDepthMask();
 }

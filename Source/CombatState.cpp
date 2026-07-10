@@ -3,6 +3,7 @@
 #include "../Geist/Source/Globals.h"
 #include "../Geist/Source/StateMachine.h"
 
+#include "CombatEnvironment.h"
 #include "CombatUnits.h"
 #include "GameGlobals.h"
 #include "LittlePeopleSprites.h"
@@ -46,23 +47,6 @@ namespace
         }
     }
 
-    Color LittlePeopleArmyColor(LittlePeopleArmy army)
-    {
-        switch (army)
-        {
-        case LittlePeopleArmy::White:
-            return Color{ 235, 235, 235, 255 };
-        case LittlePeopleArmy::Blue:
-            return Color{ 80, 140, 255, 255 };
-        case LittlePeopleArmy::Red:
-            return Color{ 230, 70, 70, 255 };
-        case LittlePeopleArmy::Green:
-            return Color{ 70, 200, 90, 255 };
-        default:
-            return Color{ 200, 200, 200, 255 };
-        }
-    }
-
     bool IsGestureHold(double pressTime)
     {
         return (GetTime() - pressTime) >= kGestureTimeThreshold;
@@ -93,14 +77,14 @@ void CombatState::InitializeDemoUnits()
     m_Projectiles.clear();
 
     const CombatUnitInstance demoUnits[] = {
-        { 0, CombatUnitType::Swordsmen, Vector3{ 36.0f, 0.0f, 44.0f }, LittlePeopleArmy::Blue, LittlePeopleDirection::South },
-        { 1, CombatUnitType::Archers, Vector3{ 68.0f, 0.0f, 44.0f }, LittlePeopleArmy::Blue, LittlePeopleDirection::South },
-        { 2, CombatUnitType::Knights, Vector3{ 100.0f, 0.0f, 44.0f }, LittlePeopleArmy::Blue, LittlePeopleDirection::South },
-        { 3, CombatUnitType::Catapult, Vector3{ 118.0f, 0.0f, 44.0f }, LittlePeopleArmy::Blue, LittlePeopleDirection::South },
-        { 4, CombatUnitType::Swordsmen, Vector3{ 36.0f, 0.0f, 84.0f }, LittlePeopleArmy::Red, LittlePeopleDirection::North },
-        { 5, CombatUnitType::Archers, Vector3{ 68.0f, 0.0f, 84.0f }, LittlePeopleArmy::Red, LittlePeopleDirection::North },
-        { 6, CombatUnitType::Knights, Vector3{ 100.0f, 0.0f, 84.0f }, LittlePeopleArmy::Red, LittlePeopleDirection::North },
-        { 7, CombatUnitType::Catapult, Vector3{ 118.0f, 0.0f, 84.0f }, LittlePeopleArmy::Red, LittlePeopleDirection::North },
+        { 0, CombatUnitType::Swordsmen, Vector3{ 24.0f, 0.0f, 52.0f }, LittlePeopleArmy::White, LittlePeopleDirection::South },
+        { 1, CombatUnitType::Swordsmen, Vector3{ 44.0f, 0.0f, 52.0f }, LittlePeopleArmy::Blue, LittlePeopleDirection::South },
+        { 2, CombatUnitType::Swordsmen, Vector3{ 64.0f, 0.0f, 52.0f }, LittlePeopleArmy::Red, LittlePeopleDirection::South },
+        { 3, CombatUnitType::Swordsmen, Vector3{ 84.0f, 0.0f, 52.0f }, LittlePeopleArmy::Green, LittlePeopleDirection::South },
+        { 4, CombatUnitType::Archers, Vector3{ 24.0f, 0.0f, 72.0f }, LittlePeopleArmy::White, LittlePeopleDirection::South },
+        { 5, CombatUnitType::Archers, Vector3{ 44.0f, 0.0f, 72.0f }, LittlePeopleArmy::Blue, LittlePeopleDirection::South },
+        { 6, CombatUnitType::Archers, Vector3{ 64.0f, 0.0f, 72.0f }, LittlePeopleArmy::Red, LittlePeopleDirection::South },
+        { 7, CombatUnitType::Archers, Vector3{ 84.0f, 0.0f, 72.0f }, LittlePeopleArmy::Green, LittlePeopleDirection::South },
     };
 
     for (const CombatUnitInstance& unit : demoUnits)
@@ -122,6 +106,16 @@ void CombatState::OnEnter()
     if (g_GameDatabase.m_ActiveRegionId >= 0)
     {
         g_GameDatabase.EnsureRegionHeightfield(g_GameDatabase.m_ActiveRegionId);
+    }
+
+    RegionData* region = g_GameDatabase.GetActiveRegion();
+    if (region && region->m_Heightfield.m_Generated)
+    {
+        InitializeDemoCombatEnvironment(region->m_Heightfield, region->m_HeightfieldSeed);
+    }
+    else
+    {
+        g_CombatEnvironment.Clear();
     }
 
     InitializeDemoUnits();
@@ -290,7 +284,7 @@ void CombatState::Update()
         UpdateCombatUnitsAttackOrders(m_Units, *heightfield);
         UpdateCombatUnitsFormationRecovery(m_Units);
         UpdateCombatUnitsMovement(m_Units, deltaTime);
-        UpdateCombatProjectiles(m_Projectiles, m_Units, deltaTime);
+        UpdateCombatProjectiles(m_Projectiles, m_Units, *heightfield, g_CombatEnvironment, deltaTime);
         UpdateCombatUnitsCombat(m_Units, m_Projectiles, *heightfield, deltaTime);
         UpdateCombatUnitsRetaliationDelays(m_Units, deltaTime);
 
@@ -348,6 +342,7 @@ void CombatState::Draw()
 
     g_RegionView.Begin3D();
     g_RegionTerrainMesh.Draw();
+    DrawCombatEnvironment(heightfield, g_CombatEnvironment);
 
     std::vector<LittlePersonBillboardDrawRequest> billboardDrawRequests;
     billboardDrawRequests.reserve(128);
@@ -417,7 +412,7 @@ void CombatState::Draw()
         minimapMarkers.push_back(RegionMinimapMarker{
             unit.m_Anchor.x,
             unit.m_Anchor.z,
-            LittlePeopleArmyColor(unit.m_Army)
+            GetLittlePeopleArmyColor(unit.m_Army)
         });
     }
 
