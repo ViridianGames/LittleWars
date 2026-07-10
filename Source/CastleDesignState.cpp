@@ -6,6 +6,7 @@
 #include "../Geist/Source/Globals.h"
 #include "../Geist/Source/StateMachine.h"
 
+#include "CastleParts.h"
 #include "CombatUnits.h"
 #include "GameGlobals.h"
 #include "LittlePeopleSprites.h"
@@ -42,27 +43,6 @@ namespace
         mouse.x /= inputScale;
         mouse.y /= inputScale;
         return mouse;
-    }
-
-    const char* CastlePartTypeName(CastlePartType type)
-    {
-        switch (type)
-        {
-        case CastlePartType::RoundTower:
-            return "Round Tower";
-        case CastlePartType::SquareTower:
-            return "Square Tower";
-        case CastlePartType::ShortWall:
-            return "Short Wall";
-        case CastlePartType::TallWall:
-            return "Tall Wall";
-        case CastlePartType::Gate:
-            return "Gate";
-        case CastlePartType::Moat:
-            return "Moat";
-        default:
-            return "Unknown";
-        }
     }
 
     const char* CastlePartTypeButtonLabel(CastlePartType type)
@@ -142,27 +122,6 @@ namespace
         return y + g_smallFontDrawSize + 2.0f;
     }
 
-    Color CastlePartTypeColor(CastlePartType type)
-    {
-        switch (type)
-        {
-        case CastlePartType::RoundTower:
-            return Color{ 170, 170, 185, 255 };
-        case CastlePartType::SquareTower:
-            return Color{ 145, 145, 160, 255 };
-        case CastlePartType::ShortWall:
-            return Color{ 120, 118, 128, 255 };
-        case CastlePartType::TallWall:
-            return Color{ 100, 98, 110, 255 };
-        case CastlePartType::Gate:
-            return Color{ 150, 110, 70, 255 };
-        case CastlePartType::Moat:
-            return Color{ 55, 110, 180, 220 };
-        default:
-            return Color{ 180, 180, 180, 255 };
-        }
-    }
-
     void RotateLocalOffset(int rotationDegrees, float localX, float localZ, float& outX, float& outZ)
     {
         const float radians = static_cast<float>(rotationDegrees) * DEG2RAD;
@@ -170,41 +129,6 @@ namespace
         const float sine = sinf(radians);
         outX = localX * cosine - localZ * sine;
         outZ = localX * sine + localZ * cosine;
-    }
-
-    void GetCastlePartHalfExtents(CastlePartType type, float& halfX, float& halfZ)
-    {
-        switch (type)
-        {
-        case CastlePartType::RoundTower:
-            halfX = 1.4f;
-            halfZ = 1.4f;
-            break;
-        case CastlePartType::SquareTower:
-            halfX = 1.4f;
-            halfZ = 1.4f;
-            break;
-        case CastlePartType::ShortWall:
-            halfX = 2.0f;
-            halfZ = 0.5f;
-            break;
-        case CastlePartType::TallWall:
-            halfX = 2.0f;
-            halfZ = 0.5f;
-            break;
-        case CastlePartType::Gate:
-            halfX = 1.6f;
-            halfZ = 0.6f;
-            break;
-        case CastlePartType::Moat:
-            halfX = 2.5f;
-            halfZ = 1.5f;
-            break;
-        default:
-            halfX = 1.0f;
-            halfZ = 1.0f;
-            break;
-        }
     }
 
     void AppendEdgeMidpointAnchors(float halfX, float halfZ, std::vector<PlanarOffset>& anchors)
@@ -220,27 +144,6 @@ namespace
         position.x = roundf(position.x / kSnapGridSize) * kSnapGridSize;
         position.z = roundf(position.z / kSnapGridSize) * kSnapGridSize;
         return position;
-    }
-
-    float GetCastlePartPickRadius(CastlePartType type)
-    {
-        switch (type)
-        {
-        case CastlePartType::RoundTower:
-            return 1.6f;
-        case CastlePartType::SquareTower:
-            return 2.2f;
-        case CastlePartType::ShortWall:
-            return 2.6f;
-        case CastlePartType::TallWall:
-            return 2.6f;
-        case CastlePartType::Gate:
-            return 2.0f;
-        case CastlePartType::Moat:
-            return 3.0f;
-        default:
-            return 2.0f;
-        }
     }
 
     Rectangle GetCastlePartButtonRect(int buttonIndex, float startY)
@@ -286,69 +189,6 @@ namespace
         const float textX = rect.x + (rect.width - textSize.x) * 0.5f;
         const float textY = rect.y + (rect.height - textSize.y) * 0.5f;
         DrawOutlinedText(g_smallFont, label, Vector2{ textX, textY }, fontSize, 1, WHITE);
-    }
-
-    void DrawCastlePartShape(const RegionHeightfield& heightfield, CastlePartType type, Vector3 position,
-        int rotationDegrees, Color color, float alphaScale = 1.0f)
-    {
-        const float terrainY = heightfield.SampleHeight(position.x, position.z);
-        Color drawColor = color;
-        drawColor.a = static_cast<unsigned char>(static_cast<float>(drawColor.a) * alphaScale);
-
-        rlPushMatrix();
-        rlTranslatef(position.x, terrainY, position.z);
-        rlRotatef(static_cast<float>(rotationDegrees), 0.0f, 1.0f, 0.0f);
-
-        switch (type)
-        {
-        case CastlePartType::RoundTower:
-        {
-            const float radius = 1.4f;
-            const float height = 4.5f;
-            DrawCylinder(
-                Vector3{ 0.0f, height * 0.5f, 0.0f },
-                radius,
-                radius,
-                height,
-                16,
-                drawColor);
-            break;
-        }
-        case CastlePartType::SquareTower:
-        {
-            const Vector3 size{ 2.8f, 5.0f, 2.8f };
-            DrawCube(Vector3{ 0.0f, size.y * 0.5f, 0.0f }, size.x, size.y, size.z, drawColor);
-            break;
-        }
-        case CastlePartType::ShortWall:
-        {
-            const Vector3 size{ 4.0f, 1.6f, 1.0f };
-            DrawCube(Vector3{ 0.0f, size.y * 0.5f, 0.0f }, size.x, size.y, size.z, drawColor);
-            break;
-        }
-        case CastlePartType::TallWall:
-        {
-            const Vector3 size{ 4.0f, 3.6f, 1.0f };
-            DrawCube(Vector3{ 0.0f, size.y * 0.5f, 0.0f }, size.x, size.y, size.z, drawColor);
-            break;
-        }
-        case CastlePartType::Gate:
-        {
-            const Vector3 size{ 3.2f, 2.8f, 1.2f };
-            DrawCube(Vector3{ 0.0f, size.y * 0.5f, 0.0f }, size.x, size.y, size.z, drawColor);
-            break;
-        }
-        case CastlePartType::Moat:
-        {
-            const Vector3 size{ 5.0f, 0.35f, 3.0f };
-            DrawCube(Vector3{ 0.0f, -size.y * 0.5f + 0.05f, 0.0f }, size.x, size.y, size.z, drawColor);
-            break;
-        }
-        default:
-            break;
-        }
-
-        rlPopMatrix();
     }
 
     int PickCastlePartAtTerrainHit(const std::vector<CastlePartPlacement>& placements, Vector3 terrainHit)

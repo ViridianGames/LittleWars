@@ -2,30 +2,13 @@
 #define _CASTLEDESIGNSTATE_H_
 
 #include "../Geist/Source/State.h"
+#include "CastleParts.h"
 #include "CombatUnits.h"
 #include "raylib.h"
 
 #include <vector>
 
 class RegionHeightfield;
-
-enum class CastlePartType
-{
-    RoundTower = 0,
-    SquareTower,
-    ShortWall,
-    TallWall,
-    Gate,
-    Moat,
-    Count
-};
-
-struct CastlePartPlacement
-{
-    CastlePartType m_Type = CastlePartType::RoundTower;
-    Vector3 m_Position{};
-    int m_RotationDegrees = 0;
-};
 
 class CastleDesignState : public State
 {

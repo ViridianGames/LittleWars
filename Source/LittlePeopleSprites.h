@@ -13,6 +13,19 @@ constexpr int LITTLEPEOPLE_WALK_FRAMES = 2;
 constexpr int LITTLEPEOPLE_ANIMATION_ROWS = 16;
 constexpr const char* LITTLEPEOPLE_ATLAS_PATH = "Images/littlepeople.png";
 
+constexpr int SWORDSMAN_CELL_WIDTH = 22;
+constexpr int SWORDSMAN_CELL_HEIGHT = 28;
+constexpr int SWORDSMAN_FRAME_COUNT = 3;
+constexpr const char* SWORDSMAN_ATLAS_PATH = "Images/swordsmen.png";
+constexpr const char* SWORDSMAN_MASK_PATH = "Images/swordsmenmask.png";
+
+constexpr int ARCHER_CELL_WIDTH = 30;
+constexpr int ARCHER_CELL_HEIGHT = 20;
+constexpr int ARCHER_ROW_HEIGHT = 30;
+constexpr int ARCHER_FRAME_COUNT = 3;
+constexpr const char* ARCHER_ATLAS_PATH = "Images/archers.png";
+constexpr const char* ARCHER_MASK_PATH = "Images/archermask.png";
+
 enum class LittlePeopleArmy : int
 {
     White = 0,
@@ -34,6 +47,13 @@ enum class LittlePeopleDirection : int
     SouthWest
 };
 
+enum class LittlePersonMaskedSprite : int
+{
+    None = 0,
+    Swordsman,
+    Archer
+};
+
 struct LittlePersonBillboardDrawRequest
 {
     LittlePeopleArmy m_Army = LittlePeopleArmy::Blue;
@@ -42,9 +62,18 @@ struct LittlePersonBillboardDrawRequest
     Vector3 m_GroundPosition{ 0.0f, 0.0f, 0.0f };
     float m_WorldHeight = 1.2f;
     Color m_Tint = WHITE;
+    LittlePersonMaskedSprite m_MaskedSprite = LittlePersonMaskedSprite::None;
+    bool m_IsMoving = false;
 };
 
+int GetLittlePeopleArmyOwnerId(LittlePeopleArmy army);
+
+Color GetLittlePeopleArmyColor(LittlePeopleArmy army);
+
 Rectangle GetLittlePeopleSpriteSourceRect(LittlePeopleArmy army, LittlePeopleDirection direction, int frame);
+
+Rectangle GetMaskedUnitSpriteSourceRect(LittlePeopleDirection direction, int walkFrame, bool isMoving,
+    int cellWidth, int sourceHeight, int rowHeight);
 
 Rectangle GetLittlePeopleAtlasSourceRect(int column, int row);
 
