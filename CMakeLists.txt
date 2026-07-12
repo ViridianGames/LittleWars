@@ -132,7 +132,7 @@ set(GEIST_SOURCES
 # Project Sources
 # ============================================================================
 set(PROJECT_SOURCES
-        Source/ArrangeSprites.cpp
+        #Source/ArrangeSprites.cpp
         Source/CampaignSetupConfig.cpp
         Source/CastleParts.cpp
         Source/CastleDesignState.cpp
@@ -233,16 +233,16 @@ add_custom_command(TARGET LittleWars POST_BUILD
 #//        COMMENT "Copying assets to Redist folder"
 #//)
 
-add_executable(ArrangeSprites Redist/tools/arrange_sprites.cpp)
-target_include_directories(ArrangeSprites PRIVATE ${GEIST_DIR}/ThirdParty/raylib/include ${RAYLIB_EXTERNAL_INCLUDE})
-target_link_libraries(ArrangeSprites PRIVATE raylib)
-if(WIN32)
-    target_link_libraries(ArrangeSprites PRIVATE winmm)
-    set_target_properties(ArrangeSprites PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY "${REDIST_DIR}/tools"
-        RUNTIME_OUTPUT_DIRECTORY_DEBUG "${REDIST_DIR}/tools"
-        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${REDIST_DIR}/tools"
-    )
-endif()
+#add_executable(ArrangeSprites Redist/tools/arrange_sprites.cpp)
+#target_include_directories(ArrangeSprites PRIVATE ${GEIST_DIR}/ThirdParty/raylib/include ${RAYLIB_EXTERNAL_INCLUDE})
+#target_link_libraries(ArrangeSprites PRIVATE raylib)
+#if(WIN32)
+#    target_link_libraries(ArrangeSprites PRIVATE winmm)
+#    set_target_properties(ArrangeSprites PROPERTIES
+#        RUNTIME_OUTPUT_DIRECTORY "${REDIST_DIR}/tools"
+#        RUNTIME_OUTPUT_DIRECTORY_DEBUG "${REDIST_DIR}/tools"
+#        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${REDIST_DIR}/tools"
+#    )
+#endif()
 
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT LittleWars)
