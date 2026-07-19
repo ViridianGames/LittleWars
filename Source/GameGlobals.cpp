@@ -682,8 +682,12 @@ namespace
         }
     }
 
-    void ClassifyTerrainFromHeights(RegionHeightfield& heightfield)
+    void ClassifyTerrainFromHeights(RegionHeightfield& heightfield, CountyResource resource)
     {
+        const bool rocky = resource == CountyResource::Iron || resource == CountyResource::Gold;
+        const bool farmland = resource == CountyResource::Food;
+        const float stoneThreshold = rocky ? 4.0f : (farmland ? 9.0f : 6.0f);
+
         for (int x = 0; x < REGION_CELLS; ++x)
         {
             for (int y = 0; y < REGION_CELLS; ++y)
@@ -693,6 +697,11 @@ namespace
                 const float h01 = heightfield.GetHeight(x, y + 1);
                 const float h11 = heightfield.GetHeight(x + 1, y + 1);
                 const float avg = (h00 + h10 + h01 + h11) * 0.25f;
+                const float slope = std::max({
+                    std::abs(h10 - h00),
+                    std::abs(h01 - h00),
+                    std::abs(h11 - h00)
+                });
 
                 unsigned char terrainType = RTT_GRASS;
                 if (avg <= 0.12f)
@@ -707,12 +716,62 @@ namespace
                 {
                     terrainType = RTT_SWAMP;
                 }
-                else if (avg >= 6.0f)
+                else if (avg >= stoneThreshold || (rocky && slope >= 0.85f && avg >= 2.8f))
                 {
                     terrainType = RTT_STONE;
                 }
+                else if (farmland && avg >= 1.8f && avg <= 3.4f && slope <= 0.45f)
+                {
+                    terrainType = RTT_FARM;
+                }
 
                 heightfield.SetTerrainType(x, y, terrainType);
+            }
+        }
+    }
+
+    void FlattenForFarmland(RegionHeightfield& heightfield)
+    {
+        // Pull interior heights toward the battlefield base so wheat plains stay open and level.
+        for (int x = 2; x < REGION_VERTICES - 2; ++x)
+        {
+            for (int y = 2; y < REGION_VERTICES - 2; ++y)
+            {
+                const float height = heightfield.GetHeight(x, y);
+                const float flattened = kBattlefieldBaseHeight * 0.65f + height * 0.35f;
+                heightfield.SetHeight(x, y, flattened);
+            }
+        }
+    }
+
+    void AmplifyRockyTerrain(RegionHeightfield& heightfield, RNG& rng)
+    {
+        // Extra sharp outcrops for mining counties.
+        const int outcropCount = rng.RandomRange(8, 14);
+        for (int i = 0; i < outcropCount; ++i)
+        {
+            const float radius = static_cast<float>(rng.RandomRange(3, 7));
+            const float peakHeight = static_cast<float>(rng.RandomRange(18, 36)) / 10.0f;
+            const int margin = REGION_CELLS / 7;
+            const int centerX = rng.RandomRange(margin, REGION_CELLS - margin);
+            const int centerY = rng.RandomRange(margin, REGION_CELLS - margin);
+
+            for (int y = 0; y < REGION_VERTICES; ++y)
+            {
+                for (int x = 0; x < REGION_VERTICES; ++x)
+                {
+                    const float dx = (static_cast<float>(x) - static_cast<float>(centerX)) / radius;
+                    const float dy = (static_cast<float>(y) - static_cast<float>(centerY)) / radius;
+                    const float distSq = dx * dx + dy * dy;
+                    if (distSq >= 1.0f)
+                    {
+                        continue;
+                    }
+
+                    const float falloff = (1.0f - distSq);
+                    const float boost = peakHeight * falloff * falloff;
+                    heightfield.SetHeight(x, y, heightfield.GetHeight(x, y) + boost);
+                }
             }
         }
     }
@@ -977,6 +1036,7 @@ void GameDatabase::InitNewCampaign(const CampaignSetup& setup)
 
     ResolveMapDimensions(m_Setup);
     GenerateOverworldRegions();
+    GenerateAllRegionHeightfields();
 }
 
 void GameDatabase::GenerateOverworldRegions()
@@ -999,8 +1059,53 @@ void GameDatabase::GenerateOverworldRegions()
             region.m_HeightfieldSeed = DeriveRegionSeed(m_Setup.m_Seed, region.m_Id);
             region.m_Income = rng.RandomRange(5, 15);
             region.m_OwnerId = (mapX == 0 && mapY == 0) ? 0 : -1;
+            region.m_Resource = static_cast<unsigned char>(
+                static_cast<CountyResource>(rng.Random(4))); // Food/Gold/Iron/Wood cycle for demos
             m_Regions.push_back(region);
         }
+    }
+}
+
+void GameDatabase::BuildRegionsFromOverworld(const OverworldMap& map)
+{
+    m_Regions.clear();
+    m_ActiveRegionId = -1;
+
+    if (!map.IsGenerated())
+    {
+        return;
+    }
+
+    if (m_Setup.m_Seed == 0)
+    {
+        m_Setup.m_Seed = map.GetSeed();
+    }
+
+    for (const OverworldRegionData& overworldRegion : map.GetRegions())
+    {
+        if (overworldRegion.m_IsWater || overworldRegion.m_Id < 0)
+        {
+            continue;
+        }
+
+        RegionData region;
+        region.m_Id = overworldRegion.m_Id;
+        region.m_MapX = overworldRegion.m_SeedX;
+        region.m_MapY = overworldRegion.m_SeedY;
+        region.m_OwnerId = overworldRegion.m_OwnerId;
+        region.m_HasCastle = overworldRegion.m_HasCastle;
+        region.m_Income = GetRegionTurnIncome(overworldRegion);
+        region.m_Resource = static_cast<unsigned char>(overworldRegion.m_Resource);
+        region.m_HeightfieldSeed = DeriveRegionSeed(m_Setup.m_Seed, overworldRegion.m_Id);
+        m_Regions.push_back(region);
+    }
+}
+
+void GameDatabase::GenerateAllRegionHeightfields()
+{
+    for (RegionData& region : m_Regions)
+    {
+        GenerateRegionHeightfield(region);
     }
 }
 
@@ -1072,31 +1177,74 @@ void GameDatabase::GenerateRegionHeightfield(RegionData& region)
     RNG rng;
     rng.SeedRNG(heightfield.m_Seed);
 
-    const int hillCount = rng.RandomRange(12, 18);
+    const CountyResource resource = static_cast<CountyResource>(region.m_Resource);
+    const bool farmland = resource == CountyResource::Food;
+    const bool rocky = resource == CountyResource::Iron || resource == CountyResource::Gold;
+    const bool woodland = resource == CountyResource::Wood;
+
+    int hillCount = rng.RandomRange(10, 16);
+    int rollingHillCount = rng.RandomRange(3, 6);
+    int smoothPasses = 2;
+    float maxPeakHeight = kMaxTerrainPeakHeight;
+
+    if (farmland)
+    {
+        // Open wheat plain: few gentle rises, heavily smoothed.
+        hillCount = rng.RandomRange(1, 4);
+        rollingHillCount = rng.RandomRange(1, 3);
+        smoothPasses = 4;
+        maxPeakHeight = 3.6f;
+    }
+    else if (rocky)
+    {
+        // Mining country: denser, steeper relief and more stone later.
+        hillCount = rng.RandomRange(18, 28);
+        rollingHillCount = rng.RandomRange(6, 11);
+        smoothPasses = 1;
+        maxPeakHeight = 8.2f;
+    }
+    else if (woodland)
+    {
+        // Rolling forested country — moderate hills, trees added at decorate time.
+        hillCount = rng.RandomRange(8, 14);
+        rollingHillCount = rng.RandomRange(3, 7);
+        smoothPasses = 2;
+        maxPeakHeight = 6.5f;
+    }
+
     for (int i = 0; i < hillCount; ++i)
     {
         AddSmoothHill(heightfield, rng, false);
     }
 
-    const int rollingHillCount = rng.RandomRange(3, 6);
     for (int i = 0; i < rollingHillCount; ++i)
     {
         AddSmoothHill(heightfield, rng, true);
     }
 
-    SmoothHeightfield(heightfield, 2);
+    if (rocky)
+    {
+        AmplifyRockyTerrain(heightfield, rng);
+    }
+
+    SmoothHeightfield(heightfield, smoothPasses);
+
+    if (farmland)
+    {
+        FlattenForFarmland(heightfield);
+        SmoothHeightfield(heightfield, 2);
+    }
 
     ApplyBattlefieldBorderConstraints(heightfield);
 
-    const int lowlandFeatureCount = rng.RandomRange(1, 3);
-    for (int i = 0; i < lowlandFeatureCount; ++i)
+    // Every combat map has at least a 50% chance of water and/or marsh lowlands.
+    if (rng.Random(2) == 0)
     {
-        if (rng.Random(5) == 0)
+        const int lowlandFeatureCount = rng.RandomRange(1, 3);
+        for (int i = 0; i < lowlandFeatureCount; ++i)
         {
-            continue;
+            AddLowlandFeature(heightfield, rng);
         }
-
-        AddLowlandFeature(heightfield, rng);
     }
 
     float highestHeight = kBattlefieldBaseHeight;
@@ -1108,9 +1256,9 @@ void GameDatabase::GenerateRegionHeightfield(RegionData& region)
         }
     }
 
-    if (highestHeight > kMaxTerrainPeakHeight)
+    if (highestHeight > maxPeakHeight)
     {
-        const float scalar = kMaxTerrainPeakHeight / highestHeight;
+        const float scalar = maxPeakHeight / highestHeight;
         for (int x = 0; x < REGION_VERTICES; ++x)
         {
             for (int y = 0; y < REGION_VERTICES; ++y)
@@ -1122,7 +1270,7 @@ void GameDatabase::GenerateRegionHeightfield(RegionData& region)
         }
     }
 
-    ClassifyTerrainFromHeights(heightfield);
+    ClassifyTerrainFromHeights(heightfield, resource);
     RemoveBisectingWater(heightfield);
     heightfield.m_Generated = true;
 }
@@ -1236,6 +1384,7 @@ bool GameDatabase::SaveCampaign(const std::string& path) const
         IO::Serialize(stream, region.m_OwnerId);
         IO::Serialize(stream, region.m_Income);
         IO::Serialize(stream, region.m_HasCastle);
+        IO::Serialize(stream, region.m_Resource);
         IO::Serialize(stream, region.m_HeightfieldSeed);
         SerializeHeightfield(stream, region.m_Heightfield);
     }
@@ -1340,6 +1489,7 @@ bool GameDatabase::LoadCampaign(const std::string& path)
         IO::Serialize(stream, region.m_OwnerId);
         IO::Serialize(stream, region.m_Income);
         IO::Serialize(stream, region.m_HasCastle);
+        IO::Serialize(stream, region.m_Resource);
         IO::Serialize(stream, region.m_HeightfieldSeed);
         SerializeHeightfield(stream, region.m_Heightfield);
     }

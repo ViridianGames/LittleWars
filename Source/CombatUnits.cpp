@@ -152,12 +152,12 @@ namespace
 
     float FacingAngleFromVector(float dx, float dz)
     {
-        return NormalizeAngleRadians(std::atan2f(dx, dz));
+        return NormalizeAngleRadians(std::atan2(dx, dz));
     }
 
     LittlePeopleDirection VisualFacingFromAngle(float facingAngle)
     {
-        return LittlePeopleDirectionFromVector(std::sinf(facingAngle), std::cosf(facingAngle));
+        return LittlePeopleDirectionFromVector(std::sin(facingAngle), std::cos(facingAngle));
     }
 
     float ClampWorldCoord(float value)
@@ -272,8 +272,8 @@ namespace
         }
 
         const float moveDist = std::sqrt(moveDistSq);
-        const float forwardX = std::sinf(unit.m_FacingAngle);
-        const float forwardZ = std::cosf(unit.m_FacingAngle);
+        const float forwardX = std::sin(unit.m_FacingAngle);
+        const float forwardZ = std::cos(unit.m_FacingAngle);
         const float dot = (moveDx * forwardX + moveDz * forwardZ) / moveDist;
 
         if (dot < -0.15f)
@@ -359,8 +359,8 @@ namespace
         }
 
         const float moveDist = std::sqrt(moveDistSq);
-        const float forwardX = std::sinf(unit.m_FacingAngle);
-        const float forwardZ = std::cosf(unit.m_FacingAngle);
+        const float forwardX = std::sin(unit.m_FacingAngle);
+        const float forwardZ = std::cos(unit.m_FacingAngle);
         const float dot = (moveDx * forwardX + moveDz * forwardZ) / moveDist;
         if (dot >= -0.15f)
         {
@@ -820,7 +820,7 @@ namespace
             (aimPosition.x - startPosition.x) * (aimPosition.x - startPosition.x)
             + (aimPosition.z - startPosition.z) * (aimPosition.z - startPosition.z));
         const float arcHeight = kArcherArcBase + horizontalDistance * kArcherArcPerDistance;
-        position.y += std::sinf(t * kPi) * arcHeight;
+        position.y += std::sin(t * kPi) * arcHeight;
         return position;
     }
 
@@ -2011,8 +2011,8 @@ Vector2 GetCombatUnitFormationOffset(CombatUnitType type, int row, int column)
 
 Vector3 TransformCombatFormationOffset(float facingAngleRadians, float localX, float localZ)
 {
-    const float cosAngle = std::cosf(facingAngleRadians);
-    const float sinAngle = std::sinf(facingAngleRadians);
+    const float cosAngle = std::cos(facingAngleRadians);
+    const float sinAngle = std::sin(facingAngleRadians);
     return Vector3{
         localX * cosAngle + localZ * sinAngle,
         0.0f,

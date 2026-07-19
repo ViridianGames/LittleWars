@@ -27,6 +27,14 @@ struct CombatEnvironment
 extern CombatEnvironment g_CombatEnvironment;
 
 void GenerateCombatTrees(const RegionHeightfield& heightfield, unsigned int seed, int treeCount = 28);
+
+// Campaign/region view: trees only (count biased by county resource). No sample castle.
+void InitializeRegionCombatEnvironment(
+    const RegionHeightfield& heightfield,
+    unsigned int seed,
+    unsigned char resourceType);
+
+// Title-screen combat sandbox: trees + sample castle pieces.
 void InitializeDemoCombatEnvironment(const RegionHeightfield& heightfield, unsigned int seed);
 
 bool SegmentIntersectsCombatTree(

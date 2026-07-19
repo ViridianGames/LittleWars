@@ -7,6 +7,7 @@
 #include "CombatUnits.h"
 #include "GameGlobals.h"
 #include "LittlePeopleSprites.h"
+#include "OverworldMap.h"
 
 #include <vector>
 #include "RegionMinimap.h"
@@ -95,6 +96,38 @@ void CombatState::InitializeDemoUnits()
     }
 }
 
+namespace
+{
+    bool IsCampaignCombatVisit()
+    {
+        return g_OverworldMap.IsGenerated() && !g_GameDatabase.m_Players.empty();
+    }
+
+    void SetupCombatSceneForActiveRegion(std::vector<CombatUnitInstance>& units, bool spawnDemoContent)
+    {
+        units.clear();
+
+        RegionData* region = g_GameDatabase.GetActiveRegion();
+        if (!region || !region->m_Heightfield.m_Generated)
+        {
+            g_CombatEnvironment.Clear();
+            return;
+        }
+
+        if (spawnDemoContent)
+        {
+            InitializeDemoCombatEnvironment(region->m_Heightfield, region->m_HeightfieldSeed);
+        }
+        else
+        {
+            InitializeRegionCombatEnvironment(
+                region->m_Heightfield,
+                region->m_HeightfieldSeed,
+                region->m_Resource);
+        }
+    }
+}
+
 void CombatState::OnEnter()
 {
     if (g_GameDatabase.m_Regions.empty())
@@ -108,17 +141,22 @@ void CombatState::OnEnter()
         g_GameDatabase.EnsureRegionHeightfield(g_GameDatabase.m_ActiveRegionId);
     }
 
-    RegionData* region = g_GameDatabase.GetActiveRegion();
-    if (region && region->m_Heightfield.m_Generated)
-    {
-        InitializeDemoCombatEnvironment(region->m_Heightfield, region->m_HeightfieldSeed);
-    }
-    else
-    {
-        g_CombatEnvironment.Clear();
-    }
+    const bool campaignVisit = IsCampaignCombatVisit();
+    SetupCombatSceneForActiveRegion(m_Units, !campaignVisit);
 
-    InitializeDemoUnits();
+    m_SelectedUnitIndex = -1;
+    m_HasMoveTarget = false;
+    m_HasHoverTarget = false;
+    m_GestureUnitIndex = -1;
+    m_IsGestureHold = false;
+    m_PendingQuickClick = false;
+    m_HasGestureFacingTarget = false;
+    m_Projectiles.clear();
+
+    if (!campaignVisit)
+    {
+        InitializeDemoUnits();
+    }
 }
 
 void CombatState::OnExit()
@@ -313,14 +351,30 @@ void CombatState::Update()
         if (RegionData* region = g_GameDatabase.GetActiveRegion())
         {
             g_GameDatabase.RegenerateRegionHeightfield(region->m_Id);
+            const bool campaignVisit = IsCampaignCombatVisit();
+            SetupCombatSceneForActiveRegion(m_Units, !campaignVisit);
+            if (!campaignVisit)
+            {
+                InitializeDemoUnits();
+            }
+            m_SelectedUnitIndex = -1;
             m_HasMoveTarget = false;
             m_HasHoverTarget = false;
+            m_Projectiles.clear();
         }
     }
 
     if (IsKeyPressed(KEY_ESCAPE))
     {
-        g_StateMachine->MakeStateTransition(STATE_TITLESTATE);
+        // Return to the campaign map when one is loaded; otherwise fall back to the title screen.
+        if (IsCampaignCombatVisit())
+        {
+            g_StateMachine->MakeStateTransition(STATE_MAINSTATE);
+        }
+        else
+        {
+            g_StateMachine->MakeStateTransition(STATE_TITLESTATE);
+        }
     }
 }
 
@@ -431,6 +485,28 @@ void CombatState::Draw()
         m_SelectedUnitIndex);
 
     float panelY = GetRegionSidePanelTextBounds().y;
+    if (IsCampaignCombatVisit())
+    {
+        panelY = DrawRegionSidePanelOutlinedParagraph("County Map", panelY, g_fontDrawSize, WHITE);
+        panelY += 2.0f;
+        panelY = DrawRegionSidePanelOutlinedParagraph(
+            "Inspect terrain only. WASD: pan. Wheel: zoom. Minimap: go. Esc: map. R: regen.",
+            panelY, g_smallFontDrawSize, Color{ 180, 185, 195, 255 });
+        panelY += 4.0f;
+        if (RegionData* activeRegion = g_GameDatabase.GetActiveRegion())
+        {
+            panelY = DrawRegionSidePanelOutlinedLine(
+                string("County ") + to_string(activeRegion->m_Id),
+                panelY,
+                Color{ 255, 230, 90, 255 });
+            panelY = DrawRegionSidePanelOutlinedLine(
+                string("Resource: ") + CountyResourceName(static_cast<CountyResource>(activeRegion->m_Resource)),
+                panelY,
+                Color{ 210, 210, 210, 255 });
+        }
+        return;
+    }
+
     panelY = DrawRegionSidePanelOutlinedParagraph("Combat", panelY, g_fontDrawSize, WHITE);
     panelY += 2.0f;
     panelY = DrawRegionSidePanelOutlinedParagraph("Red units only. Click markers to select or attack.", panelY,

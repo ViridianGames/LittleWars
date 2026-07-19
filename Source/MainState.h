@@ -37,6 +37,11 @@ private:
     Rectangle GetTaskRowRect(int panelX, int panelY, int taskIndex) const;
     int GetTaskPanelHeight() const;
     bool IsMouseOverTaskRow(int panelX, int panelY, int taskIndex) const;
+    Rectangle GetVisitButtonRect(int panelX, int panelY, int panelWidth) const;
+    void DrawVisitButton(int panelX, int panelY, int panelWidth) const;
+    void HandleVisitButton(int panelX, int panelY, int panelWidth);
+    bool IsMouseOverVisitButton(int panelX, int panelY, int panelWidth) const;
+    bool CanVisitSelectedRegion() const;
 
     int m_SelectedRegionId = -1;
     int m_HoveredResourceBarSlot = -1;

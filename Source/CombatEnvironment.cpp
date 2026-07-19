@@ -2,6 +2,7 @@
 
 #include "../Geist/Source/RNG.h"
 #include "GameGlobals.h"
+#include "OverworldMap.h"
 #include "raymath.h"
 
 #include <algorithm>
@@ -172,10 +173,41 @@ void GenerateCombatTrees(const RegionHeightfield& heightfield, unsigned int seed
     }
 }
 
+void InitializeRegionCombatEnvironment(
+    const RegionHeightfield& heightfield,
+    unsigned int seed,
+    unsigned char resourceType)
+{
+    g_CombatEnvironment.Clear();
+
+    RNG rng;
+    rng.SeedRNG(seed != 0 ? seed ^ 0xA5A5u : 1u);
+
+    int treeCount = 20;
+    switch (static_cast<CountyResource>(resourceType))
+    {
+    case CountyResource::Wood:
+        treeCount = rng.RandomRange(55, 85);
+        break;
+    case CountyResource::Food:
+        treeCount = rng.RandomRange(3, 10);
+        break;
+    case CountyResource::Iron:
+    case CountyResource::Gold:
+        treeCount = rng.RandomRange(6, 14);
+        break;
+    default:
+        treeCount = rng.RandomRange(16, 28);
+        break;
+    }
+
+    GenerateCombatTrees(heightfield, seed, treeCount);
+}
+
 void InitializeDemoCombatEnvironment(const RegionHeightfield& heightfield, unsigned int seed)
 {
     g_CombatEnvironment.Clear();
-    GenerateCombatTrees(heightfield, seed);
+    GenerateCombatTrees(heightfield, seed, 28);
 
     g_CombatEnvironment.m_CastleParts = {
         CastlePartPlacement{ CastlePartType::TallWall, Vector3{ 64.0f, 0.0f, 64.0f }, 0 },

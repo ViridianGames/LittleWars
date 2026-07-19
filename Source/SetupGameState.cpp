@@ -116,7 +116,8 @@ void SetupGameState::StartCampaign()
     InitializeCampaignPlayers(g_GameDatabase.m_Players, playerCount);
     SyncPlayersFromOverworld(g_OverworldMap, g_GameDatabase.m_Players, true);
     g_GameDatabase.m_Turn = 0;
-    g_GameDatabase.m_ActiveRegionId = -1;
+    g_GameDatabase.BuildRegionsFromOverworld(g_OverworldMap);
+    g_GameDatabase.GenerateAllRegionHeightfields();
 
     g_StateMachine->MakeStateTransition(STATE_MAINSTATE);
 }

@@ -1,40 +1,46 @@
- 07/10/26 04:41:57.534 Starting Engine::Init()
- 07/10/26 04:41:57.535 Starting StateMachine::Init
- 07/10/26 04:41:57.535 Leaving StateMachine::Init
- 07/10/26 04:41:57.536 Starting InputSystem::Init()
- 07/10/26 04:41:57.536 Done With InputSystem::Init()
- 07/10/26 04:41:57.952 Done with Engine::Init()
- 07/10/26 04:41:57.954 CampaignSetupScreenConfig::LoadFromFile - loaded Data/campaign_setup.json
- 07/10/26 04:41:57.956 PlayerTasksConfig::LoadFromFile - loaded Data/player_tasks.json
- 07/10/26 04:41:57.956 Loading texture Images/terrain.png
- 07/10/26 04:41:57.957 Texture ID: 7, Width: 64, Height: 64
- 07/10/26 04:41:57.957 Load successful.
- 07/10/26 04:41:57.957 Loading texture Images/littlepeople.png
- 07/10/26 04:41:57.957 Texture ID: 8, Width: 196, Height: 176
- 07/10/26 04:41:57.957 Load successful.
- 07/10/26 04:41:57.957 Loading texture Images/swordsmen.png
- 07/10/26 04:41:57.958 Texture ID: 9, Width: 66, Height: 224
- 07/10/26 04:41:57.958 Load successful.
- 07/10/26 04:41:57.958 Loading texture Images/swordsmenmask.png
- 07/10/26 04:41:57.958 Texture ID: 10, Width: 66, Height: 224
- 07/10/26 04:41:57.958 Load successful.
- 07/10/26 04:41:57.958 Loading texture Images/archers.png
- 07/10/26 04:41:57.958 Texture ID: 11, Width: 90, Height: 240
- 07/10/26 04:41:57.958 Load successful.
- 07/10/26 04:41:57.958 Loading texture Images/archermask.png
- 07/10/26 04:41:57.959 Texture ID: 12, Width: 90, Height: 240
- 07/10/26 04:41:57.959 Load successful.
- 07/10/26 04:41:57.962 Loading texture Images/tiles256.png
- 07/10/26 04:41:57.963 Texture ID: 13, Width: 112, Height: 832
- 07/10/26 04:41:57.963 Load successful.
- 07/10/26 04:41:57.963 Loading texture Images/title_near_final_480x270.png
- 07/10/26 04:41:57.966 Texture ID: 14, Width: 480, Height: 270
- 07/10/26 04:41:57.966 Load successful.
- 07/10/26 04:41:57.966 Created state TitleState with ID 0
- 07/10/26 04:41:57.966 Created state SetupGameState with ID 5
- 07/10/26 04:41:57.966 Created state CastleDesignState with ID 4
- 07/10/26 04:41:57.966 Created state MainState with ID 1
- 07/10/26 04:41:57.966 Created state CombatState with ID 3
- 07/10/26 04:41:57.966 Created state OptionsState with ID 2
- 07/10/26 04:41:57.966 StateMachine: Transitioning to state TitleState, ID 0
- 07/10/26 04:42:01.476 StateMachine: Transitioning to state CombatState, ID 3
+ Sat Jul 18 12:06:01 2026.712 Starting Engine::Init()
+ Sat Jul 18 12:06:01 2026.712 Starting StateMachine::Init
+ Sat Jul 18 12:06:01 2026.712 Leaving StateMachine::Init
+ Sat Jul 18 12:06:01 2026.712 Starting InputSystem::Init()
+ Sat Jul 18 12:06:01 2026.712 Done With InputSystem::Init()
+ Sat Jul 18 12:06:01 2026.782 Done with Engine::Init()
+ Sat Jul 18 12:06:01 2026.782 CampaignSetupScreenConfig::LoadFromFile - loaded Data/campaign_setup.json
+ Sat Jul 18 12:06:01 2026.782 PlayerTasksConfig::LoadFromFile - loaded Data/player_tasks.json
+ Sat Jul 18 12:06:01 2026.782 Loading texture Images/terrain.png
+ Sat Jul 18 12:06:01 2026.783 Texture ID: 7, Width: 64, Height: 64
+ Sat Jul 18 12:06:01 2026.783 Load successful.
+ Sat Jul 18 12:06:01 2026.783 Loading texture Images/littlepeople.png
+ Sat Jul 18 12:06:01 2026.783 Texture ID: 8, Width: 196, Height: 176
+ Sat Jul 18 12:06:01 2026.783 Load successful.
+ Sat Jul 18 12:06:01 2026.783 Loading texture Images/swordsmen.png
+ Sat Jul 18 12:06:01 2026.783 Texture ID: 9, Width: 66, Height: 224
+ Sat Jul 18 12:06:01 2026.783 Load successful.
+ Sat Jul 18 12:06:01 2026.783 Loading texture Images/swordsmenmask.png
+ Sat Jul 18 12:06:01 2026.783 Texture ID: 10, Width: 66, Height: 224
+ Sat Jul 18 12:06:01 2026.783 Load successful.
+ Sat Jul 18 12:06:01 2026.783 Loading texture Images/archers.png
+ Sat Jul 18 12:06:01 2026.783 Texture ID: 11, Width: 90, Height: 240
+ Sat Jul 18 12:06:01 2026.783 Load successful.
+ Sat Jul 18 12:06:01 2026.783 Loading texture Images/archermask.png
+ Sat Jul 18 12:06:01 2026.783 Texture ID: 12, Width: 90, Height: 240
+ Sat Jul 18 12:06:01 2026.783 Load successful.
+ Sat Jul 18 12:06:01 2026.783 Loading texture Images/tiles256.png
+ Sat Jul 18 12:06:01 2026.784 Texture ID: 13, Width: 112, Height: 832
+ Sat Jul 18 12:06:01 2026.784 Load successful.
+ Sat Jul 18 12:06:01 2026.784 Loading texture Images/title_near_final_480x270.png
+ Sat Jul 18 12:06:01 2026.786 Texture ID: 14, Width: 480, Height: 270
+ Sat Jul 18 12:06:01 2026.786 Load successful.
+ Sat Jul 18 12:06:01 2026.786 Created state TitleState with ID 0
+ Sat Jul 18 12:06:01 2026.786 Created state SetupGameState with ID 5
+ Sat Jul 18 12:06:01 2026.786 Created state CastleDesignState with ID 4
+ Sat Jul 18 12:06:01 2026.786 Created state MainState with ID 1
+ Sat Jul 18 12:06:01 2026.786 Created state CombatState with ID 3
+ Sat Jul 18 12:06:01 2026.786 Created state OptionsState with ID 2
+ Sat Jul 18 12:06:01 2026.786 StateMachine: Transitioning to state TitleState, ID 0
+ Sat Jul 18 12:06:11 2026.510 StateMachine: Transitioning to state SetupGameState, ID 5
+ Sat Jul 18 12:06:16 2026.574 StateMachine: Transitioning to state MainState, ID 1
+ Sat Jul 18 12:06:20 2026.926 StateMachine: Transitioning to state CombatState, ID 3
+ Sat Jul 18 12:06:33 2026.918 StateMachine: Transitioning to state MainState, ID 1
+ Sat Jul 18 12:06:34 2026.752 StateMachine: Transitioning to state TitleState, ID 0
+ Sat Jul 18 12:06:38 2026.018 StateMachine: Transitioning to state CastleDesignState, ID 4
+ Sat Jul 18 12:07:00 2026.327 StateMachine: Transitioning to state TitleState, ID 0

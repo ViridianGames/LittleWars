@@ -36,8 +36,8 @@ void RegionView::SetLookAtPosition(float x, float z)
 
 void RegionView::SyncCamera()
 {
-    const float offsetX = std::sinf(m_Angle) * m_Zoom;
-    const float offsetZ = std::cosf(m_Angle) * m_Zoom;
+    const float offsetX = std::sin(m_Angle) * m_Zoom;
+    const float offsetZ = std::cos(m_Angle) * m_Zoom;
     const float cameraHeight = m_Zoom * 0.65f;
 
     m_Camera.position = Vector3{
@@ -89,10 +89,10 @@ void RegionView::Update(const RegionHeightfield* heightfield)
     }
 
     // Screen-space pan on the XZ plane: right/forward derived from camera orbit angle.
-    const float screenRightX = std::cosf(m_Angle);
-    const float screenRightZ = -std::sinf(m_Angle);
-    const float screenForwardX = -std::sinf(m_Angle);
-    const float screenForwardZ = -std::cosf(m_Angle);
+    const float screenRightX = std::cos(m_Angle);
+    const float screenRightZ = -std::sin(m_Angle);
+    const float screenForwardX = -std::sin(m_Angle);
+    const float screenForwardZ = -std::cos(m_Angle);
     const float panSpeed = panTopSpeed * frameScale * 1.1f * (m_Zoom / minZoom);
 
     float panX = 0.0f;

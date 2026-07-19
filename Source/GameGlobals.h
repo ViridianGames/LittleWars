@@ -158,6 +158,8 @@ struct RegionData
     int m_OwnerId = -1;
     int m_Income = 0;
     bool m_HasCastle = false;
+    // Matches CountyResource (Food/Gold/Iron/Wood) from the overworld county.
+    unsigned char m_Resource = 0;
     unsigned int m_HeightfieldSeed = 0;
     RegionHeightfield m_Heightfield;
 };
@@ -166,7 +168,7 @@ class GameDatabase
 {
 public:
     static constexpr const char* SAVE_MAGIC = "LWAR";
-    static constexpr int SAVE_VERSION = 8;
+    static constexpr int SAVE_VERSION = 9;
 
     CampaignSetup m_Setup;
     int m_Turn = 0;
@@ -176,6 +178,8 @@ public:
 
     void Clear();
     void InitNewCampaign(const CampaignSetup& setup);
+    void BuildRegionsFromOverworld(const class OverworldMap& map);
+    void GenerateAllRegionHeightfields();
     void SyncPlayersFromOverworld(const class OverworldMap& map, bool resetAssets);
     void AdvanceTurn(class OverworldMap& map);
 

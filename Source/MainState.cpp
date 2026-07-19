@@ -19,13 +19,15 @@ namespace
     constexpr int kResourceBarHeight = 12;
     constexpr int kResourceBarY = 4;
     constexpr int kMapDrawY = kResourceBarY + kResourceBarHeight + 1;
-    constexpr int kCountyInfoHeight = 64;
+    constexpr int kCountyInfoHeight = 78;
     constexpr int kPlayerBoxHeight = 40;
     constexpr int kPlayerBoxGap = 2;
     constexpr int kPlayerColumnGap = 2;
     constexpr int kPlayerColumns = 2;
     constexpr int kNextTurnButtonWidth = 96;
     constexpr int kNextTurnButtonHeight = 22;
+    constexpr int kVisitButtonWidth = 48;
+    constexpr int kVisitButtonHeight = 14;
     constexpr int kPanelMargin = 4;
     constexpr bool kShowPlayerStatusBoxes = false;
     constexpr bool kShowAccessibilityGrid = true;
@@ -114,6 +116,7 @@ void MainState::OnEnter()
         if (seed == 0)
         {
             seed = static_cast<unsigned int>(GetTime() * 1000.0);
+            g_GameDatabase.m_Setup.m_Seed = seed;
         }
 
         g_OverworldMap.Generate(seed, g_GameDatabase.m_Setup);
@@ -126,6 +129,12 @@ void MainState::OnEnter()
     }
 
     g_GameDatabase.SyncPlayersFromOverworld(g_OverworldMap, false);
+
+    if (g_GameDatabase.m_Regions.empty() && g_OverworldMap.IsGenerated())
+    {
+        g_GameDatabase.BuildRegionsFromOverworld(g_OverworldMap);
+        g_GameDatabase.GenerateAllRegionHeightfields();
+    }
 }
 
 void MainState::OnExit()
@@ -399,6 +408,85 @@ void MainState::DrawCountyInfo(int panelX, int panelY, int panelWidth) const
         g_smallFontDrawSize, 1, WHITE);
     DrawOutlinedText(g_smallFont, outputText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 52) },
         g_smallFontDrawSize, 1, Color{ 180, 220, 180, 255 });
+
+    DrawVisitButton(panelX, panelY, panelWidth);
+}
+
+bool MainState::CanVisitSelectedRegion() const
+{
+    if (m_SelectedRegionId < 0)
+    {
+        return false;
+    }
+
+    const OverworldRegionData* region = g_OverworldMap.GetRegion(m_SelectedRegionId);
+    return region && !region->m_IsWater;
+}
+
+Rectangle MainState::GetVisitButtonRect(int panelX, int panelY, int panelWidth) const
+{
+    return Rectangle{
+        static_cast<float>(panelX + panelWidth - kVisitButtonWidth - 4),
+        static_cast<float>(panelY + kCountyInfoHeight - kVisitButtonHeight - 4),
+        static_cast<float>(kVisitButtonWidth),
+        static_cast<float>(kVisitButtonHeight)
+    };
+}
+
+bool MainState::IsMouseOverVisitButton(int panelX, int panelY, int panelWidth) const
+{
+    if (!CanVisitSelectedRegion())
+    {
+        return false;
+    }
+
+    return CheckCollisionPointRec(GetScaledMousePosition(), GetVisitButtonRect(panelX, panelY, panelWidth));
+}
+
+void MainState::DrawVisitButton(int panelX, int panelY, int panelWidth) const
+{
+    if (!CanVisitSelectedRegion())
+    {
+        return;
+    }
+
+    const Rectangle buttonRect = GetVisitButtonRect(panelX, panelY, panelWidth);
+    const bool hovered = IsMouseOverVisitButton(panelX, panelY, panelWidth);
+    const Color fill = hovered ? Color{ 70, 110, 70, 255 } : Color{ 50, 80, 50, 255 };
+    const Color border = hovered ? Color{ 160, 220, 160, 255 } : Color{ 110, 160, 110, 255 };
+
+    DrawRectangleRec(buttonRect, fill);
+    DrawRectangleLinesEx(buttonRect, 1.0f, border);
+
+    const string label = "Visit";
+    const Vector2 textSize = MeasureTextEx(*g_smallFont, label.c_str(), g_smallFontDrawSize, 1.0f);
+    DrawOutlinedText(
+        g_smallFont,
+        label,
+        Vector2{
+            buttonRect.x + (buttonRect.width - textSize.x) * 0.5f,
+            buttonRect.y + (buttonRect.height - textSize.y) * 0.5f
+        },
+        g_smallFontDrawSize,
+        1,
+        WHITE);
+}
+
+void MainState::HandleVisitButton(int panelX, int panelY, int panelWidth)
+{
+    if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    {
+        return;
+    }
+
+    if (!IsMouseOverVisitButton(panelX, panelY, panelWidth))
+    {
+        return;
+    }
+
+    g_GameDatabase.SetActiveRegion(m_SelectedRegionId);
+    g_GameDatabase.EnsureRegionHeightfield(m_SelectedRegionId);
+    g_StateMachine->MakeStateTransition(STATE_COMBATSTATE);
 }
 
 bool MainState::IsMouseOverNextTurnButton() const
@@ -679,9 +767,12 @@ void MainState::Update()
     if (IsKeyPressed(KEY_R))
     {
         unsigned int seed = static_cast<unsigned int>(GetTime() * 1000.0);
+        g_GameDatabase.m_Setup.m_Seed = seed;
         g_OverworldMap.Generate(seed, g_GameDatabase.m_Setup);
         m_SelectedRegionId = -1;
         g_GameDatabase.SyncPlayersFromOverworld(g_OverworldMap, true);
+        g_GameDatabase.BuildRegionsFromOverworld(g_OverworldMap);
+        g_GameDatabase.GenerateAllRegionHeightfields();
     }
 
     const int mapRight = kMapDrawX + (OVERWORLD_MAP_SIZE * kMapPixelsPerCell);
@@ -694,7 +785,11 @@ void MainState::Update()
     HandleNextTurnButton();
     HandleResourceBarInput(kMapDrawX, mapPixelWidth);
     HandleTaskPanelInput(panelX, taskPanelY, panelWidth);
-    HandleMapSelection();
+    HandleVisitButton(panelX, kMapDrawY, panelWidth);
+    if (!IsMouseOverVisitButton(panelX, kMapDrawY, panelWidth))
+    {
+        HandleMapSelection();
+    }
 }
 
 void MainState::Draw()

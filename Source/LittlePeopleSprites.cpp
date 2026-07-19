@@ -202,7 +202,7 @@ LittlePeopleDirection LittlePeopleDirectionFromVector(float dx, float dz)
         return LittlePeopleDirection::South;
     }
 
-    float angle = std::atan2f(dx, dz);
+    float angle = std::atan2(dx, dz);
     if (angle < 0.0f)
     {
         angle += 6.28318530718f;
@@ -217,7 +217,7 @@ float LittlePeopleCameraYawFromTarget(const Camera3D& camera)
 {
     const float dx = camera.position.x - camera.target.x;
     const float dz = camera.position.z - camera.target.z;
-    return std::atan2f(dx, dz);
+    return std::atan2(dx, dz);
 }
 
 LittlePeopleDirection LittlePeopleDirectionForCamera(LittlePeopleDirection worldDirection, const Camera3D& camera)
