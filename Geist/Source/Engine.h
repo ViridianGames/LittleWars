@@ -44,7 +44,10 @@ public:
 	virtual void Draw();
 
 	void CaptureScreenshot();
-	float GetInputScale() const;
+	// Uniform scale from window pixels to virtual render pixels (height-based).
+float GetInputScale() const;
+// Separate scales for non-uniform stretch (DrawTexturePro to full window).
+Vector2 GetInputScaleXY() const;
 
 	Config m_EngineConfig;
 	bool m_Done;

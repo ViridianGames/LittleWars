@@ -82,6 +82,11 @@ namespace
     constexpr float kArcherLoftHeight = 0.58f;
     constexpr float kArcherArcBase = 1.25f;
     constexpr float kArcherArcPerDistance = 0.044f;
+    constexpr float kCatapultLoftHeight = 1.35f;
+    constexpr float kCatapultArcBase = 4.5f;
+    constexpr float kCatapultArcPerDistance = 0.085f;
+    constexpr float kCatapultKnockImpulse = 22.0f;
+    constexpr float kCatapultMinFireRange = 2.0f;
     constexpr float kFigureProjectileHitRadius = 0.42f;
     constexpr float kProjectileGroundClearance = 0.12f;
     constexpr int kProjectileGroundSamples = 6;
@@ -809,7 +814,8 @@ namespace
         const Vector3& startPosition,
         const Vector3& aimPosition,
         float elapsed,
-        float travelTime)
+        float travelTime,
+        bool isCatapultStone = false)
     {
         const float t = travelTime > 0.0f
             ? std::clamp(elapsed / travelTime, 0.0f, 1.0f)
@@ -819,7 +825,9 @@ namespace
         const float horizontalDistance = std::sqrt(
             (aimPosition.x - startPosition.x) * (aimPosition.x - startPosition.x)
             + (aimPosition.z - startPosition.z) * (aimPosition.z - startPosition.z));
-        const float arcHeight = kArcherArcBase + horizontalDistance * kArcherArcPerDistance;
+        const float arcBase = isCatapultStone ? kCatapultArcBase : kArcherArcBase;
+        const float arcPerDistance = isCatapultStone ? kCatapultArcPerDistance : kArcherArcPerDistance;
+        const float arcHeight = arcBase + horizontalDistance * arcPerDistance;
         position.y += std::sin(t * kPi) * arcHeight;
         return position;
     }
@@ -843,7 +851,20 @@ namespace
             projectile.m_StartPosition,
             projectile.m_AimPosition,
             projectile.m_Elapsed,
-            projectile.m_TravelTime);
+            projectile.m_TravelTime,
+            projectile.m_IsCatapultStone);
+    }
+
+    Vector3 GetCatapultProjectileLoftPosition(
+        const CombatUnitInstance& unit,
+        const RegionHeightfield& heightfield)
+    {
+        const float terrainY = heightfield.SampleHeight(unit.m_Anchor.x, unit.m_Anchor.z);
+        return Vector3{
+            unit.m_Anchor.x,
+            terrainY + kCatapultLoftHeight,
+            unit.m_Anchor.z
+        };
     }
 
     Vector3 ApplyArcherAimSpread(const Vector3& targetPosition, float distance, RNG& rng)
@@ -929,6 +950,7 @@ namespace
         Figure,
         Castle,
         Tree,
+        WallCube,
         Terrain
     };
 
@@ -969,19 +991,22 @@ namespace
         const Vector3& startPosition,
         const Vector3& aimPosition,
         float elapsed,
-        float travelTime)
+        float travelTime,
+        bool isCatapultStone = false)
     {
         const float sampleElapsed = std::max(0.0f, elapsed);
         const Vector3 currentPosition = ComputeProjectileArcPosition(
             startPosition,
             aimPosition,
             sampleElapsed,
-            travelTime);
+            travelTime,
+            isCatapultStone);
         const Vector3 nextPosition = ComputeProjectileArcPosition(
             startPosition,
             aimPosition,
             sampleElapsed + kProjectileVelocitySampleDt,
-            travelTime);
+            travelTime,
+            isCatapultStone);
 
         return Vector3Scale(
             Vector3Subtract(nextPosition, currentPosition),
@@ -1022,15 +1047,23 @@ namespace
             {
                 const CastlePartPlacement& placement =
                     environment.m_CastleParts[static_cast<size_t>(hit.m_ObstacleIndex)];
-                const float terrainY = heightfield.SampleHeight(placement.m_Position.x, placement.m_Position.z);
-                Vector3 size{};
-                GetCastlePartCollisionSize(placement.m_Type, size);
-                const Vector3 center{
-                    placement.m_Position.x,
-                    terrainY + size.y * 0.5f,
-                    placement.m_Position.z
-                };
+                const Vector3 center = GetCastlePartWorldCenter(placement, heightfield);
                 Vector3 normal = Vector3Subtract(hit.m_HitPosition, center);
+                const float normalLength = Vector3Length(normal);
+                if (normalLength > 1e-4f)
+                {
+                    return Vector3Scale(normal, 1.0f / normalLength);
+                }
+            }
+            break;
+
+        case ProjectileHitType::WallCube:
+            if (hit.m_ObstacleIndex >= 0
+                && hit.m_ObstacleIndex < static_cast<int>(environment.m_WallCubes.size()))
+            {
+                const CombatPhysicsCube& cube =
+                    environment.m_WallCubes[static_cast<size_t>(hit.m_ObstacleIndex)];
+                Vector3 normal = Vector3Subtract(hit.m_HitPosition, cube.m_Center);
                 const float normalLength = Vector3Length(normal);
                 if (normalLength > 1e-4f)
                 {
@@ -1171,6 +1204,16 @@ namespace
             }
         }
 
+        for (int cubeIndex = 0; cubeIndex < static_cast<int>(environment.m_WallCubes.size()); ++cubeIndex)
+        {
+            const CombatPhysicsCube& cube = environment.m_WallCubes[static_cast<size_t>(cubeIndex)];
+            float hitDistance = 0.0f;
+            if (SegmentIntersectsCombatWallCube(segmentStart, segmentEnd, cube, hitDistance))
+            {
+                considerHit(ProjectileHitType::WallCube, hitDistance, -1, -1, cubeIndex);
+            }
+        }
+
         for (int treeIndex = 0; treeIndex < static_cast<int>(environment.m_Trees.size()); ++treeIndex)
         {
             const CombatTreeObstacle& tree = environment.m_Trees[static_cast<size_t>(treeIndex)];
@@ -1198,7 +1241,71 @@ namespace
             return false;
         }
 
+        // Catapult stones transfer most of their energy into wall cubes and stop.
+        if (hit.m_Type == ProjectileHitType::WallCube && projectile.m_IsCatapultStone)
+        {
+            return false;
+        }
+
         return projectile.m_BounceCount < kProjectileMaxBounces;
+    }
+
+    void ApplyProjectileHitToWallCube(
+        CombatEnvironment& environment,
+        const ProjectileHitResult& hit,
+        const CombatProjectile& projectile)
+    {
+        if (hit.m_Type != ProjectileHitType::WallCube
+            || hit.m_ObstacleIndex < 0
+            || hit.m_ObstacleIndex >= static_cast<int>(environment.m_WallCubes.size()))
+        {
+            return;
+        }
+
+        CombatPhysicsCube& cube = environment.m_WallCubes[static_cast<size_t>(hit.m_ObstacleIndex)];
+        Vector3 impactVelocity = projectile.m_Velocity;
+        if (Vector3Length(impactVelocity) < 1e-3f)
+        {
+            impactVelocity = Vector3Subtract(projectile.m_Position, projectile.m_PreviousPosition);
+        }
+
+        const float speed = Vector3Length(impactVelocity);
+        if (speed <= 1e-4f)
+        {
+            return;
+        }
+
+        const Vector3 direction = Vector3Scale(impactVelocity, 1.0f / speed);
+        const float impulseScale = projectile.m_IsCatapultStone
+            ? (projectile.m_KnockImpulse > 0.0f ? projectile.m_KnockImpulse : kCatapultKnockImpulse)
+            : 2.5f;
+        const Vector3 impulse = Vector3Scale(direction, impulseScale * std::clamp(speed / 12.0f, 0.45f, 2.2f));
+        ApplyImpulseToCombatWallCube(cube, impulse, hit.m_HitPosition);
+
+        // Nudge nearby cubes so a solid wall can topple.
+        if (projectile.m_IsCatapultStone)
+        {
+            for (int cubeIndex = 0; cubeIndex < static_cast<int>(environment.m_WallCubes.size()); ++cubeIndex)
+            {
+                if (cubeIndex == hit.m_ObstacleIndex)
+                {
+                    continue;
+                }
+
+                CombatPhysicsCube& neighbor = environment.m_WallCubes[static_cast<size_t>(cubeIndex)];
+                const float dist = Vector3Distance(neighbor.m_Center, cube.m_Center);
+                if (dist > kWallCubeSize * 1.75f)
+                {
+                    continue;
+                }
+
+                const float falloff = 1.0f - (dist / (kWallCubeSize * 1.75f));
+                ApplyImpulseToCombatWallCube(
+                    neighbor,
+                    Vector3Scale(impulse, 0.35f * falloff),
+                    neighbor.m_Center);
+            }
+        }
     }
 
     void MaybeAssignCombatRetaliationTarget(CombatUnitInstance& victim, int attackerUnitIndex,
@@ -1303,6 +1410,7 @@ int GetCombatFigureAttackDamage(CombatUnitType type)
     case CombatUnitType::Knights:
         return 8;
     case CombatUnitType::Catapult:
+        return 14;
     default:
         return 0;
     }
@@ -1397,7 +1505,7 @@ bool IsCombatUnitPlayerControlled(const CombatUnitInstance& unit)
 
 bool CanCombatUnitAttack(const CombatUnitInstance& unit)
 {
-    return IsCombatUnitAlive(unit) && unit.m_Type != CombatUnitType::Catapult;
+    return IsCombatUnitAlive(unit);
 }
 
 bool AreCombatUnitsHostile(const CombatUnitInstance& a, const CombatUnitInstance& b)
@@ -1509,7 +1617,10 @@ void InitCombatUnitHealth(CombatUnitInstance& unit)
         figure.m_CurrentHP = hpPerFigure;
         figure.m_FormationRow = row;
         figure.m_FormationColumn = column;
-        figure.m_AttackCooldownRemaining = GetRandomValue(0, 500) / 1000.0f;
+        // Catapults start ready to fire so ground-click tests aren't blocked by random cooldown.
+        figure.m_AttackCooldownRemaining = (unit.m_Type == CombatUnitType::Catapult)
+            ? 0.0f
+            : GetRandomValue(0, 500) / 1000.0f;
         unit.m_Figures.push_back(figure);
     }
 
@@ -1753,6 +1864,29 @@ void UpdateCombatUnitsAttackOrders(std::vector<CombatUnitInstance>& units, const
 void UpdateCombatUnitsCombat(std::vector<CombatUnitInstance>& units, std::vector<CombatProjectile>& projectiles,
     const RegionHeightfield& heightfield, float deltaTime)
 {
+    // Always tick cooldowns, even when idle — ground-fire catapults depend on this.
+    for (CombatUnitInstance& unit : units)
+    {
+        if (!IsCombatUnitAlive(unit))
+        {
+            continue;
+        }
+
+        for (CombatFigure& figure : unit.m_Figures)
+        {
+            if (!IsCombatFigureAlive(figure) || figure.m_AttackCooldownRemaining <= 0.0f)
+            {
+                continue;
+            }
+
+            figure.m_AttackCooldownRemaining -= deltaTime;
+            if (figure.m_AttackCooldownRemaining < 0.0f)
+            {
+                figure.m_AttackCooldownRemaining = 0.0f;
+            }
+        }
+    }
+
     for (int attackerUnitIndex = 0; attackerUnitIndex < static_cast<int>(units.size()); ++attackerUnitIndex)
     {
         CombatUnitInstance& attacker = units[static_cast<size_t>(attackerUnitIndex)];
@@ -1780,15 +1914,6 @@ void UpdateCombatUnitsCombat(std::vector<CombatUnitInstance>& units, std::vector
             if (!IsCombatFigureAlive(attackerFigure))
             {
                 continue;
-            }
-
-            if (attackerFigure.m_AttackCooldownRemaining > 0.0f)
-            {
-                attackerFigure.m_AttackCooldownRemaining -= deltaTime;
-                if (attackerFigure.m_AttackCooldownRemaining < 0.0f)
-                {
-                    attackerFigure.m_AttackCooldownRemaining = 0.0f;
-                }
             }
 
             if (attackerFigure.m_AttackCooldownRemaining > 0.0f)
@@ -1846,6 +1971,31 @@ void UpdateCombatUnitsCombat(std::vector<CombatUnitInstance>& units, std::vector
                 projectile.m_Active = true;
                 projectiles.push_back(projectile);
             }
+            else if (attacker.m_Type == CombatUnitType::Catapult)
+            {
+                const Vector3 startPosition = GetCatapultProjectileLoftPosition(attacker, heightfield);
+                const Vector3 targetGround = GetCombatFigureWorldPosition(
+                    resolvedTargetUnit, targetFigure, heightfield);
+                const Vector3 aimPosition{
+                    targetGround.x,
+                    targetGround.y + 0.6f,
+                    targetGround.z
+                };
+
+                CombatProjectile projectile{};
+                projectile.m_StartPosition = startPosition;
+                projectile.m_AimPosition = aimPosition;
+                projectile.m_Position = startPosition;
+                projectile.m_PreviousPosition = startPosition;
+                projectile.m_TravelTime = 0.55f + hostileDistance * 0.028f;
+                projectile.m_Elapsed = 0.0f;
+                projectile.m_SourceUnitIndex = attackerUnitIndex;
+                projectile.m_Damage = damagePerFigure;
+                projectile.m_IsCatapultStone = true;
+                projectile.m_KnockImpulse = kCatapultKnockImpulse;
+                projectile.m_Active = true;
+                projectiles.push_back(projectile);
+            }
             else
             {
                 ApplyCombatFigureDamage(
@@ -1862,11 +2012,72 @@ void UpdateCombatUnitsCombat(std::vector<CombatUnitInstance>& units, std::vector
     }
 }
 
+bool TryFireCatapultAt(
+    CombatUnitInstance& unit,
+    int unitIndex,
+    Vector3 aimWorld,
+    std::vector<CombatProjectile>& projectiles,
+    const RegionHeightfield& heightfield)
+{
+    if (!IsCombatUnitAlive(unit) || unit.m_Type != CombatUnitType::Catapult || unit.m_Figures.empty())
+    {
+        return false;
+    }
+
+    CombatFigure& figure = unit.m_Figures[0];
+    if (!IsCombatFigureAlive(figure) || figure.m_AttackCooldownRemaining > 0.0f)
+    {
+        return false;
+    }
+
+    const Vector3 startPosition = GetCatapultProjectileLoftPosition(unit, heightfield);
+    const float dx = aimWorld.x - startPosition.x;
+    const float dz = aimWorld.z - startPosition.z;
+    const float planarDistance = std::sqrt(dx * dx + dz * dz);
+    if (planarDistance < kCatapultMinFireRange)
+    {
+        return false;
+    }
+
+    if (planarDistance > GetCombatUnitAttackRange(CombatUnitType::Catapult) * 1.05f)
+    {
+        return false;
+    }
+
+    FaceCombatUnitToward(unit, aimWorld);
+
+    const float terrainY = heightfield.SampleHeight(aimWorld.x, aimWorld.z);
+    const Vector3 aimPosition{
+        aimWorld.x,
+        std::max(aimWorld.y, terrainY) + 0.5f,
+        aimWorld.z
+    };
+
+    CombatProjectile projectile{};
+    projectile.m_StartPosition = startPosition;
+    projectile.m_AimPosition = aimPosition;
+    projectile.m_Position = startPosition;
+    projectile.m_PreviousPosition = startPosition;
+    projectile.m_TravelTime = 0.55f + planarDistance * 0.028f;
+    projectile.m_Elapsed = 0.0f;
+    projectile.m_SourceUnitIndex = unitIndex;
+    projectile.m_Damage = GetCombatFigureAttackDamage(CombatUnitType::Catapult);
+    projectile.m_IsCatapultStone = true;
+    projectile.m_KnockImpulse = kCatapultKnockImpulse;
+    projectile.m_Active = true;
+    projectiles.push_back(projectile);
+
+    figure.m_AttackCooldownRemaining = GetCombatUnitAttackCooldown(CombatUnitType::Catapult);
+    ClearCombatUnitAttackTarget(unit);
+    unit.m_IsMoving = false;
+    return true;
+}
+
 void UpdateCombatProjectiles(
     std::vector<CombatProjectile>& projectiles,
     std::vector<CombatUnitInstance>& units,
     const RegionHeightfield& heightfield,
-    const CombatEnvironment& environment,
+    CombatEnvironment& environment,
     float deltaTime)
 {
     for (CombatProjectile& projectile : projectiles)
@@ -1885,7 +2096,8 @@ void UpdateCombatProjectiles(
                 projectile.m_StartPosition,
                 projectile.m_AimPosition,
                 projectile.m_Elapsed,
-                projectile.m_TravelTime);
+                projectile.m_TravelTime,
+                projectile.m_IsCatapultStone);
 
             if (projectile.m_Elapsed >= projectile.m_TravelTime)
             {
@@ -1895,7 +2107,8 @@ void UpdateCombatProjectiles(
                         projectile.m_StartPosition,
                         projectile.m_AimPosition,
                         projectile.m_TravelTime,
-                        projectile.m_TravelTime));
+                        projectile.m_TravelTime,
+                        projectile.m_IsCatapultStone));
             }
         }
         else
@@ -1940,7 +2153,19 @@ void UpdateCombatProjectiles(
                         projectile.m_StartPosition,
                         projectile.m_AimPosition,
                         projectile.m_Elapsed,
-                        projectile.m_TravelTime));
+                        projectile.m_TravelTime,
+                        projectile.m_IsCatapultStone));
+            }
+
+            if (hit.m_Type == ProjectileHitType::WallCube)
+            {
+                ApplyProjectileHitToWallCube(environment, hit, projectile);
+                if (projectile.m_IsCatapultStone)
+                {
+                    // Heavy stone dumps its energy into the wall and drops.
+                    projectile.m_Active = false;
+                    continue;
+                }
             }
 
             if (ShouldProjectileBounceOffHit(hit, projectile))
@@ -2467,39 +2692,34 @@ Vector3 GetCombatFigureDrawPosition(const CombatUnitInstance& unit, const Combat
 Vector2 GetCombatScaledMousePosition()
 {
     Vector2 mouse = GetMousePosition();
-    const float inputScale = g_Engine->GetInputScale();
-    mouse.x /= inputScale;
-    mouse.y /= inputScale;
+    // Map window pixels → virtual render pixels using the same stretch as DrawTexturePro.
+    const Vector2 scale = g_Engine->GetInputScaleXY();
+    if (scale.x != 0.0f)
+    {
+        mouse.x /= scale.x;
+    }
+    if (scale.y != 0.0f)
+    {
+        mouse.y /= scale.y;
+    }
     return mouse;
 }
 
 Ray GetCombatMouseRay(const Camera3D& camera)
 {
+    // Unproject in full virtual-render pixel space so the ray matches BeginMode3D's
+    // projection (built from the full framebuffer / render-target aspect).
     const Vector2 mouse = GetCombatScaledMousePosition();
-    if (g_Engine->m_useVirtualResolution)
-    {
-        return GetScreenToWorldRayEx(
-            mouse,
-            camera,
-            GetRegionWorldViewWidth(),
-            GetRegionWorldViewHeight());
-    }
-
-    return GetScreenToWorldRay(mouse, camera);
+    const int width = g_Engine ? static_cast<int>(g_Engine->m_RenderWidth) : GetScreenWidth();
+    const int height = g_Engine ? static_cast<int>(g_Engine->m_RenderHeight) : GetScreenHeight();
+    return GetScreenToWorldRayEx(mouse, camera, width, height);
 }
 
 Vector2 GetCombatWorldToScreen(Vector3 worldPosition, const Camera3D& camera)
 {
-    if (g_Engine->m_useVirtualResolution)
-    {
-        return GetWorldToScreenEx(
-            worldPosition,
-            camera,
-            GetRegionWorldViewWidth(),
-            GetRegionWorldViewHeight());
-    }
-
-    return GetWorldToScreen(worldPosition, camera);
+    const int width = g_Engine ? static_cast<int>(g_Engine->m_RenderWidth) : GetScreenWidth();
+    const int height = g_Engine ? static_cast<int>(g_Engine->m_RenderHeight) : GetScreenHeight();
+    return GetWorldToScreenEx(worldPosition, camera, width, height);
 }
 
 bool RaycastCombatTerrain(const Ray& ray, const RegionHeightfield& heightfield, Vector3& outHit)
@@ -2620,6 +2840,7 @@ bool IsCombatUnitMoving(const CombatUnitInstance& unit)
 
 void FaceCombatUnitToward(CombatUnitInstance& unit, Vector3 worldTarget)
 {
+    // Facing only — never issues figure move targets (hold-to-face must not walk).
     const float dx = worldTarget.x - unit.m_Anchor.x;
     const float dz = worldTarget.z - unit.m_Anchor.z;
     if ((dx * dx + dz * dz) > 0.05f)
@@ -2636,8 +2857,16 @@ void FaceCombatUnitToward(CombatUnitInstance& unit, Vector3 worldTarget)
             continue;
         }
 
-        FaceCombatFigureToward(figure, worldTarget.x, worldTarget.z);
+        figure.m_FacingAngle = unit.m_FacingAngle;
+        figure.m_TargetFacingAngle = unit.m_FacingAngle;
+        // Cancel any in-progress walk so hold-to-face does not keep a prior move going.
+        figure.m_IsMoving = false;
+        figure.m_MoveTargetX = figure.m_WorldX;
+        figure.m_MoveTargetZ = figure.m_WorldZ;
     }
+
+    unit.m_IsMoving = false;
+    unit.m_HasPlayerMoveOrder = false;
 }
 
 void BeginCombatUnitMove(CombatUnitInstance& unit, Vector3 targetAnchor, bool clearAttackTarget)
@@ -2754,11 +2983,9 @@ void AppendCombatUnitBillboardDrawRequests(const Camera3D& camera, const RegionH
         return;
     }
 
-    Color tint = WHITE;
-    if (selected)
-    {
-        tint = Color{ 255, 255, 160, 255 };
-    }
+    // Keep sprite colors intact when selected — selection is shown via the ground ring.
+    (void)selected;
+    const Color tint = WHITE;
 
     const float spriteHeight = GetCombatUnitSpriteHeight(unit.m_Type);
     const double currentTime = GetTime();
@@ -2779,8 +3006,13 @@ void AppendCombatUnitBillboardDrawRequests(const Camera3D& camera, const RegionH
             continue;
         }
 
+        const int walkFrameCount = (unit.m_Type == CombatUnitType::Archers)
+            ? ARCHER_WALK_FRAMES
+            : (unit.m_Type == CombatUnitType::Swordsmen)
+                ? SWORDSMAN_WALK_FRAMES
+                : LITTLEPEOPLE_WALK_FRAMES;
         const int figureWalkFrame = figure.m_IsMoving
-            ? LittlePeopleWalkFrameFromTime(currentTime)
+            ? WalkFrameFromTime(currentTime, walkFrameCount)
             : 0;
         const Vector3 groundPosition = GetCombatFigureWorldPosition(unit, figure, heightfield);
         outRequests.push_back(LittlePersonBillboardDrawRequest{
@@ -2885,8 +3117,22 @@ void DrawCombatProjectiles(const std::vector<CombatProjectile>& projectiles)
             continue;
         }
 
-        DrawCube(projectile.m_Position, 0.22f, 0.22f, 0.45f, Color{ 120, 82, 48, 255 });
-        DrawCubeWires(projectile.m_Position, 0.22f, 0.22f, 0.45f, Color{ 60, 40, 24, 255 });
+        if (projectile.m_IsCatapultStone)
+        {
+            // Large gray rock — easy to see against grass / walls.
+            DrawSphere(projectile.m_Position, 0.55f, Color{ 110, 105, 98, 255 });
+            DrawSphereWires(projectile.m_Position, 0.55f, 10, 10, Color{ 35, 32, 28, 255 });
+            DrawSphere(
+                Vector3{ projectile.m_Position.x, projectile.m_Position.y + 0.08f, projectile.m_Position.z },
+                0.22f,
+                Color{ 150, 145, 135, 255 });
+        }
+        else
+        {
+            // Archer bolt: small brown elongated cube.
+            DrawCube(projectile.m_Position, 0.22f, 0.22f, 0.45f, Color{ 120, 82, 48, 255 });
+            DrawCubeWires(projectile.m_Position, 0.22f, 0.22f, 0.45f, Color{ 60, 40, 24, 255 });
+        }
     }
 }
 

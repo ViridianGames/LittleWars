@@ -1,5 +1,6 @@
 #include "Player.h"
 
+#include "CampaignAI.h"
 #include "OverworldMap.h"
 #include "PlayerTasksConfig.h"
 
@@ -100,7 +101,7 @@ std::string Player::GetRelationLabel(int otherPlayerId) const
     return std::string(PlayerOwnerName(otherPlayerId)) + ": " + DiplomaticRelationName(relation);
 }
 
-void InitializeCampaignPlayers(std::vector<Player>& players, int playerCount)
+void InitializeCampaignPlayers(std::vector<Player>& players, int playerCount, bool hasHumanPlayer)
 {
     playerCount = std::clamp(playerCount, 1, kMaxCampaignPlayers);
     players.clear();
@@ -110,7 +111,8 @@ void InitializeCampaignPlayers(std::vector<Player>& players, int playerCount)
     {
         Player& player = players[static_cast<size_t>(id)];
         player.m_Id = id;
-        player.m_IsHuman = (id == 0);
+        player.m_IsHuman = hasHumanPlayer && (id == 0);
+        player.m_AiPersonality = AiPersonality::Balanced;
         player.m_Relations.assign(static_cast<size_t>(playerCount), static_cast<int>(DiplomaticRelation::Neutral));
 
         for (int otherId = 0; otherId < playerCount; ++otherId)
@@ -289,10 +291,11 @@ void ComputePlayerTurnDelta(const OverworldMap& map, const Player& player, Resou
             continue;
         }
 
-        outDelta.m_Food -= task->m_Maintenance.m_Food;
-        outDelta.m_Iron -= task->m_Maintenance.m_Iron;
-        outDelta.m_Gold -= task->m_Maintenance.m_Gold;
-        outDelta.m_Wood -= task->m_Maintenance.m_Wood;
+        const int stacks = std::max(1, activeTaskEntry.second);
+        outDelta.m_Food -= task->m_Maintenance.m_Food * stacks;
+        outDelta.m_Iron -= task->m_Maintenance.m_Iron * stacks;
+        outDelta.m_Gold -= task->m_Maintenance.m_Gold * stacks;
+        outDelta.m_Wood -= task->m_Maintenance.m_Wood * stacks;
     }
 
     const PlayerTaskDefinition* buildCastleTask = g_PlayerTasksConfig.FindTaskById("buildCastle");

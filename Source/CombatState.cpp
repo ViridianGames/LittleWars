@@ -24,11 +24,8 @@ namespace
 
     Vector2 GetScaledMousePosition()
     {
-        Vector2 mouse = GetMousePosition();
-        const float inputScale = g_Engine->GetInputScale();
-        mouse.x /= inputScale;
-        mouse.y /= inputScale;
-        return mouse;
+        // Same mapping as combat raycast / virtual render stretch.
+        return GetCombatScaledMousePosition();
     }
 
     const char* LittlePeopleArmyName(LittlePeopleArmy army)
@@ -70,22 +67,26 @@ void CombatState::InitializeDemoUnits()
     m_Units.clear();
     m_SelectedUnitIndex = -1;
     m_HasMoveTarget = false;
+    m_MoveTargetIsAttack = false;
     m_HasHoverTarget = false;
     m_GestureUnitIndex = -1;
+    m_GestureStartedOnUnit = false;
     m_IsGestureHold = false;
     m_PendingQuickClick = false;
     m_HasGestureFacingTarget = false;
     m_Projectiles.clear();
 
+    // Red army faces north toward the demo wall (~z=64) for catapult demolition tests.
     const CombatUnitInstance demoUnits[] = {
         { 0, CombatUnitType::Swordsmen, Vector3{ 24.0f, 0.0f, 52.0f }, LittlePeopleArmy::White, LittlePeopleDirection::South },
         { 1, CombatUnitType::Swordsmen, Vector3{ 44.0f, 0.0f, 52.0f }, LittlePeopleArmy::Blue, LittlePeopleDirection::South },
-        { 2, CombatUnitType::Swordsmen, Vector3{ 64.0f, 0.0f, 52.0f }, LittlePeopleArmy::Red, LittlePeopleDirection::South },
+        { 2, CombatUnitType::Swordsmen, Vector3{ 58.0f, 0.0f, 40.0f }, LittlePeopleArmy::Red, LittlePeopleDirection::North },
         { 3, CombatUnitType::Swordsmen, Vector3{ 84.0f, 0.0f, 52.0f }, LittlePeopleArmy::Green, LittlePeopleDirection::South },
         { 4, CombatUnitType::Archers, Vector3{ 24.0f, 0.0f, 72.0f }, LittlePeopleArmy::White, LittlePeopleDirection::South },
         { 5, CombatUnitType::Archers, Vector3{ 44.0f, 0.0f, 72.0f }, LittlePeopleArmy::Blue, LittlePeopleDirection::South },
-        { 6, CombatUnitType::Archers, Vector3{ 64.0f, 0.0f, 72.0f }, LittlePeopleArmy::Red, LittlePeopleDirection::South },
+        { 6, CombatUnitType::Archers, Vector3{ 70.0f, 0.0f, 40.0f }, LittlePeopleArmy::Red, LittlePeopleDirection::North },
         { 7, CombatUnitType::Archers, Vector3{ 84.0f, 0.0f, 72.0f }, LittlePeopleArmy::Green, LittlePeopleDirection::South },
+        { 8, CombatUnitType::Catapult, Vector3{ 64.0f, 0.0f, 38.0f }, LittlePeopleArmy::Red, LittlePeopleDirection::North },
     };
 
     for (const CombatUnitInstance& unit : demoUnits)
@@ -146,8 +147,10 @@ void CombatState::OnEnter()
 
     m_SelectedUnitIndex = -1;
     m_HasMoveTarget = false;
+    m_MoveTargetIsAttack = false;
     m_HasHoverTarget = false;
     m_GestureUnitIndex = -1;
+    m_GestureStartedOnUnit = false;
     m_IsGestureHold = false;
     m_PendingQuickClick = false;
     m_HasGestureFacingTarget = false;
@@ -164,16 +167,37 @@ void CombatState::OnExit()
 
 }
 
+bool CombatState::HasSelectedPlayerUnit() const
+{
+    if (m_SelectedUnitIndex < 0 || m_SelectedUnitIndex >= static_cast<int>(m_Units.size()))
+    {
+        return false;
+    }
+
+    const CombatUnitInstance& unit = m_Units[static_cast<size_t>(m_SelectedUnitIndex)];
+    return IsCombatUnitPlayerControlled(unit) && IsCombatUnitAlive(unit);
+}
+
+CombatUnitInstance* CombatState::GetSelectedPlayerUnit()
+{
+    if (!HasSelectedPlayerUnit())
+    {
+        return nullptr;
+    }
+
+    return &m_Units[static_cast<size_t>(m_SelectedUnitIndex)];
+}
+
 void CombatState::UpdateTerrainTargetPreview(const RegionHeightfield& heightfield)
 {
     m_HasHoverTarget = false;
 
-    if (IsMouseButtonDown(MOUSE_BUTTON_LEFT))
+    if (!HasSelectedPlayerUnit())
     {
         return;
     }
 
-    if (m_SelectedUnitIndex < 0 || m_SelectedUnitIndex >= static_cast<int>(m_Units.size()))
+    if (IsPointInRegionSidePanel(GetCombatScaledMousePosition()))
     {
         return;
     }
@@ -197,10 +221,10 @@ void CombatState::HandleCombatInput(const RegionHeightfield& heightfield)
         return;
     }
 
+    // Left-click: select / start move-or-face gesture.
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
         m_LeftMousePressTime = GetTime();
-        m_LeftMousePressPosition = mousePosition;
         m_IsGestureHold = false;
         m_GestureUnitIndex = -1;
         m_GestureStartedOnUnit = false;
@@ -208,39 +232,23 @@ void CombatState::HandleCombatInput(const RegionHeightfield& heightfield)
         m_HasGestureFacingTarget = false;
 
         const int pickedUnitIndex = PickCombatUnitMarkerAtMouse(camera, heightfield, m_Units, mousePosition);
-
         if (pickedUnitIndex >= 0)
         {
             const CombatUnitInstance& pickedUnit = m_Units[static_cast<size_t>(pickedUnitIndex)];
-
-            if (m_SelectedUnitIndex >= 0
-                && m_SelectedUnitIndex < static_cast<int>(m_Units.size())
-                && CanCombatUnitAttack(m_Units[static_cast<size_t>(m_SelectedUnitIndex)])
-                && AreCombatUnitsHostile(m_Units[static_cast<size_t>(m_SelectedUnitIndex)], pickedUnit))
-            {
-                CombatUnitInstance& selectedUnit = m_Units[static_cast<size_t>(m_SelectedUnitIndex)];
-                BeginCombatUnitAttackMove(selectedUnit, pickedUnitIndex, m_Units);
-                m_MoveTarget = GetCombatApproachPosition(selectedUnit, pickedUnit);
-                m_HasMoveTarget = true;
-                m_HasHoverTarget = false;
-                return;
-            }
-
-            if (IsCombatUnitPlayerControlled(pickedUnit))
+            if (IsCombatUnitPlayerControlled(pickedUnit) && IsCombatUnitAlive(pickedUnit))
             {
                 m_SelectedUnitIndex = pickedUnitIndex;
                 m_GestureUnitIndex = pickedUnitIndex;
                 m_GestureStartedOnUnit = true;
                 m_PendingQuickClick = true;
                 m_HasMoveTarget = false;
+                m_MoveTargetIsAttack = false;
+                m_HasHoverTarget = false;
             }
-
             return;
         }
 
-        if (m_SelectedUnitIndex >= 0 && m_SelectedUnitIndex < static_cast<int>(m_Units.size())
-            && IsCombatUnitPlayerControlled(m_Units[static_cast<size_t>(m_SelectedUnitIndex)])
-            && IsCombatUnitAlive(m_Units[static_cast<size_t>(m_SelectedUnitIndex)]))
+        if (HasSelectedPlayerUnit())
         {
             const Ray ray = GetCombatMouseRay(camera);
             Vector3 terrainHit{};
@@ -254,14 +262,19 @@ void CombatState::HandleCombatInput(const RegionHeightfield& heightfield)
         }
     }
 
-    if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && m_GestureUnitIndex >= 0
+    // Hold left: face formation toward the cursor (does not issue a move).
+    if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)
+        && m_GestureUnitIndex >= 0
         && m_GestureUnitIndex < static_cast<int>(m_Units.size())
-        && IsCombatUnitPlayerControlled(m_Units[static_cast<size_t>(m_GestureUnitIndex)]))
+        && IsCombatUnitPlayerControlled(m_Units[static_cast<size_t>(m_GestureUnitIndex)])
+        && IsCombatUnitAlive(m_Units[static_cast<size_t>(m_GestureUnitIndex)]))
     {
         if (IsGestureHold(m_LeftMousePressTime))
         {
             m_IsGestureHold = true;
-            m_PendingQuickClick = false;
+            m_PendingQuickClick = false; // release must not issue a move
+            m_HasMoveTarget = false;
+            m_MoveTargetIsAttack = false;
 
             const Ray ray = GetCombatMouseRay(camera);
             Vector3 terrainHit{};
@@ -270,30 +283,104 @@ void CombatState::HandleCombatInput(const RegionHeightfield& heightfield)
                 FaceCombatUnitToward(m_Units[static_cast<size_t>(m_GestureUnitIndex)], terrainHit);
                 m_GestureFacingTarget = terrainHit;
                 m_HasGestureFacingTarget = true;
+                m_PendingTerrainTarget = terrainHit;
             }
         }
-    }
-    else if (!IsMouseButtonDown(MOUSE_BUTTON_LEFT))
-    {
-        m_HasGestureFacingTarget = false;
     }
 
     if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
     {
-        if (m_PendingQuickClick && !m_IsGestureHold && !m_GestureStartedOnUnit
-            && m_GestureUnitIndex >= 0 && m_GestureUnitIndex < static_cast<int>(m_Units.size())
+        // Move only on quick click+release (never after a hold-to-face).
+        const bool shouldMove = m_PendingQuickClick
+            && !m_IsGestureHold
+            && !m_GestureStartedOnUnit
+            && m_GestureUnitIndex >= 0
+            && m_GestureUnitIndex < static_cast<int>(m_Units.size())
             && IsCombatUnitPlayerControlled(m_Units[static_cast<size_t>(m_GestureUnitIndex)])
-            && IsCombatUnitAlive(m_Units[static_cast<size_t>(m_GestureUnitIndex)]))
+            && IsCombatUnitAlive(m_Units[static_cast<size_t>(m_GestureUnitIndex)]);
+
+        if (shouldMove)
         {
-            BeginCombatUnitMove(m_Units[static_cast<size_t>(m_GestureUnitIndex)], m_PendingTerrainTarget);
+            CombatUnitInstance& gestureUnit = m_Units[static_cast<size_t>(m_GestureUnitIndex)];
+            BeginCombatUnitMove(gestureUnit, m_PendingTerrainTarget);
             m_MoveTarget = m_PendingTerrainTarget;
             m_HasMoveTarget = true;
+            m_MoveTargetIsAttack = false;
         }
 
         m_GestureUnitIndex = -1;
         m_IsGestureHold = false;
         m_PendingQuickClick = false;
         m_HasGestureFacingTarget = false;
+    }
+
+    // Right-click: attack enemy, or catapult-fire at ground.
+    if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
+    {
+        CombatUnitInstance* selectedUnit = GetSelectedPlayerUnit();
+        if (!selectedUnit || !CanCombatUnitAttack(*selectedUnit))
+        {
+            return;
+        }
+
+        const int pickedUnitIndex = PickCombatUnitMarkerAtMouse(camera, heightfield, m_Units, mousePosition);
+        if (pickedUnitIndex >= 0)
+        {
+            const CombatUnitInstance& pickedUnit = m_Units[static_cast<size_t>(pickedUnitIndex)];
+            if (AreCombatUnitsHostile(*selectedUnit, pickedUnit))
+            {
+                if (selectedUnit->m_Type == CombatUnitType::Catapult)
+                {
+                    const Vector3 aim = GetCombatApproachPosition(*selectedUnit, pickedUnit);
+                    if (TryFireCatapultAt(
+                            *selectedUnit,
+                            m_SelectedUnitIndex,
+                            pickedUnit.m_Anchor,
+                            m_Projectiles,
+                            heightfield))
+                    {
+                        m_MoveTarget = pickedUnit.m_Anchor;
+                        m_HasMoveTarget = true;
+                        m_MoveTargetIsAttack = true;
+                    }
+                    else
+                    {
+                        BeginCombatUnitAttackMove(*selectedUnit, pickedUnitIndex, m_Units);
+                        m_MoveTarget = aim;
+                        m_HasMoveTarget = true;
+                        m_MoveTargetIsAttack = true;
+                    }
+                }
+                else
+                {
+                    BeginCombatUnitAttackMove(*selectedUnit, pickedUnitIndex, m_Units);
+                    m_MoveTarget = GetCombatApproachPosition(*selectedUnit, pickedUnit);
+                    m_HasMoveTarget = true;
+                    m_MoveTargetIsAttack = true;
+                }
+                m_HasHoverTarget = false;
+            }
+            return;
+        }
+
+        if (selectedUnit->m_Type == CombatUnitType::Catapult)
+        {
+            const Ray ray = GetCombatMouseRay(camera);
+            Vector3 terrainHit{};
+            if (RaycastCombatTerrain(ray, heightfield, terrainHit)
+                && TryFireCatapultAt(
+                    *selectedUnit,
+                    m_SelectedUnitIndex,
+                    terrainHit,
+                    m_Projectiles,
+                    heightfield))
+            {
+                m_MoveTarget = terrainHit;
+                m_HasMoveTarget = true;
+                m_MoveTargetIsAttack = true;
+                m_HasHoverTarget = false;
+            }
+        }
     }
 }
 
@@ -323,6 +410,7 @@ void CombatState::Update()
         UpdateCombatUnitsFormationRecovery(m_Units);
         UpdateCombatUnitsMovement(m_Units, deltaTime);
         UpdateCombatProjectiles(m_Projectiles, m_Units, *heightfield, g_CombatEnvironment, deltaTime);
+        UpdateCombatWallCubePhysics(*heightfield, deltaTime);
         UpdateCombatUnitsCombat(m_Units, m_Projectiles, *heightfield, deltaTime);
         UpdateCombatUnitsRetaliationDelays(m_Units, deltaTime);
 
@@ -332,10 +420,14 @@ void CombatState::Update()
         {
             m_SelectedUnitIndex = -1;
             m_HasMoveTarget = false;
+            m_MoveTargetIsAttack = false;
             m_HasHoverTarget = false;
         }
 
-        if (m_HasMoveTarget && m_SelectedUnitIndex >= 0
+        // Clear move markers once the unit stops; leave attack/fire markers briefly visible.
+        if (m_HasMoveTarget
+            && !m_MoveTargetIsAttack
+            && m_SelectedUnitIndex >= 0
             && m_SelectedUnitIndex < static_cast<int>(m_Units.size())
             && !m_Units[static_cast<size_t>(m_SelectedUnitIndex)].m_IsMoving)
         {
@@ -359,6 +451,7 @@ void CombatState::Update()
             }
             m_SelectedUnitIndex = -1;
             m_HasMoveTarget = false;
+            m_MoveTargetIsAttack = false;
             m_HasHoverTarget = false;
             m_Projectiles.clear();
         }
@@ -428,11 +521,6 @@ void CombatState::Draw()
 
     DrawCombatProjectiles(m_Projectiles);
 
-    if (m_SelectedUnitIndex >= 0 && m_SelectedUnitIndex < static_cast<int>(m_Units.size()))
-    {
-        DrawCombatUnitSelectionIndicator(heightfield, m_Units[static_cast<size_t>(m_SelectedUnitIndex)]);
-    }
-
     if (m_HasGestureFacingTarget)
     {
         DrawCombatMoveMarker(heightfield, m_GestureFacingTarget, Color{ 255, 180, 60, 255 });
@@ -444,12 +532,17 @@ void CombatState::Draw()
 
     if (m_HasMoveTarget)
     {
-        const Color moveMarkerColor = (m_SelectedUnitIndex >= 0
+        Color markerColor = m_MoveTargetIsAttack
+            ? Color{ 255, 160, 60, 255 }
+            : Color{ 80, 255, 120, 255 };
+        if (!m_MoveTargetIsAttack
+            && m_SelectedUnitIndex >= 0
             && m_SelectedUnitIndex < static_cast<int>(m_Units.size())
             && m_Units[static_cast<size_t>(m_SelectedUnitIndex)].m_IsMoving)
-            ? Color{ 80, 255, 120, 200 }
-            : Color{ 80, 255, 120, 255 };
-        DrawCombatMoveMarker(heightfield, m_MoveTarget, moveMarkerColor);
+        {
+            markerColor.a = 200;
+        }
+        DrawCombatMoveMarker(heightfield, m_MoveTarget, markerColor);
     }
 
     g_RegionView.End3D();
@@ -509,11 +602,14 @@ void CombatState::Draw()
 
     panelY = DrawRegionSidePanelOutlinedParagraph("Combat", panelY, g_fontDrawSize, WHITE);
     panelY += 2.0f;
-    panelY = DrawRegionSidePanelOutlinedParagraph("Red units only. Click markers to select or attack.", panelY,
-        g_smallFontDrawSize, Color{ 220, 220, 220, 255 });
+    panelY = DrawRegionSidePanelOutlinedParagraph(
+        "LMB: select / move. Hold LMB: face. RMB: attack (catapult: fire).",
+        panelY,
+        g_smallFontDrawSize,
+        Color{ 220, 220, 220, 255 });
     panelY += 4.0f;
     panelY = DrawRegionSidePanelOutlinedParagraph(
-        "Terrain: move. Hold: aim. WASD: pan. Wheel: zoom. Minimap: go. Esc: title.",
+        "WASD: pan. Wheel: zoom. Minimap: go. Esc: title. R: regen.",
         panelY, g_smallFontDrawSize, Color{ 180, 185, 195, 255 });
     panelY += 6.0f;
 

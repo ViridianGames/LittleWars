@@ -13,9 +13,11 @@
 #include "../Geist/Source/IO.h"
 #include "../Geist/Source/Logging.h"
 
+#include "CampaignAI.h"
 #include "GameGlobals.h"
 #include "OverworldMap.h"
 #include "PlayerTasksConfig.h"
+#include "../Geist/Source/RNG.h"
 
 #include "Engine.h"
 #include "raylib.h"
@@ -78,18 +80,55 @@ int MapSizeStartingRegions(MapSize size)
 
 const char* DifficultyName(Difficulty difficulty)
 {
+    return DifficultyName(difficulty, RulerGender::Male);
+}
+
+const char* DifficultyName(Difficulty difficulty, RulerGender gender)
+{
+    if (gender == RulerGender::Female)
+    {
+        switch (difficulty)
+        {
+        case Difficulty::Squire:
+            return "Lady";
+        case Difficulty::Baron:
+            return "Baroness";
+        case Difficulty::Viscount:
+            return "Duchess";
+        case Difficulty::Marquis:
+            return "Princess";
+        case Difficulty::King:
+            return "Queen";
+        default:
+            return "Unknown";
+        }
+    }
+
     switch (difficulty)
     {
     case Difficulty::Squire:
-        return "Squire";
+        return "Esquire";
     case Difficulty::Baron:
         return "Baron";
     case Difficulty::Viscount:
-        return "Viscount";
+        return "Duke";
     case Difficulty::Marquis:
-        return "Marquis";
+        return "Prince";
     case Difficulty::King:
         return "King";
+    default:
+        return "Unknown";
+    }
+}
+
+const char* RulerGenderName(RulerGender gender)
+{
+    switch (gender)
+    {
+    case RulerGender::Male:
+        return "Male";
+    case RulerGender::Female:
+        return "Female";
     default:
         return "Unknown";
     }
@@ -129,6 +168,12 @@ void ClampCampaignSetup(CampaignSetup& setup)
     if (difficultyValue < 0 || difficultyValue >= kDifficultyCount)
     {
         setup.m_Difficulty = Difficulty::Baron;
+    }
+
+    const int genderValue = static_cast<int>(setup.m_RulerGender);
+    if (genderValue < 0 || genderValue >= kRulerGenderCount)
+    {
+        setup.m_RulerGender = RulerGender::Male;
     }
 
     setup.m_EnemyCount = std::clamp(setup.m_EnemyCount, kMinOpponents, kMaxOpponents);
@@ -1044,8 +1089,8 @@ void GameDatabase::GenerateOverworldRegions()
     RNG rng;
     rng.SeedRNG(m_Setup.m_Seed);
 
-    const int playerCount = std::clamp(1 + m_Setup.m_EnemyCount, 1, kMaxCampaignPlayers);
-    InitializeCampaignPlayers(m_Players, playerCount);
+    const int playerCount = GetCampaignPlayerCount(m_Setup);
+    InitializeCampaignPlayers(m_Players, playerCount, !m_Setup.m_AllAi);
 
     int regionId = 0;
     for (int mapY = 0; mapY < m_Setup.m_RegionRows; ++mapY)
@@ -1319,8 +1364,8 @@ void GameDatabase::SyncPlayersFromOverworld(const OverworldMap& map, bool resetA
 {
     if (m_Players.empty())
     {
-        const int playerCount = std::clamp(1 + m_Setup.m_EnemyCount, 1, kMaxCampaignPlayers);
-        InitializeCampaignPlayers(m_Players, playerCount);
+        const int playerCount = GetCampaignPlayerCount(m_Setup);
+        InitializeCampaignPlayers(m_Players, playerCount, !m_Setup.m_AllAi);
     }
 
     ::SyncPlayersFromOverworld(map, m_Players, resetAssets);
@@ -1330,16 +1375,35 @@ void GameDatabase::AdvanceTurn(OverworldMap& map)
 {
     if (m_Players.empty())
     {
-        const int playerCount = std::clamp(1 + m_Setup.m_EnemyCount, 1, kMaxCampaignPlayers);
-        InitializeCampaignPlayers(m_Players, playerCount);
+        const int playerCount = GetCampaignPlayerCount(m_Setup);
+        InitializeCampaignPlayers(m_Players, playerCount, !m_Setup.m_AllAi);
+        AssignCampaignAiPersonalities(m_Players, m_Setup);
     }
 
+    // Income and construction first, then pay the armies, then AI acts with the new purse.
     CollectTurnIncomeFromRegions(map, m_Players);
     ProcessCastleConstruction(map, m_Players);
     for (Player& player : m_Players)
     {
         g_PlayerTasksConfig.ApplyMaintenance(player);
     }
+
+    const int actingTurn = m_Turn + 1;
+    if (g_vitalRNG)
+    {
+        RunAllCampaignAiTurns(map, m_Players, *g_vitalRNG, actingTurn);
+    }
+    else if (g_nonVitalRNG)
+    {
+        RunAllCampaignAiTurns(map, m_Players, *g_nonVitalRNG, actingTurn);
+    }
+    else
+    {
+        RNG localRng;
+        localRng.SeedRNG(m_Setup.m_Seed + static_cast<unsigned int>(m_Turn) + 1u);
+        RunAllCampaignAiTurns(map, m_Players, localRng, actingTurn);
+    }
+
     ++m_Turn;
 }
 
@@ -1357,6 +1421,8 @@ bool GameDatabase::SaveCampaign(const std::string& path) const
 
     IO::Serialize(stream, m_Setup.m_Seed);
     IO::Serialize(stream, static_cast<int>(m_Setup.m_Difficulty));
+    IO::Serialize(stream, static_cast<int>(m_Setup.m_RulerGender));
+    IO::Serialize(stream, m_Setup.m_AllAi);
     IO::Serialize(stream, m_Setup.m_EnemyCount);
     IO::Serialize(stream, static_cast<int>(m_Setup.m_BattleMode));
     IO::Serialize(stream, static_cast<int>(m_Setup.m_ResourceDistribution));
@@ -1453,6 +1519,10 @@ bool GameDatabase::LoadCampaign(const std::string& path)
     int difficulty = 0;
     IO::Serialize(stream, difficulty);
     m_Setup.m_Difficulty = static_cast<Difficulty>(difficulty);
+    int rulerGender = 0;
+    IO::Serialize(stream, rulerGender);
+    m_Setup.m_RulerGender = static_cast<RulerGender>(rulerGender);
+    IO::Serialize(stream, m_Setup.m_AllAi);
     IO::Serialize(stream, m_Setup.m_EnemyCount);
     int battleMode = 0;
     IO::Serialize(stream, battleMode);

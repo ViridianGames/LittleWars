@@ -16,10 +16,20 @@ struct CombatTreeObstacle
     float m_CrownRadius = 1.4f;
 };
 
+// Destructible stacked wall block. Simulated with simple rigid-body translation.
+struct CombatPhysicsCube
+{
+    Vector3 m_Center{};
+    Vector3 m_Velocity{};
+    float m_HalfExtent = kWallCubeHalfSize;
+    bool m_Sleeping = false;
+};
+
 struct CombatEnvironment
 {
     std::vector<CastlePartPlacement> m_CastleParts;
     std::vector<CombatTreeObstacle> m_Trees;
+    std::vector<CombatPhysicsCube> m_WallCubes;
 
     void Clear();
 };
@@ -34,8 +44,15 @@ void InitializeRegionCombatEnvironment(
     unsigned int seed,
     unsigned char resourceType);
 
-// Title-screen combat sandbox: trees + sample castle pieces.
+// Title-screen combat sandbox: trees + sample castle pieces + stacked wall cubes.
 void InitializeDemoCombatEnvironment(const RegionHeightfield& heightfield, unsigned int seed);
+
+// Convert design-mode WallCube placements into physics cubes (towers/gates stay static).
+void SeedCombatWallCubesFromPlacements(
+    const RegionHeightfield& heightfield,
+    const std::vector<CastlePartPlacement>& placements);
+
+void UpdateCombatWallCubePhysics(const RegionHeightfield& heightfield, float deltaTime);
 
 bool SegmentIntersectsCombatTree(
     Vector3 segmentStart,
@@ -44,7 +61,19 @@ bool SegmentIntersectsCombatTree(
     const RegionHeightfield& heightfield,
     float& outHitDistance);
 
+bool SegmentIntersectsCombatWallCube(
+    Vector3 segmentStart,
+    Vector3 segmentEnd,
+    const CombatPhysicsCube& cube,
+    float& outHitDistance);
+
+void ApplyImpulseToCombatWallCube(
+    CombatPhysicsCube& cube,
+    Vector3 impulse,
+    Vector3 hitPosition);
+
 void DrawCombatTrees(const RegionHeightfield& heightfield, const std::vector<CombatTreeObstacle>& trees);
+void DrawCombatWallCubes(const std::vector<CombatPhysicsCube>& cubes);
 void DrawCombatEnvironment(const RegionHeightfield& heightfield, const CombatEnvironment& environment);
 
 #endif

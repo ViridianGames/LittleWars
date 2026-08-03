@@ -145,15 +145,9 @@ void RegionView::Update(const RegionHeightfield* heightfield)
 
 void RegionView::Begin3D()
 {
-    const Rectangle worldView = GetRegionWorldViewBounds();
-    const int renderHeight = static_cast<int>(g_Engine->m_RenderHeight);
-
-    rlViewport(
-        static_cast<int>(worldView.x),
-        renderHeight - static_cast<int>(worldView.y + worldView.height),
-        static_cast<int>(worldView.width),
-        static_cast<int>(worldView.height));
-
+    // Render 3D into the full framebuffer. The side panel is drawn on top afterward
+    // and covers the right strip. Using a narrowed viewport + mismatched aspect caused
+    // the terrain hit marker to miss the mouse cursor.
     BeginMode3D(m_Camera);
     rlDisableBackfaceCulling();
 }
@@ -162,10 +156,4 @@ void RegionView::End3D()
 {
     rlEnableBackfaceCulling();
     EndMode3D();
-
-    rlViewport(
-        0,
-        0,
-        static_cast<int>(g_Engine->m_RenderWidth),
-        static_cast<int>(g_Engine->m_RenderHeight));
 }

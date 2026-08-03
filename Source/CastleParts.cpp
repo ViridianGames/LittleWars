@@ -171,10 +171,8 @@ const char* CastlePartTypeName(CastlePartType type)
         return "Round Tower";
     case CastlePartType::SquareTower:
         return "Square Tower";
-    case CastlePartType::ShortWall:
-        return "Short Wall";
-    case CastlePartType::TallWall:
-        return "Tall Wall";
+    case CastlePartType::WallCube:
+        return "Wall Cube";
     case CastlePartType::Gate:
         return "Gate";
     case CastlePartType::Moat:
@@ -192,10 +190,8 @@ Color CastlePartTypeColor(CastlePartType type)
         return Color{ 150, 148, 142, 255 };
     case CastlePartType::SquareTower:
         return Color{ 138, 136, 130, 255 };
-    case CastlePartType::ShortWall:
+    case CastlePartType::WallCube:
         return Color{ 128, 126, 120, 255 };
-    case CastlePartType::TallWall:
-        return Color{ 118, 116, 110, 255 };
     case CastlePartType::Gate:
         return Color{ 102, 78, 52, 255 };
     case CastlePartType::Moat:
@@ -203,6 +199,11 @@ Color CastlePartTypeColor(CastlePartType type)
     default:
         return Color{ 140, 140, 140, 255 };
     }
+}
+
+bool IsStackableCastlePart(CastlePartType type)
+{
+    return type == CastlePartType::WallCube;
 }
 
 void GetCastlePartHalfExtents(CastlePartType type, float& halfX, float& halfZ)
@@ -217,13 +218,9 @@ void GetCastlePartHalfExtents(CastlePartType type, float& halfX, float& halfZ)
         halfX = 1.4f;
         halfZ = 1.4f;
         break;
-    case CastlePartType::ShortWall:
-        halfX = 2.0f;
-        halfZ = 0.5f;
-        break;
-    case CastlePartType::TallWall:
-        halfX = 2.0f;
-        halfZ = 0.5f;
+    case CastlePartType::WallCube:
+        halfX = kWallCubeHalfSize;
+        halfZ = kWallCubeHalfSize;
         break;
     case CastlePartType::Gate:
         halfX = 1.6f;
@@ -248,10 +245,8 @@ float GetCastlePartPickRadius(CastlePartType type)
         return 1.6f;
     case CastlePartType::SquareTower:
         return 2.2f;
-    case CastlePartType::ShortWall:
-        return 2.6f;
-    case CastlePartType::TallWall:
-        return 2.6f;
+    case CastlePartType::WallCube:
+        return 0.85f;
     case CastlePartType::Gate:
         return 2.0f;
     case CastlePartType::Moat:
@@ -271,11 +266,8 @@ void GetCastlePartCollisionSize(CastlePartType type, Vector3& outSize)
     case CastlePartType::SquareTower:
         outSize = Vector3{ 2.8f, 5.0f, 2.8f };
         break;
-    case CastlePartType::ShortWall:
-        outSize = Vector3{ 4.0f, 1.6f, 1.0f };
-        break;
-    case CastlePartType::TallWall:
-        outSize = Vector3{ 4.0f, 3.6f, 1.0f };
+    case CastlePartType::WallCube:
+        outSize = Vector3{ kWallCubeSize, kWallCubeSize, kWallCubeSize };
         break;
     case CastlePartType::Gate:
         outSize = Vector3{ 3.2f, 2.8f, 1.2f };
@@ -291,6 +283,44 @@ bool CastlePartBlocksProjectiles(CastlePartType type)
     return type != CastlePartType::Moat;
 }
 
+Vector3 GetCastlePartWorldCenter(
+    const CastlePartPlacement& placement,
+    const RegionHeightfield& heightfield)
+{
+    if (placement.m_Type == CastlePartType::WallCube)
+    {
+        return placement.m_Position;
+    }
+
+    const float terrainY = heightfield.SampleHeight(placement.m_Position.x, placement.m_Position.z);
+    Vector3 size{};
+    GetCastlePartCollisionSize(placement.m_Type, size);
+
+    if (placement.m_Type == CastlePartType::RoundTower)
+    {
+        return Vector3{
+            placement.m_Position.x,
+            terrainY + size.y * 0.5f,
+            placement.m_Position.z
+        };
+    }
+
+    if (placement.m_Type == CastlePartType::Moat)
+    {
+        return Vector3{
+            placement.m_Position.x,
+            terrainY,
+            placement.m_Position.z
+        };
+    }
+
+    return Vector3{
+        placement.m_Position.x,
+        terrainY + size.y * 0.5f,
+        placement.m_Position.z
+    };
+}
+
 bool SegmentIntersectsCastlePart(
     Vector3 segmentStart,
     Vector3 segmentEnd,
@@ -303,11 +333,11 @@ bool SegmentIntersectsCastlePart(
         return false;
     }
 
-    const float terrainY = heightfield.SampleHeight(placement.m_Position.x, placement.m_Position.z);
     const float rotationRadians = static_cast<float>(placement.m_RotationDegrees) * (kPi / 180.0f);
 
     if (placement.m_Type == CastlePartType::RoundTower)
     {
+        const float terrainY = heightfield.SampleHeight(placement.m_Position.x, placement.m_Position.z);
         const Vector3 baseCenter{
             placement.m_Position.x,
             terrainY,
@@ -324,12 +354,7 @@ bool SegmentIntersectsCastlePart(
         size.z * 0.5f
     };
 
-    const Vector3 worldCenter{
-        placement.m_Position.x,
-        terrainY + localHalf.y,
-        placement.m_Position.z
-    };
-
+    const Vector3 worldCenter = GetCastlePartWorldCenter(placement, heightfield);
     const Vector3 localStart = RotateY(Vector3Subtract(segmentStart, worldCenter), -rotationRadians);
     const Vector3 localEnd = RotateY(Vector3Subtract(segmentEnd, worldCenter), -rotationRadians);
     const Vector3 boxMin{
@@ -354,9 +379,31 @@ void DrawCastlePartShape(
     Color color,
     float alphaScale)
 {
-    const float terrainY = heightfield.SampleHeight(position.x, position.z);
     Color drawColor = color;
     drawColor.a = static_cast<unsigned char>(static_cast<float>(drawColor.a) * alphaScale);
+
+    if (type == CastlePartType::WallCube)
+    {
+        // Wall cubes use absolute world centers so they can stack and tumble.
+        const Vector3 center = (position.y > 0.01f)
+            ? position
+            : Vector3{
+                position.x,
+                heightfield.SampleHeight(position.x, position.z) + kWallCubeHalfSize,
+                position.z
+            };
+
+        rlPushMatrix();
+        rlTranslatef(center.x, center.y, center.z);
+        rlRotatef(static_cast<float>(rotationDegrees), 0.0f, 1.0f, 0.0f);
+        DrawCube(Vector3{ 0.0f, 0.0f, 0.0f }, kWallCubeSize, kWallCubeSize, kWallCubeSize, drawColor);
+        DrawCubeWires(Vector3{ 0.0f, 0.0f, 0.0f }, kWallCubeSize, kWallCubeSize, kWallCubeSize,
+            Color{ 40, 40, 42, drawColor.a });
+        rlPopMatrix();
+        return;
+    }
+
+    const float terrainY = heightfield.SampleHeight(position.x, position.z);
 
     rlPushMatrix();
     rlTranslatef(position.x, terrainY, position.z);
@@ -366,10 +413,11 @@ void DrawCastlePartShape(
     {
     case CastlePartType::RoundTower:
     {
+        // DrawCylinder position is the base center (extends upward by height).
         const float radius = 1.4f;
         const float height = 4.5f;
         DrawCylinder(
-            Vector3{ 0.0f, height * 0.5f, 0.0f },
+            Vector3{ 0.0f, 0.0f, 0.0f },
             radius,
             radius,
             height,
@@ -380,18 +428,6 @@ void DrawCastlePartShape(
     case CastlePartType::SquareTower:
     {
         const Vector3 size{ 2.8f, 5.0f, 2.8f };
-        DrawCube(Vector3{ 0.0f, size.y * 0.5f, 0.0f }, size.x, size.y, size.z, drawColor);
-        break;
-    }
-    case CastlePartType::ShortWall:
-    {
-        const Vector3 size{ 4.0f, 1.6f, 1.0f };
-        DrawCube(Vector3{ 0.0f, size.y * 0.5f, 0.0f }, size.x, size.y, size.z, drawColor);
-        break;
-    }
-    case CastlePartType::TallWall:
-    {
-        const Vector3 size{ 4.0f, 3.6f, 1.0f };
         DrawCube(Vector3{ 0.0f, size.y * 0.5f, 0.0f }, size.x, size.y, size.z, drawColor);
         break;
     }

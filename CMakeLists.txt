@@ -133,6 +133,7 @@ set(GEIST_SOURCES
 # ============================================================================
 set(PROJECT_SOURCES
         #Source/ArrangeSprites.cpp
+        Source/CampaignAI.cpp
         Source/CampaignSetupConfig.cpp
         Source/CastleParts.cpp
         Source/CastleDesignState.cpp

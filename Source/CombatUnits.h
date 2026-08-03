@@ -89,6 +89,8 @@ struct CombatProjectile
     int m_BounceCount = 0;
     bool m_InPhysicsPhase = false;
     bool m_Active = false;
+    bool m_IsCatapultStone = false;
+    float m_KnockImpulse = 0.0f;
 };
 
 const char* CombatUnitTypeName(CombatUnitType type);
@@ -124,7 +126,15 @@ void UpdateCombatUnitsAttackOrders(std::vector<CombatUnitInstance>& units, const
 void UpdateCombatUnitsCombat(std::vector<CombatUnitInstance>& units, std::vector<CombatProjectile>& projectiles,
     const RegionHeightfield& heightfield, float deltaTime);
 void UpdateCombatProjectiles(std::vector<CombatProjectile>& projectiles, std::vector<CombatUnitInstance>& units,
-    const RegionHeightfield& heightfield, const CombatEnvironment& environment, float deltaTime);
+    const RegionHeightfield& heightfield, CombatEnvironment& environment, float deltaTime);
+
+// Fire a catapult stone at a world aim point. Returns false if the unit can't fire yet.
+bool TryFireCatapultAt(
+    CombatUnitInstance& unit,
+    int unitIndex,
+    Vector3 aimWorld,
+    std::vector<CombatProjectile>& projectiles,
+    const RegionHeightfield& heightfield);
 bool GetCombatUnitFormationSlot(CombatUnitType type, int slotIndex, int& row, int& column);
 Vector2 GetCombatUnitFormationOffset(CombatUnitType type, int row, int column);
 Vector3 TransformCombatFormationOffset(float facingAngleRadians, float localX, float localZ);

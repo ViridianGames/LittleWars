@@ -170,12 +170,21 @@ void Engine::Draw()
 
 float Engine::GetInputScale() const
 {
-	if (!m_useVirtualResolution || m_RenderHeight <= 0.0f)
+	// Prefer height so UI that used a single scale stays stable when aspect matches.
+	return GetInputScaleXY().y;
+}
+
+Vector2 Engine::GetInputScaleXY() const
+{
+	if (!m_useVirtualResolution || m_RenderWidth <= 0.0f || m_RenderHeight <= 0.0f)
 	{
-		return 1.0f;
+		return Vector2{ 1.0f, 1.0f };
 	}
 
-	return m_ScreenHeight / m_RenderHeight;
+	return Vector2{
+		m_ScreenWidth / m_RenderWidth,
+		m_ScreenHeight / m_RenderHeight
+	};
 }
 
 void Engine::LoadMouseCursor()
@@ -221,9 +230,15 @@ void Engine::DrawMouseCursor(bool useRenderCoordinates)
 	Vector2 mouse = GetMousePosition();
 	if (useRenderCoordinates)
 	{
-		const float inputScale = GetInputScale();
-		mouse.x /= inputScale;
-		mouse.y /= inputScale;
+		const Vector2 scale = GetInputScaleXY();
+		if (scale.x != 0.0f)
+		{
+			mouse.x /= scale.x;
+		}
+		if (scale.y != 0.0f)
+		{
+			mouse.y /= scale.y;
+		}
 	}
 
 	DrawTexture(

@@ -38,11 +38,7 @@ namespace
 
     Vector2 GetScaledMousePosition()
     {
-        Vector2 mouse = GetMousePosition();
-        const float inputScale = g_Engine->GetInputScale();
-        mouse.x /= inputScale;
-        mouse.y /= inputScale;
-        return mouse;
+        return GetCombatScaledMousePosition();
     }
 
     const char* CastlePartTypeButtonLabel(CastlePartType type)
@@ -53,10 +49,8 @@ namespace
             return "Round";
         case CastlePartType::SquareTower:
             return "Square";
-        case CastlePartType::ShortWall:
-            return "S.Wall";
-        case CastlePartType::TallWall:
-            return "T.Wall";
+        case CastlePartType::WallCube:
+            return "Cube";
         case CastlePartType::Gate:
             return "Gate";
         case CastlePartType::Moat:
@@ -64,6 +58,45 @@ namespace
         default:
             return "?";
         }
+    }
+
+    bool WallCubesOverlapXZ(Vector3 a, Vector3 b, float halfExtent)
+    {
+        return std::fabs(a.x - b.x) < halfExtent * 1.05f
+            && std::fabs(a.z - b.z) < halfExtent * 1.05f;
+    }
+
+    float ResolveWallCubeCenterY(
+        const std::vector<CastlePartPlacement>& placements,
+        const RegionHeightfield& heightfield,
+        float x,
+        float z,
+        int excludeIndex)
+    {
+        float topSurfaceY = heightfield.SampleHeight(x, z);
+
+        for (int index = 0; index < static_cast<int>(placements.size()); ++index)
+        {
+            if (index == excludeIndex)
+            {
+                continue;
+            }
+
+            const CastlePartPlacement& existing = placements[static_cast<size_t>(index)];
+            if (existing.m_Type != CastlePartType::WallCube)
+            {
+                continue;
+            }
+
+            if (!WallCubesOverlapXZ(existing.m_Position, Vector3{ x, 0.0f, z }, kWallCubeHalfSize))
+            {
+                continue;
+            }
+
+            topSurfaceY = std::max(topSurfaceY, existing.m_Position.y + kWallCubeHalfSize);
+        }
+
+        return topSurfaceY + kWallCubeHalfSize;
     }
 
     std::vector<std::string> WrapSidePanelLines(const std::string& text, float maxWidth, float fontSize)
@@ -195,6 +228,7 @@ namespace
     {
         int bestIndex = -1;
         float bestDistanceSquared = 0.0f;
+        float bestHeight = -1.0f;
 
         for (int index = 0; index < static_cast<int>(placements.size()); ++index)
         {
@@ -208,10 +242,17 @@ namespace
                 continue;
             }
 
-            if (bestIndex < 0 || distanceSquared < bestDistanceSquared)
+            // Prefer closer parts; for stacked wall cubes prefer the top of the stack.
+            const float height = placement.m_Type == CastlePartType::WallCube
+                ? placement.m_Position.y
+                : 0.0f;
+            if (bestIndex < 0
+                || distanceSquared < bestDistanceSquared - 0.0001f
+                || (std::fabs(distanceSquared - bestDistanceSquared) <= 0.0001f && height > bestHeight))
             {
                 bestIndex = index;
                 bestDistanceSquared = distanceSquared;
+                bestHeight = height;
             }
         }
 
@@ -287,8 +328,13 @@ bool CastleDesignState::TryGetTerrainHitUnderMouse(const RegionHeightfield& heig
     return RaycastCombatTerrain(ray, heightfield, outHit);
 }
 
-Vector3 CastleDesignState::SnapCastlePartPosition(CastlePartType type, int rotationDegrees, Vector3 rawPosition,
-    int excludeIndex, bool& outSnappedToExisting) const
+Vector3 CastleDesignState::SnapCastlePartPosition(
+    const RegionHeightfield& heightfield,
+    CastlePartType type,
+    int rotationDegrees,
+    Vector3 rawPosition,
+    int excludeIndex,
+    bool& outSnappedToExisting) const
 {
     outSnappedToExisting = false;
 
@@ -369,7 +415,24 @@ Vector3 CastleDesignState::SnapCastlePartPosition(CastlePartType type, int rotat
         bestPosition = ApplyGridSnap(rawPosition);
     }
 
-    bestPosition.y = rawPosition.y;
+    if (type == CastlePartType::WallCube)
+    {
+        // Snap XZ to the cube grid so stacks line up cleanly.
+        bestPosition.x = roundf(bestPosition.x / kWallCubeSize) * kWallCubeSize;
+        bestPosition.z = roundf(bestPosition.z / kWallCubeSize) * kWallCubeSize;
+        bestPosition.y = ResolveWallCubeCenterY(
+            m_Placements,
+            heightfield,
+            bestPosition.x,
+            bestPosition.z,
+            excludeIndex);
+        outSnappedToExisting = true;
+    }
+    else
+    {
+        bestPosition.y = rawPosition.y;
+    }
+
     return bestPosition;
 }
 
@@ -387,6 +450,7 @@ void CastleDesignState::UpdatePlacementPreview(const RegionHeightfield& heightfi
     if (TryGetTerrainHitUnderMouse(heightfield, terrainHit))
     {
         m_PlacementPreview = SnapCastlePartPosition(
+            heightfield,
             m_SelectedPartType,
             m_PlacementRotationDegrees,
             terrainHit,
@@ -411,7 +475,9 @@ float CastleDesignState::LayoutPanelBeforeToolbar(float startY, bool draw) const
     panelY += 2.0f;
     if (m_PlacementToolActive)
     {
-        const char* text = "Click terrain to place. Snaps.";
+        const char* text = m_SelectedPartType == CastlePartType::WallCube
+            ? "Cubes stack. Click to place."
+            : "Click terrain to place. Snaps.";
         panelY = draw
             ? DrawRegionSidePanelOutlinedParagraph(text, panelY, g_smallFontDrawSize, Color{ 220, 220, 220, 255 })
             : MeasureSidePanelParagraph(panelY, text, g_smallFontDrawSize);
@@ -546,6 +612,7 @@ void CastleDesignState::HandleCastleDesignInput(const RegionHeightfield& heightf
         CastlePartPlacement& placement = m_Placements[static_cast<size_t>(m_SelectedPlacementIndex)];
         bool snappedToExisting = false;
         placement.m_Position = SnapCastlePartPosition(
+            heightfield,
             placement.m_Type,
             placement.m_RotationDegrees,
             terrainHit,

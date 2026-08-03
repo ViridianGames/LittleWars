@@ -1,46 +1,45 @@
- Sat Jul 18 12:06:01 2026.712 Starting Engine::Init()
- Sat Jul 18 12:06:01 2026.712 Starting StateMachine::Init
- Sat Jul 18 12:06:01 2026.712 Leaving StateMachine::Init
- Sat Jul 18 12:06:01 2026.712 Starting InputSystem::Init()
- Sat Jul 18 12:06:01 2026.712 Done With InputSystem::Init()
- Sat Jul 18 12:06:01 2026.782 Done with Engine::Init()
- Sat Jul 18 12:06:01 2026.782 CampaignSetupScreenConfig::LoadFromFile - loaded Data/campaign_setup.json
- Sat Jul 18 12:06:01 2026.782 PlayerTasksConfig::LoadFromFile - loaded Data/player_tasks.json
- Sat Jul 18 12:06:01 2026.782 Loading texture Images/terrain.png
- Sat Jul 18 12:06:01 2026.783 Texture ID: 7, Width: 64, Height: 64
- Sat Jul 18 12:06:01 2026.783 Load successful.
- Sat Jul 18 12:06:01 2026.783 Loading texture Images/littlepeople.png
- Sat Jul 18 12:06:01 2026.783 Texture ID: 8, Width: 196, Height: 176
- Sat Jul 18 12:06:01 2026.783 Load successful.
- Sat Jul 18 12:06:01 2026.783 Loading texture Images/swordsmen.png
- Sat Jul 18 12:06:01 2026.783 Texture ID: 9, Width: 66, Height: 224
- Sat Jul 18 12:06:01 2026.783 Load successful.
- Sat Jul 18 12:06:01 2026.783 Loading texture Images/swordsmenmask.png
- Sat Jul 18 12:06:01 2026.783 Texture ID: 10, Width: 66, Height: 224
- Sat Jul 18 12:06:01 2026.783 Load successful.
- Sat Jul 18 12:06:01 2026.783 Loading texture Images/archers.png
- Sat Jul 18 12:06:01 2026.783 Texture ID: 11, Width: 90, Height: 240
- Sat Jul 18 12:06:01 2026.783 Load successful.
- Sat Jul 18 12:06:01 2026.783 Loading texture Images/archermask.png
- Sat Jul 18 12:06:01 2026.783 Texture ID: 12, Width: 90, Height: 240
- Sat Jul 18 12:06:01 2026.783 Load successful.
- Sat Jul 18 12:06:01 2026.783 Loading texture Images/tiles256.png
- Sat Jul 18 12:06:01 2026.784 Texture ID: 13, Width: 112, Height: 832
- Sat Jul 18 12:06:01 2026.784 Load successful.
- Sat Jul 18 12:06:01 2026.784 Loading texture Images/title_near_final_480x270.png
- Sat Jul 18 12:06:01 2026.786 Texture ID: 14, Width: 480, Height: 270
- Sat Jul 18 12:06:01 2026.786 Load successful.
- Sat Jul 18 12:06:01 2026.786 Created state TitleState with ID 0
- Sat Jul 18 12:06:01 2026.786 Created state SetupGameState with ID 5
- Sat Jul 18 12:06:01 2026.786 Created state CastleDesignState with ID 4
- Sat Jul 18 12:06:01 2026.786 Created state MainState with ID 1
- Sat Jul 18 12:06:01 2026.786 Created state CombatState with ID 3
- Sat Jul 18 12:06:01 2026.786 Created state OptionsState with ID 2
- Sat Jul 18 12:06:01 2026.786 StateMachine: Transitioning to state TitleState, ID 0
- Sat Jul 18 12:06:11 2026.510 StateMachine: Transitioning to state SetupGameState, ID 5
- Sat Jul 18 12:06:16 2026.574 StateMachine: Transitioning to state MainState, ID 1
- Sat Jul 18 12:06:20 2026.926 StateMachine: Transitioning to state CombatState, ID 3
- Sat Jul 18 12:06:33 2026.918 StateMachine: Transitioning to state MainState, ID 1
- Sat Jul 18 12:06:34 2026.752 StateMachine: Transitioning to state TitleState, ID 0
- Sat Jul 18 12:06:38 2026.018 StateMachine: Transitioning to state CastleDesignState, ID 4
- Sat Jul 18 12:07:00 2026.327 StateMachine: Transitioning to state TitleState, ID 0
+ Mon Aug  3 18:09:24 2026.800 Starting Engine::Init()
+ Mon Aug  3 18:09:24 2026.800 Starting StateMachine::Init
+ Mon Aug  3 18:09:24 2026.800 Leaving StateMachine::Init
+ Mon Aug  3 18:09:24 2026.801 Starting InputSystem::Init()
+ Mon Aug  3 18:09:24 2026.801 Done With InputSystem::Init()
+ Mon Aug  3 18:09:24 2026.948 Done with Engine::Init()
+ Mon Aug  3 18:09:24 2026.949 CampaignSetupScreenConfig::LoadFromFile - loaded Data/campaign_setup.json
+ Mon Aug  3 18:09:24 2026.950 PlayerTasksConfig::LoadFromFile - loaded Data/player_tasks.json
+ Mon Aug  3 18:09:24 2026.950 Loading texture Images/terrain.png
+ Mon Aug  3 18:09:24 2026.950 Texture ID: 7, Width: 64, Height: 64
+ Mon Aug  3 18:09:24 2026.950 Load successful.
+ Mon Aug  3 18:09:24 2026.950 Loading texture Images/littlepeople.png
+ Mon Aug  3 18:09:24 2026.951 Texture ID: 8, Width: 196, Height: 176
+ Mon Aug  3 18:09:24 2026.951 Load successful.
+ Mon Aug  3 18:09:24 2026.951 Loading texture Images/swordsmen4-fixed.png
+ Mon Aug  3 18:09:24 2026.951 Texture ID: 9, Width: 256, Height: 256
+ Mon Aug  3 18:09:24 2026.951 Load successful.
+ Mon Aug  3 18:09:24 2026.951 Loading texture Images/swordsmen4-fixed-mask.png
+ Mon Aug  3 18:09:24 2026.952 Texture ID: 10, Width: 256, Height: 256
+ Mon Aug  3 18:09:24 2026.952 Load successful.
+ Mon Aug  3 18:09:24 2026.952 Loading texture Images/archers-final-shrunk.png
+ Mon Aug  3 18:09:24 2026.953 Texture ID: 11, Width: 256, Height: 256
+ Mon Aug  3 18:09:24 2026.953 Load successful.
+ Mon Aug  3 18:09:24 2026.953 Loading texture Images/archers-final-shrunk-mask.png
+ Mon Aug  3 18:09:24 2026.953 Texture ID: 12, Width: 256, Height: 256
+ Mon Aug  3 18:09:24 2026.953 Load successful.
+ Mon Aug  3 18:09:24 2026.954 Loading texture Images/tiles256.png
+ Mon Aug  3 18:09:24 2026.954 Texture ID: 13, Width: 112, Height: 832
+ Mon Aug  3 18:09:24 2026.954 Load successful.
+ Mon Aug  3 18:09:24 2026.954 Loading texture Images/title_near_final_480x270.png
+ Mon Aug  3 18:09:24 2026.957 Texture ID: 14, Width: 480, Height: 270
+ Mon Aug  3 18:09:24 2026.957 Load successful.
+ Mon Aug  3 18:09:24 2026.957 Created state TitleState with ID 0
+ Mon Aug  3 18:09:24 2026.957 Created state SetupGameState with ID 5
+ Mon Aug  3 18:09:24 2026.957 Created state CastleDesignState with ID 4
+ Mon Aug  3 18:09:24 2026.957 Created state MainState with ID 1
+ Mon Aug  3 18:09:24 2026.957 Created state CombatState with ID 3
+ Mon Aug  3 18:09:24 2026.957 Created state OptionsState with ID 2
+ Mon Aug  3 18:09:24 2026.957 StateMachine: Transitioning to state TitleState, ID 0
+ Mon Aug  3 18:09:46 2026.811 StateMachine: Transitioning to state SetupGameState, ID 5
+ Mon Aug  3 18:09:49 2026.116 AI[1] Red assigned Turtle
+ Mon Aug  3 18:09:49 2026.116 AI[2] Gold assigned Expansionist
+ Mon Aug  3 18:09:49 2026.116 AI[3] Purple assigned Balanced
+ Mon Aug  3 18:09:49 2026.116 AI[4] Green assigned Expansionist
+ Mon Aug  3 18:09:49 2026.135 StateMachine: Transitioning to state MainState, ID 1

@@ -15,17 +15,39 @@
   },
   "options": [
     {
+      "id": "rulerGender",
+      "label": "Ruler",
+      "type": "enum",
+      "field": "rulerGender",
+      "defaultValue": "male",
+      "values": [
+        { "id": "male", "label": "Male" },
+        { "id": "female", "label": "Female" }
+      ]
+    },
+    {
       "id": "difficulty",
       "label": "Difficulty",
       "type": "enum",
       "field": "difficulty",
       "defaultValue": "baron",
       "values": [
-        { "id": "squire", "label": "Squire" },
+        { "id": "squire", "label": "Esquire" },
         { "id": "baron", "label": "Baron" },
-        { "id": "viscount", "label": "Viscount" },
-        { "id": "marquis", "label": "Marquis" },
+        { "id": "viscount", "label": "Duke" },
+        { "id": "marquis", "label": "Prince" },
         { "id": "king", "label": "King" }
+      ]
+    },
+    {
+      "id": "controlMode",
+      "label": "Control",
+      "type": "enum",
+      "field": "controlMode",
+      "defaultValue": "human",
+      "values": [
+        { "id": "human", "label": "You play" },
+        { "id": "allAi", "label": "All AI (watch)" }
       ]
     },
     {

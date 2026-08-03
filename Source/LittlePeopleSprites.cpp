@@ -102,7 +102,7 @@ namespace
 
     void DrawMaskedBillboardInternal(const Camera3D& camera, const LittlePersonBillboardDrawRequest& request,
         const char* atlasPath, const char* maskPath, int cellWidth, int sourceHeight, int rowHeight,
-        int displayWidth, int displayHeight)
+        int displayWidth, int displayHeight, int walkFrameCount)
     {
         Texture* texture = g_ResourceManager->GetTexture(atlasPath, false);
         Texture* maskTexture = g_ResourceManager->GetTexture(maskPath, false);
@@ -120,7 +120,8 @@ namespace
             request.m_IsMoving,
             cellWidth,
             sourceHeight,
-            rowHeight);
+            rowHeight,
+            walkFrameCount);
         const float aspect = static_cast<float>(displayWidth) / static_cast<float>(displayHeight);
         const Vector2 size{ request.m_WorldHeight * aspect, request.m_WorldHeight };
         const Vector3 drawPosition{
@@ -134,6 +135,51 @@ namespace
 
         DrawBillboardRec(camera, *texture, source, drawPosition, size, WHITE);
         DrawBillboardRec(camera, *maskTexture, source, drawPosition, size, maskTint);
+    }
+
+    // Full-color unit sheet + grayscale army mask (archers / swordsmen).
+    void DrawDirectionalMaskedBillboardInternal(
+        const Camera3D& camera,
+        const LittlePersonBillboardDrawRequest& request,
+        const char* atlasPath,
+        const char* maskPath,
+        int cellWidth,
+        int cellHeight,
+        int walkFrameCount)
+    {
+        Texture* texture = g_ResourceManager->GetTexture(atlasPath, false);
+        Texture* maskTexture = g_ResourceManager->GetTexture(maskPath, false);
+        if (!texture || texture->id == 0)
+        {
+            return;
+        }
+
+        const LittlePeopleDirection spriteDirection = LittlePeopleDirectionForCamera(
+            request.m_WorldDirection,
+            camera);
+        const Rectangle source = GetDirectionalUnitSpriteSourceRect(
+            spriteDirection,
+            request.m_Frame,
+            request.m_IsMoving,
+            cellWidth,
+            cellHeight,
+            walkFrameCount);
+        const float aspect = static_cast<float>(cellWidth) / static_cast<float>(cellHeight);
+        const Vector2 size{ request.m_WorldHeight * aspect, request.m_WorldHeight };
+        const Vector3 drawPosition{
+            request.m_GroundPosition.x,
+            request.m_GroundPosition.y + request.m_WorldHeight * 0.5f,
+            request.m_GroundPosition.z
+        };
+
+        DrawBillboardRec(camera, *texture, source, drawPosition, size, request.m_Tint);
+
+        if (maskTexture && maskTexture->id != 0)
+        {
+            const Color armyColor = GetLittlePeopleArmyColor(request.m_Army);
+            const Color maskTint = ColorTint(armyColor, request.m_Tint);
+            DrawBillboardRec(camera, *maskTexture, source, drawPosition, size, maskTint);
+        }
     }
 }
 
@@ -179,12 +225,13 @@ Rectangle GetLittlePeopleAtlasSourceRect(int column, int row)
 }
 
 Rectangle GetMaskedUnitSpriteSourceRect(LittlePeopleDirection direction, int walkFrame, bool isMoving,
-    int cellWidth, int sourceHeight, int rowHeight)
+    int cellWidth, int sourceHeight, int rowHeight, int walkFrameCount)
 {
     const int directionIndex = static_cast<int>(direction);
     const int sheetRow = (LITTLEPEOPLE_DIRECTION_COUNT - 1) - directionIndex;
+    const int frames = walkFrameCount > 0 ? walkFrameCount : 1;
     const int frameColumn = isMoving
-        ? 1 + (walkFrame % LITTLEPEOPLE_WALK_FRAMES)
+        ? 1 + (walkFrame % frames)
         : 0;
 
     return Rectangle{
@@ -193,6 +240,39 @@ Rectangle GetMaskedUnitSpriteSourceRect(LittlePeopleDirection direction, int wal
         static_cast<float>(cellWidth),
         static_cast<float>(sourceHeight)
     };
+}
+
+Rectangle GetDirectionalUnitSpriteSourceRect(LittlePeopleDirection direction, int walkFrame, bool isMoving,
+    int cellWidth, int cellHeight, int walkFrameCount)
+{
+    // Rows top→bottom: S, SE, E, NE, N, NW, W, SW (matches LittlePeopleDirection).
+    const int sheetRow = static_cast<int>(direction) % LITTLEPEOPLE_DIRECTION_COUNT;
+    const int frames = walkFrameCount > 0 ? walkFrameCount : 1;
+    // Col 0 = standing; cols 1..N = walk cycle.
+    const int frameColumn = isMoving
+        ? 1 + (walkFrame % frames)
+        : 0;
+
+    return Rectangle{
+        static_cast<float>(frameColumn * cellWidth),
+        static_cast<float>(sheetRow * cellHeight),
+        static_cast<float>(cellWidth),
+        static_cast<float>(cellHeight)
+    };
+}
+
+Rectangle GetArcherSpriteSourceRect(LittlePeopleDirection direction, int walkFrame, bool isMoving)
+{
+    return GetDirectionalUnitSpriteSourceRect(
+        direction, walkFrame, isMoving,
+        ARCHER_CELL_WIDTH, ARCHER_CELL_HEIGHT, ARCHER_WALK_FRAMES);
+}
+
+Rectangle GetSwordsmanSpriteSourceRect(LittlePeopleDirection direction, int walkFrame, bool isMoving)
+{
+    return GetDirectionalUnitSpriteSourceRect(
+        direction, walkFrame, isMoving,
+        SWORDSMAN_CELL_WIDTH, SWORDSMAN_CELL_HEIGHT, SWORDSMAN_WALK_FRAMES);
 }
 
 LittlePeopleDirection LittlePeopleDirectionFromVector(float dx, float dz)
@@ -234,7 +314,22 @@ LittlePeopleDirection LittlePeopleDirectionForCamera(LittlePeopleDirection world
 
 int LittlePeopleWalkFrameFromTime(double timeSeconds, double stepsPerSecond)
 {
-    const int frame = static_cast<int>(timeSeconds * stepsPerSecond) % LITTLEPEOPLE_WALK_FRAMES;
+    return WalkFrameFromTime(timeSeconds, LITTLEPEOPLE_WALK_FRAMES, stepsPerSecond);
+}
+
+int WalkFrameFromTime(double timeSeconds, int frameCount, double stepsPerSecond)
+{
+    const int frames = frameCount > 0 ? frameCount : 1;
+    if (stepsPerSecond <= 0.0)
+    {
+        return 0;
+    }
+
+    int frame = static_cast<int>(timeSeconds * stepsPerSecond) % frames;
+    if (frame < 0)
+    {
+        frame += frames;
+    }
     return frame;
 }
 
@@ -327,29 +422,25 @@ void DrawLittlePeopleBillboardsSorted(const Camera3D& camera,
 
         if (request.m_MaskedSprite == LittlePersonMaskedSprite::Swordsman)
         {
-            DrawMaskedBillboardInternal(
+            DrawDirectionalMaskedBillboardInternal(
                 camera,
                 request,
                 SWORDSMAN_ATLAS_PATH,
                 SWORDSMAN_MASK_PATH,
                 SWORDSMAN_CELL_WIDTH,
                 SWORDSMAN_CELL_HEIGHT,
-                SWORDSMAN_CELL_HEIGHT,
-                SWORDSMAN_CELL_WIDTH,
-                SWORDSMAN_CELL_HEIGHT);
+                SWORDSMAN_WALK_FRAMES);
         }
         else if (request.m_MaskedSprite == LittlePersonMaskedSprite::Archer)
         {
-            DrawMaskedBillboardInternal(
+            DrawDirectionalMaskedBillboardInternal(
                 camera,
                 request,
                 ARCHER_ATLAS_PATH,
                 ARCHER_MASK_PATH,
                 ARCHER_CELL_WIDTH,
-                ARCHER_ROW_HEIGHT,
-                ARCHER_ROW_HEIGHT,
-                SWORDSMAN_CELL_WIDTH,
-                SWORDSMAN_CELL_HEIGHT);
+                ARCHER_CELL_HEIGHT,
+                ARCHER_WALK_FRAMES);
         }
         else
         {

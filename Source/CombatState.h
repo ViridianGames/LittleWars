@@ -25,21 +25,25 @@ private:
    void UpdateTerrainTargetPreview(const RegionHeightfield& heightfield);
    void HandleCombatInput(const RegionHeightfield& heightfield);
 
+   bool HasSelectedPlayerUnit() const;
+   CombatUnitInstance* GetSelectedPlayerUnit();
+
    std::vector<CombatUnitInstance> m_Units;
    std::vector<CombatProjectile> m_Projectiles;
    int m_SelectedUnitIndex = -1;
    bool m_HasMoveTarget = false;
    Vector3 m_MoveTarget{};
+   bool m_MoveTargetIsAttack = false; // true when marker is an attack / fire aim point
    bool m_HasHoverTarget = false;
    Vector3 m_HoverTarget{};
 
+   // Left-click gesture: quick-click = move; hold = face formation toward point.
    int m_GestureUnitIndex = -1;
    bool m_GestureStartedOnUnit = false;
    bool m_IsGestureHold = false;
    bool m_PendingQuickClick = false;
    Vector3 m_PendingTerrainTarget{};
    double m_LeftMousePressTime = 0.0;
-   Vector2 m_LeftMousePressPosition{};
    bool m_HasGestureFacingTarget = false;
    Vector3 m_GestureFacingTarget{};
 };

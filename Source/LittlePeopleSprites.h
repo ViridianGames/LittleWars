@@ -13,18 +13,25 @@ constexpr int LITTLEPEOPLE_WALK_FRAMES = 2;
 constexpr int LITTLEPEOPLE_ANIMATION_ROWS = 16;
 constexpr const char* LITTLEPEOPLE_ATLAS_PATH = "Images/littlepeople.png";
 
-constexpr int SWORDSMAN_CELL_WIDTH = 22;
-constexpr int SWORDSMAN_CELL_HEIGHT = 28;
-constexpr int SWORDSMAN_FRAME_COUNT = 3;
-constexpr const char* SWORDSMAN_ATLAS_PATH = "Images/swordsmen.png";
-constexpr const char* SWORDSMAN_MASK_PATH = "Images/swordsmenmask.png";
+// swordsmen4-fixed.png: 32x32 cells, 8 direction rows (S..SW),
+// 8 columns per row (col 0 = idle, cols 1-7 = walk cycle).
+// Mask recolors pants + shield with army color (same layout as atlas).
+constexpr int SWORDSMAN_CELL_WIDTH = 32;
+constexpr int SWORDSMAN_CELL_HEIGHT = 32;
+constexpr int SWORDSMAN_WALK_FRAMES = 7; // walking columns only (idle is separate)
+constexpr int SWORDSMAN_COLUMNS = 8;     // idle + 7 walk
+constexpr const char* SWORDSMAN_ATLAS_PATH = "Images/swordsmen4-fixed.png";
+constexpr const char* SWORDSMAN_MASK_PATH = "Images/swordsmen4-fixed-mask.png";
 
-constexpr int ARCHER_CELL_WIDTH = 30;
-constexpr int ARCHER_CELL_HEIGHT = 20;
-constexpr int ARCHER_ROW_HEIGHT = 30;
-constexpr int ARCHER_FRAME_COUNT = 3;
-constexpr const char* ARCHER_ATLAS_PATH = "Images/archers.png";
-constexpr const char* ARCHER_MASK_PATH = "Images/archermask.png";
+// archers-final-shrunk.png: 32x32 cells, 8 direction rows (S..SW),
+// 5 columns per row (col 0 = idle, cols 1-4 = walk cycle).
+// Mask recolors pants with army color (same layout as atlas).
+constexpr int ARCHER_CELL_WIDTH = 32;
+constexpr int ARCHER_CELL_HEIGHT = 32;
+constexpr int ARCHER_WALK_FRAMES = 4; // walking columns only (idle is separate)
+constexpr int ARCHER_COLUMNS = 5;     // idle + 4 walk
+constexpr const char* ARCHER_ATLAS_PATH = "Images/archers-final-shrunk.png";
+constexpr const char* ARCHER_MASK_PATH = "Images/archers-final-shrunk-mask.png";
 
 enum class LittlePeopleArmy : int
 {
@@ -72,8 +79,16 @@ Color GetLittlePeopleArmyColor(LittlePeopleArmy army);
 
 Rectangle GetLittlePeopleSpriteSourceRect(LittlePeopleArmy army, LittlePeopleDirection direction, int frame);
 
+// Legacy row-reversed layout (unused by new 32x32 sheets; kept for tools/compat).
 Rectangle GetMaskedUnitSpriteSourceRect(LittlePeopleDirection direction, int walkFrame, bool isMoving,
-    int cellWidth, int sourceHeight, int rowHeight);
+    int cellWidth, int sourceHeight, int rowHeight, int walkFrameCount = LITTLEPEOPLE_WALK_FRAMES);
+
+// New unit sheets: row = direction (S=0 .. SW=7), col 0 idle, cols 1+ walk.
+Rectangle GetDirectionalUnitSpriteSourceRect(LittlePeopleDirection direction, int walkFrame, bool isMoving,
+    int cellWidth, int cellHeight, int walkFrameCount);
+
+Rectangle GetArcherSpriteSourceRect(LittlePeopleDirection direction, int walkFrame, bool isMoving);
+Rectangle GetSwordsmanSpriteSourceRect(LittlePeopleDirection direction, int walkFrame, bool isMoving);
 
 Rectangle GetLittlePeopleAtlasSourceRect(int column, int row);
 
@@ -85,6 +100,7 @@ LittlePeopleDirection LittlePeopleDirectionForCamera(LittlePeopleDirection world
 float LittlePeopleCameraYawFromTarget(const Camera3D& camera);
 
 int LittlePeopleWalkFrameFromTime(double timeSeconds, double stepsPerSecond = 6.0);
+int WalkFrameFromTime(double timeSeconds, int frameCount, double stepsPerSecond = 6.0);
 
 void InitLittlePeopleSprites();
 void ShutdownLittlePeopleSprites();

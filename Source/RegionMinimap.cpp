@@ -67,16 +67,9 @@ namespace
 
     Ray GetMinimapScreenRay(Vector2 screenPosition, const Camera3D& camera)
     {
-        if (g_Engine->m_useVirtualResolution)
-        {
-            return GetScreenToWorldRayEx(
-                screenPosition,
-                camera,
-                GetRegionWorldViewWidth(),
-                GetRegionWorldViewHeight());
-        }
-
-        return GetScreenToWorldRay(screenPosition, camera);
+        const int width = g_Engine ? static_cast<int>(g_Engine->m_RenderWidth) : GetScreenWidth();
+        const int height = g_Engine ? static_cast<int>(g_Engine->m_RenderHeight) : GetScreenHeight();
+        return GetScreenToWorldRayEx(screenPosition, camera, width, height);
     }
 
     Vector2 WorldToMinimapPoint(Vector3 worldPosition, int minimapX, int minimapY, int minimapSize)

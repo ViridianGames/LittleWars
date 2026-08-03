@@ -1,5 +1,7 @@
 #include "PlayerTasksConfig.h"
 
+#include "CampaignAI.h"
+#include "GameGlobals.h"
 #include "OverworldMap.h"
 
 #include <algorithm>
@@ -401,6 +403,12 @@ bool PlayerTasksConfig::IsRegionValidForTask(
     const OverworldMap& map,
     int selectedRegionId) const
 {
+    // Attack targets a foreign/neutral adjacent county (not an owned one).
+    if (task.m_Effect.m_Type == "attack")
+    {
+        return CanPlayerAttackRegion(player, map, selectedRegionId);
+    }
+
     if (!task.m_RequiresRegion)
     {
         return true;
@@ -452,6 +460,19 @@ std::string PlayerTasksConfig::GetTaskFailureReason(
     if (!task.m_Cost.CanAfford(player))
     {
         return "Cannot afford: " + task.m_Name;
+    }
+
+    if (task.m_Effect.m_Type == "attack")
+    {
+        if (selectedRegionId < 0)
+        {
+            return "Select a neighboring enemy or unclaimed county to attack";
+        }
+        if (!CanPlayerAttackRegion(player, map, selectedRegionId))
+        {
+            return "Target must be adjacent, foreign/unclaimed land, and you need troops";
+        }
+        return "Cannot attack that county";
     }
 
     if (task.m_RequiresRegion && selectedRegionId < 0)
@@ -566,8 +587,14 @@ bool PlayerTasksConfig::ApplyEffect(
         return true;
     }
 
+    if (effect.m_Type == "attack")
+    {
+        // Cost is deducted by ExecuteTask; ResolveRegionAttack would double-charge.
+        // So conquest is handled inside ExecuteTask for attacks.
+        return true;
+    }
+
     if (effect.m_Type == "scouting"
-        || effect.m_Type == "attack"
         || effect.m_Type == "saboteur"
         || effect.m_Type == "spying"
         || effect.m_Type == "diplomat"
@@ -588,15 +615,18 @@ void PlayerTasksConfig::RegisterActiveTask(Player& player, const PlayerTaskDefin
         return;
     }
 
-    for (const auto& activeTask : player.m_ActiveTasks)
+    // Stack upkeep with each recruitment / ongoing order so mass armies cost to feed.
+    const int addStacks = std::max(1, task.m_Effect.m_Amount > 0 ? task.m_Effect.m_Amount : 1);
+    for (auto& activeTask : player.m_ActiveTasks)
     {
         if (activeTask.first == task.m_Id)
         {
+            activeTask.second += addStacks;
             return;
         }
     }
 
-    player.m_ActiveTasks.emplace_back(task.m_Id, 1);
+    player.m_ActiveTasks.emplace_back(task.m_Id, addStacks);
 }
 
 bool PlayerTasksConfig::ExecuteTask(
@@ -608,6 +638,19 @@ bool PlayerTasksConfig::ExecuteTask(
     if (!CanPlayerPerformTask(player, task, map, selectedRegionId))
     {
         return false;
+    }
+
+    // Attacks handle their own cost deduction inside ResolveRegionAttack so AI and
+    // the human task button share one path.
+    if (task.m_Effect.m_Type == "attack")
+    {
+        std::string message;
+        return ResolveRegionAttack(
+            player,
+            map,
+            g_GameDatabase.m_Players,
+            selectedRegionId,
+            &message);
     }
 
     task.m_Cost.Deduct(player);
@@ -628,26 +671,65 @@ bool PlayerTasksConfig::ExecuteTask(
 
 void PlayerTasksConfig::ApplyMaintenance(Player& player) const
 {
-    for (const auto& activeTaskEntry : player.m_ActiveTasks)
+    // Pay stacked upkeep. If the treasury can't cover a stack, desert that stack's units.
+    for (auto& activeTaskEntry : player.m_ActiveTasks)
     {
         const PlayerTaskDefinition* task = FindTaskById(activeTaskEntry.first);
-        if (!task || task->m_Maintenance.IsEmpty())
+        if (!task || task->m_Maintenance.IsEmpty() || activeTaskEntry.second <= 0)
         {
             continue;
         }
 
-        const ResourceAmount& upkeep = task->m_Maintenance;
-        if (upkeep.CanAfford(player))
+        const ResourceAmount& unitUpkeep = task->m_Maintenance;
+        int stacks = activeTaskEntry.second;
+        int paidStacks = 0;
+        for (int i = 0; i < stacks; ++i)
         {
-            upkeep.Deduct(player);
-            continue;
+            if (unitUpkeep.CanAfford(player))
+            {
+                unitUpkeep.Deduct(player);
+                ++paidStacks;
+            }
+            else
+            {
+                // Desertion: drain remaining resources and lose troops tied to this order.
+                player.m_Food = std::max(0, player.m_Food - unitUpkeep.m_Food);
+                player.m_Iron = std::max(0, player.m_Iron - unitUpkeep.m_Iron);
+                player.m_Gold = std::max(0, player.m_Gold - unitUpkeep.m_Gold);
+                player.m_Wood = std::max(0, player.m_Wood - unitUpkeep.m_Wood);
+
+                if (task->m_Effect.m_Type == "addSwordsmen" && player.m_Swordsmen > 0)
+                {
+                    --player.m_Swordsmen;
+                }
+                else if (task->m_Effect.m_Type == "addArchers" && player.m_Archers > 0)
+                {
+                    --player.m_Archers;
+                }
+                else if (task->m_Effect.m_Type == "addKnights" && player.m_Knights > 0)
+                {
+                    --player.m_Knights;
+                }
+                else if (task->m_Effect.m_Type == "addCatapults" && player.m_Catapults > 0)
+                {
+                    --player.m_Catapults;
+                }
+                else if (task->m_Effect.m_Type == "addSiegeTowers" && player.m_SiegeTowers > 0)
+                {
+                    --player.m_SiegeTowers;
+                }
+
+                player.m_Happiness = std::max(0, player.m_Happiness - 1);
+            }
         }
 
-        player.m_Food = std::max(0, player.m_Food - upkeep.m_Food);
-        player.m_Iron = std::max(0, player.m_Iron - upkeep.m_Iron);
-        player.m_Gold = std::max(0, player.m_Gold - upkeep.m_Gold);
-        player.m_Wood = std::max(0, player.m_Wood - upkeep.m_Wood);
+        activeTaskEntry.second = paidStacks;
     }
+
+    player.m_ActiveTasks.erase(
+        std::remove_if(player.m_ActiveTasks.begin(), player.m_ActiveTasks.end(),
+            [](const std::pair<std::string, int>& entry) { return entry.second <= 0; }),
+        player.m_ActiveTasks.end());
 }
 
 void ComputePlayerResourceBreakdown(
@@ -682,10 +764,11 @@ void ComputePlayerResourceBreakdown(
             continue;
         }
 
-        const int upkeep = task->m_Maintenance.GetAmount(resource);
+        const int stacks = std::max(1, activeTaskEntry.second);
+        const int upkeep = task->m_Maintenance.GetAmount(resource) * stacks;
         if (upkeep > 0)
         {
-            outLines.push_back(ResourceTurnLine{ "For " + task->m_Name, -upkeep });
+            outLines.push_back(ResourceTurnLine{ "For " + task->m_Name + " x" + std::to_string(stacks), -upkeep });
         }
     }
 
@@ -724,7 +807,7 @@ Player* GetHumanPlayer(std::vector<Player>& players)
         }
     }
 
-    return players.empty() ? nullptr : &players.front();
+    return nullptr;
 }
 
 const Player* GetHumanPlayer(const std::vector<Player>& players)
@@ -737,7 +820,7 @@ const Player* GetHumanPlayer(const std::vector<Player>& players)
         }
     }
 
-    return players.empty() ? nullptr : &players.front();
+    return nullptr;
 }
 
 int GetPlayerActiveTaskCount(const Player& player, const std::string& taskId)

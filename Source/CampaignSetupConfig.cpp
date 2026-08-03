@@ -188,15 +188,31 @@ void CampaignSetupScreenConfig::LoadDefaults()
     m_StartOptionIndex = -1;
 
     m_Options.push_back(SetupOptionDefinition{
+            "rulerGender", "Ruler", "rulerGender", SetupOptionType::Enum,
+            {
+                { "male", "Male", 0 },
+                { "female", "Female", 0 }
+            },
+            0, 0, 0, "male", ""
+        });
+    m_Options.push_back(SetupOptionDefinition{
             "difficulty", "Difficulty", "difficulty", SetupOptionType::Enum,
             {
-                { "squire", "Squire", 0 },
+                { "squire", "Esquire", 0 },
                 { "baron", "Baron", 0 },
-                { "viscount", "Viscount", 0 },
-                { "marquis", "Marquis", 0 },
+                { "viscount", "Duke", 0 },
+                { "marquis", "Prince", 0 },
                 { "king", "King", 0 }
             },
             0, 0, 0, "baron", ""
+        });
+    m_Options.push_back(SetupOptionDefinition{
+            "controlMode", "Control", "controlMode", SetupOptionType::Enum,
+            {
+                { "human", "You play", 0 },
+                { "allAi", "All AI (watch)", 0 }
+            },
+            0, 0, 0, "human", ""
         });
         m_Options.push_back(SetupOptionDefinition{
             "opponents", "Opponents", "enemyCount", SetupOptionType::Range,
@@ -337,6 +353,16 @@ int CampaignSetupScreenConfig::GetEnumIndex(const SetupOptionDefinition& option,
         return static_cast<int>(setup.m_Difficulty);
     }
 
+    if (option.m_Field == "rulerGender")
+    {
+        return static_cast<int>(setup.m_RulerGender);
+    }
+
+    if (option.m_Field == "controlMode")
+    {
+        return setup.m_AllAi ? 1 : 0;
+    }
+
     if (option.m_Field == "mapSize")
     {
         return static_cast<int>(setup.m_MapSize);
@@ -363,6 +389,18 @@ void CampaignSetupScreenConfig::SetEnumIndex(const SetupOptionDefinition& option
     if (option.m_Field == "difficulty")
     {
         setup.m_Difficulty = static_cast<Difficulty>(index);
+        return;
+    }
+
+    if (option.m_Field == "rulerGender")
+    {
+        setup.m_RulerGender = static_cast<RulerGender>(index);
+        return;
+    }
+
+    if (option.m_Field == "controlMode")
+    {
+        setup.m_AllAi = (index != 0);
         return;
     }
 
@@ -449,6 +487,12 @@ std::string CampaignSetupScreenConfig::GetValueLabel(int optionIndex, const Camp
         }
 
         return "";
+    }
+
+    // Difficulty titles follow the chosen ruler gender (Baron / Baroness, etc.).
+    if (option.m_Field == "difficulty")
+    {
+        return DifficultyName(setup.m_Difficulty, setup.m_RulerGender);
     }
 
     return FormatEnumValueLabel(option, GetEnumIndex(option, setup));

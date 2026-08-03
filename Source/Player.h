@@ -19,10 +19,19 @@ constexpr int kMaxCampaignPlayers = 8;
 
 constexpr int kRegionBaseIncome = 1;
 
+// Overworld AI personalities (see CampaignAI for behavior).
+enum class AiPersonality : int
+{
+    Turtle = 0,       // Rarely expands; recruits until upkeep bankrupts it
+    Expansionist = 1, // Grabs every available territory; never fortifies/improves
+    Balanced = 2      // Expands when sensible; fortifies and improves holdings
+};
+
 struct Player
 {
     int m_Id = -1;
     bool m_IsHuman = false;
+    AiPersonality m_AiPersonality = AiPersonality::Turtle;
 
     int m_Food = 0;
     int m_Iron = 0;
@@ -55,7 +64,8 @@ Color PlayerOwnerColor(int ownerId);
 const char* PlayerOwnerName(int ownerId);
 const char* DiplomaticRelationName(DiplomaticRelation relation);
 
-void InitializeCampaignPlayers(std::vector<Player>& players, int playerCount);
+// hasHumanPlayer: when false, every seat is AI (observer / all-AI games).
+void InitializeCampaignPlayers(std::vector<Player>& players, int playerCount, bool hasHumanPlayer = true);
 void SyncPlayersFromOverworld(const class OverworldMap& map, std::vector<Player>& players, bool resetAssets);
 void CollectTurnIncomeFromRegions(const class OverworldMap& map, std::vector<Player>& players);
 void ProcessCastleConstruction(class OverworldMap& map, std::vector<Player>& players);

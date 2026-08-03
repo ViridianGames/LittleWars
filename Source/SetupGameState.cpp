@@ -6,6 +6,7 @@
 #include "../Geist/Source/StateMachine.h"
 
 #include "SetupGameState.h"
+#include "CampaignAI.h"
 #include "GameGlobals.h"
 #include "OverworldMap.h"
 #include "Player.h"
@@ -112,8 +113,10 @@ void SetupGameState::StartCampaign()
 
     g_OverworldMap.Generate(g_GameDatabase.m_Setup.m_Seed, g_GameDatabase.m_Setup);
 
-    const int playerCount = std::clamp(1 + g_GameDatabase.m_Setup.m_EnemyCount, 1, kMaxCampaignPlayers);
-    InitializeCampaignPlayers(g_GameDatabase.m_Players, playerCount);
+    g_AiObserverLog.Clear();
+    const int playerCount = GetCampaignPlayerCount(g_GameDatabase.m_Setup);
+    InitializeCampaignPlayers(g_GameDatabase.m_Players, playerCount, !g_GameDatabase.m_Setup.m_AllAi);
+    AssignCampaignAiPersonalities(g_GameDatabase.m_Players, g_GameDatabase.m_Setup);
     SyncPlayersFromOverworld(g_OverworldMap, g_GameDatabase.m_Players, true);
     g_GameDatabase.m_Turn = 0;
     g_GameDatabase.BuildRegionsFromOverworld(g_OverworldMap);

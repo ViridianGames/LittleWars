@@ -94,11 +94,20 @@ enum class Difficulty : int
     King
 };
 
+enum class RulerGender : int
+{
+    Male = 0,
+    Female
+};
+
 constexpr int kDifficultyCount = 5;
+constexpr int kRulerGenderCount = 2;
 constexpr int kMinOpponents = 3;
 constexpr int kMaxOpponents = 7;
 
 const char* DifficultyName(Difficulty difficulty);
+const char* DifficultyName(Difficulty difficulty, RulerGender gender);
+const char* RulerGenderName(RulerGender gender);
 const char* MapSizeName(MapSize size);
 int MapSizeRegionCount(MapSize size);
 int MapSizeStartingRegions(MapSize size);
@@ -124,6 +133,9 @@ struct CampaignSetup
 {
     unsigned int m_Seed = 0;
     Difficulty m_Difficulty = Difficulty::Baron;
+    RulerGender m_RulerGender = RulerGender::Male;
+    // When true, no human seat — every player is AI (observer mode).
+    bool m_AllAi = false;
     int m_EnemyCount = 4;
     BattleMode m_BattleMode = BattleMode::OnMap;
     ResourceDistribution m_ResourceDistribution = ResourceDistribution::Balanced;
@@ -168,7 +180,7 @@ class GameDatabase
 {
 public:
     static constexpr const char* SAVE_MAGIC = "LWAR";
-    static constexpr int SAVE_VERSION = 9;
+    static constexpr int SAVE_VERSION = 11;
 
     CampaignSetup m_Setup;
     int m_Turn = 0;

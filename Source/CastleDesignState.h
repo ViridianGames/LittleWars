@@ -34,8 +34,13 @@ private:
     void DrawReferenceSwordsmen(const RegionHeightfield& heightfield) const;
     void InitializeReferenceSwordsmen();
     bool TryGetTerrainHitUnderMouse(const RegionHeightfield& heightfield, Vector3& outHit) const;
-    Vector3 SnapCastlePartPosition(CastlePartType type, int rotationDegrees, Vector3 rawPosition,
-        int excludeIndex, bool& outSnappedToExisting) const;
+    Vector3 SnapCastlePartPosition(
+        const RegionHeightfield& heightfield,
+        CastlePartType type,
+        int rotationDegrees,
+        Vector3 rawPosition,
+        int excludeIndex,
+        bool& outSnappedToExisting) const;
 
     std::vector<CastlePartPlacement> m_Placements;
     CastlePartType m_SelectedPartType = CastlePartType::RoundTower;

@@ -6,6 +6,8 @@
 
 #include <string>
 
+class Player;
+
 class MainState : public State
 {
 public:
@@ -43,12 +45,25 @@ private:
     bool IsMouseOverVisitButton(int panelX, int panelY, int panelWidth) const;
     bool CanVisitSelectedRegion() const;
 
+    // AI observer pane
+    void HandleAiObserverInput();
+    void DrawAiObserverPane() const;
+    void CycleObserverFilter(int delta);
+    const Player* GetWatchedPlayer() const;
+    bool IsAllAiGame() const;
+
     int m_SelectedRegionId = -1;
     int m_HoveredResourceBarSlot = -1;
     int m_HoveredTaskIndex = -1;
     std::string m_TaskStatusMessage;
     bool m_SelectedImpassable = false;
     unsigned char m_SelectedImpassableCellType = 0;
+
+    bool m_AiObserverOpen = false;
+    int m_AiObserverFilter = -1; // -1 = all AI, else player id
+    bool m_AiAutoPlay = false;
+    float m_AiAutoPlayTimer = 0.0f;
+    int m_WatchedPlayerId = 0; // resource bar when no human
 };
 
 #endif
