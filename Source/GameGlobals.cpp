@@ -176,7 +176,14 @@ void ClampCampaignSetup(CampaignSetup& setup)
         setup.m_RulerGender = RulerGender::Male;
     }
 
-    setup.m_EnemyCount = std::clamp(setup.m_EnemyCount, kMinOpponents, kMaxOpponents);
+    if (setup.m_AllAi)
+    {
+        setup.m_EnemyCount = std::clamp(setup.m_EnemyCount, kMinAiObservePlayers, kMaxAiObservePlayers);
+    }
+    else
+    {
+        setup.m_EnemyCount = std::clamp(setup.m_EnemyCount, kMinOpponents, kMaxOpponents);
+    }
 
     const int mapSizeValue = static_cast<int>(setup.m_MapSize);
     if (mapSizeValue < static_cast<int>(MapSize::Small) || mapSizeValue > static_cast<int>(MapSize::Huge))
@@ -1139,7 +1146,7 @@ void GameDatabase::BuildRegionsFromOverworld(const OverworldMap& map)
         region.m_MapY = overworldRegion.m_SeedY;
         region.m_OwnerId = overworldRegion.m_OwnerId;
         region.m_HasCastle = overworldRegion.m_HasCastle;
-        region.m_Income = GetRegionTurnIncome(overworldRegion);
+        region.m_Income = GetRegionTurnIncome(map, overworldRegion);
         region.m_Resource = static_cast<unsigned char>(overworldRegion.m_Resource);
         region.m_HeightfieldSeed = DeriveRegionSeed(m_Setup.m_Seed, overworldRegion.m_Id);
         m_Regions.push_back(region);

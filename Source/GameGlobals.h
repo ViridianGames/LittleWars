@@ -104,6 +104,9 @@ constexpr int kDifficultyCount = 5;
 constexpr int kRulerGenderCount = 2;
 constexpr int kMinOpponents = 3;
 constexpr int kMaxOpponents = 7;
+// All-AI observe mode stores total player count in m_EnemyCount (not "opponents").
+constexpr int kMinAiObservePlayers = 4;
+constexpr int kMaxAiObservePlayers = 8;
 
 const char* DifficultyName(Difficulty difficulty);
 const char* DifficultyName(Difficulty difficulty, RulerGender gender);

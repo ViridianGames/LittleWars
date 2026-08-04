@@ -7,8 +7,12 @@
 #include <vector>
 
 struct CampaignSetup;
+class OverworldMap;
 
-constexpr int OVERWORLD_MAP_SIZE = 128;
+// Campaign map grid (cells). Wider than tall so large region counts have more room
+// while still fitting 2px/cell under a 270-tall virtual resolution with the resource strip.
+constexpr int OVERWORLD_MAP_WIDTH = 160;
+constexpr int OVERWORLD_MAP_HEIGHT = 128;
 
 enum OverworldCellType : unsigned char
 {
@@ -48,10 +52,13 @@ struct OverworldRegionData
     std::vector<int> m_AdjacentRegionIds;
 };
 
-constexpr int kCastleOutputMultiplier = 2;
+// Income/defense bonus for fortified counties (castle site + same-owner neighbors).
+constexpr int kFortifiedOutputMultiplier = 2;
+// Legacy alias used by older call sites / docs.
+constexpr int kCastleOutputMultiplier = kFortifiedOutputMultiplier;
 
-int GetRegionIncomeMultiplier(const OverworldRegionData& region);
-int GetRegionTurnIncome(const OverworldRegionData& region);
+int GetRegionIncomeMultiplier(const OverworldMap& map, const OverworldRegionData& region);
+int GetRegionTurnIncome(const OverworldMap& map, const OverworldRegionData& region);
 
 const char* CountyResourceName(CountyResource resource);
 char CountyResourceMarker(CountyResource resource);
@@ -84,6 +91,10 @@ public:
     RegionBorderType GetBorderType(int regionA, int regionB) const;
     std::vector<int> GetTraversableAdjacentRegions(int regionId) const;
 
+    // Owned land with a castle, or owned land bordering a same-owner castled region.
+    // Fortified counties get double income and easier defense.
+    bool IsRegionFortified(int regionId) const;
+
 private:
     bool IsInBounds(int x, int y) const;
     bool IsLandCell(OverworldCellType type) const;
@@ -95,11 +106,13 @@ private:
     void DesignateWaterRegions(RNG& rng, int minConquerableRegions);
     void ClearLandRegionInteriors();
     void CarveInterRegionMountains();
+    // Visual-only land cover (forests/meadows). Does not change regions or ownership.
+    void DecorateLandTerrain(RNG& rng);
     void RecalculateRegionCellCounts();
     void BuildAdjacency();
     void AssignRegionBorders(RNG& rng);
     void AssignRegionResources(RNG& rng, int resourceDistribution);
-    void AssignRegionCampaignState(RNG& rng, int enemyCount, int startingRegionsPerPlayer);
+    void AssignRegionCampaignState(RNG& rng, int playerCount, int startingRegionsPerPlayer);
 
     bool m_Generated = false;
     unsigned int m_Seed = 0;

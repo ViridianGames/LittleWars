@@ -65,7 +65,13 @@ void AiObserverLog::CollectFiltered(int filterPlayerId, int maxCount, std::vecto
 
 int GetCampaignPlayerCount(const CampaignSetup& setup)
 {
-    // Human games: you + N opponents. All-AI: same roster size, everyone is AI.
+    // Human games: you + N opponents (m_EnemyCount = 3..7).
+    // All-AI observe: m_EnemyCount is total AI players (4..8).
+    if (setup.m_AllAi)
+    {
+        return std::clamp(setup.m_EnemyCount, kMinAiObservePlayers, kMaxAiObservePlayers);
+    }
+
     return std::clamp(1 + setup.m_EnemyCount, 1, kMaxCampaignPlayers);
 }
 
@@ -73,8 +79,7 @@ namespace
 {
     void AiNote(const Player& player, const std::string& message)
     {
-        g_AiObserverLog.Add(player.m_Id, std::string(player.GetColorName()) + " ("
-            + AiPersonalityName(player.m_AiPersonality) + "): " + message);
+        g_AiObserverLog.Add(player.m_Id, std::string(player.GetColorName()) + ": " + message);
     }
 
     void SyncGameDbOwner(int regionId, int ownerId)
@@ -97,7 +102,7 @@ namespace
         {
             if (RegionData* region = g_GameDatabase.GetRegion(regionId))
             {
-                region->m_Income = GetRegionTurnIncome(*ow);
+                region->m_Income = GetRegionTurnIncome(g_OverworldMap, *ow);
                 region->m_HasCastle = ow->m_HasCastle;
             }
         }
@@ -143,6 +148,7 @@ namespace
         int m_Score = 0;
         bool m_IsNeutral = false;
         bool m_HasCastle = false;
+        bool m_IsFortified = false;
         int m_Income = 0;
     };
 
@@ -166,9 +172,10 @@ namespace
             candidate.m_OwnerId = region.m_OwnerId;
             candidate.m_IsNeutral = region.m_OwnerId < 0;
             candidate.m_HasCastle = region.m_HasCastle;
-            candidate.m_Income = GetRegionTurnIncome(region);
+            candidate.m_IsFortified = map.IsRegionFortified(region.m_Id);
+            candidate.m_Income = GetRegionTurnIncome(map, region);
 
-            // Prefer free land, then rich land, avoid castles unless expansionist/hard.
+            // Prefer free land, then rich land; fortified/castle holdings are harder.
             candidate.m_Score = candidate.m_Income * 10;
             if (candidate.m_IsNeutral)
             {
@@ -177,6 +184,10 @@ namespace
             if (candidate.m_HasCastle)
             {
                 candidate.m_Score -= 25;
+            }
+            else if (candidate.m_IsFortified)
+            {
+                candidate.m_Score -= 12;
             }
 
             candidates.push_back(candidate);
@@ -190,18 +201,18 @@ namespace
         return candidates;
     }
 
-    int EstimateDefendStrength(const OverworldMap& map, const std::vector<Player>& players, int ownerId, bool hasCastle)
+    int EstimateDefendStrength(const OverworldMap& map, const std::vector<Player>& players, int ownerId, bool fortified)
     {
         if (ownerId < 0 || ownerId >= static_cast<int>(players.size()))
         {
-            return hasCastle ? 4 : 1;
+            return fortified ? 4 : 1;
         }
 
         const Player& defender = players[static_cast<size_t>(ownerId)];
         const int regions = std::max(1, CountOwnedRegions(map, ownerId));
         // Local defense scales with share of army "garrisoned" loosely.
         int strength = std::max(1, GetPlayerArmyStrength(defender) / std::max(1, regions / 2 + 1));
-        if (hasCastle)
+        if (fortified)
         {
             strength += 8;
         }
@@ -221,7 +232,7 @@ namespace
         }
 
         const int attackPower = GetPlayerArmyStrength(attacker);
-        const int defendPower = EstimateDefendStrength(map, players, target.m_OwnerId, target.m_HasCastle);
+        const int defendPower = EstimateDefendStrength(map, players, target.m_OwnerId, target.m_IsFortified);
 
         switch (personality)
         {
@@ -385,7 +396,7 @@ namespace
                     continue;
                 }
 
-                const int score = 10 - region.m_OutputMultiplier * 2 + GetRegionTurnIncome(region);
+                const int score = 10 - region.m_OutputMultiplier * 2 + GetRegionTurnIncome(map, region);
                 if (score > bestScore)
                 {
                     bestScore = score;
@@ -402,7 +413,7 @@ namespace
                     {
                         if (const OverworldRegionData* ow = map.GetRegion(bestRegion))
                         {
-                            dbRegion->m_Income = GetRegionTurnIncome(*ow);
+                            dbRegion->m_Income = GetRegionTurnIncome(map, *ow);
                         }
                     }
                 }
@@ -440,7 +451,7 @@ namespace
                         }
                     }
 
-                    const int score = borderThreat * 5 + GetRegionTurnIncome(region);
+                    const int score = borderThreat * 5 + GetRegionTurnIncome(map, region);
                     if (score > bestScore)
                     {
                         bestScore = score;
@@ -664,7 +675,8 @@ bool ResolveRegionAttack(
     const int defenderId = target->m_OwnerId;
     const bool wasNeutral = defenderId < 0;
     const int attackPower = GetPlayerArmyStrength(attacker);
-    const int defendPower = EstimateDefendStrength(map, players, defenderId, target->m_HasCastle);
+    const int defendPower = EstimateDefendStrength(
+        map, players, defenderId, map.IsRegionFortified(targetRegionId));
 
     // Light RNG-free auto-resolve: edge of 0 is a hard fight that still favors attacker slightly.
     const bool attackerWins = wasNeutral || (attackPower + 1 >= defendPower);

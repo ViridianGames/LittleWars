@@ -17,22 +17,25 @@ using namespace std;
 namespace
 {
     constexpr int kMapPixelsPerCell = 2;
-    constexpr int kMapDrawX = 4;
-    constexpr int kResourceBarHeight = 12;
-    constexpr int kResourceBarY = 4;
-    constexpr int kMapDrawY = kResourceBarY + kResourceBarHeight + 1;
-    constexpr int kCountyInfoHeight = 78;
-    constexpr int kPlayerBoxHeight = 40;
-    constexpr int kPlayerBoxGap = 2;
-    constexpr int kPlayerColumnGap = 2;
-    constexpr int kPlayerColumns = 2;
-    constexpr int kNextTurnButtonWidth = 96;
-    constexpr int kNextTurnButtonHeight = 22;
-    constexpr int kVisitButtonWidth = 48;
-    constexpr int kVisitButtonHeight = 14;
-    constexpr int kPanelMargin = 4;
-    constexpr bool kShowPlayerStatusBoxes = false;
-    constexpr bool kShowAccessibilityGrid = true;
+    constexpr int kMapDrawX = 1;
+    constexpr int kTopBarHeight = 14;
+    constexpr int kTopBarY = 1;
+    constexpr int kMapDrawY = kTopBarY + kTopBarHeight + 1;
+    constexpr int kSidePanelGap = 1;
+    constexpr int kSidePanelRightMargin = 1;
+    constexpr int kPaneGap = 2;
+
+    // Top selection pane (shorter), bottom actions, middle console fills remainder.
+    constexpr int kSelectionPaneHeight = 62;
+    constexpr int kActionPaneMinHeight = 102;
+    constexpr int kActionButtonRows = 3;
+    constexpr int kActionButtonCols = 3;
+    constexpr int kActionCount = 9;
+    constexpr int kNextTurnButtonHeight = 16;
+    constexpr int kActionButtonHeight = 18;
+    constexpr int kActionPad = 3;
+
+    constexpr int kTopBarSlotCount = 8; // 4 resources + 4 unit types
     constexpr int kResourceTooltipPadding = 4;
     constexpr int kResourceTooltipLineHeight = 12;
     constexpr int kResourceIconCenterOffset = 5;
@@ -44,11 +47,44 @@ namespace
         CountyResource::Gold
     };
 
-    Rectangle GetNextTurnButtonRect()
+    // Action strip order (3x3 grid, row-major).
+    constexpr const char* kActionTaskIds[kActionCount] = {
+        "recruitInfantry",
+        "recruitArchers",
+        "recruitKnights",
+        "buildCatapult",
+        "improveRegion",
+        "buildCastle",
+        "sendDiplomat",
+        "sendSpy",
+        "merchant"
+    };
+
+    constexpr const char* kActionLabels[kActionCount] = {
+        "Swordsman",
+        "Archer",
+        "Cavalry",
+        "Catapult",
+        "Improve",
+        "Castle",
+        "Diplomat",
+        "Spy",
+        "Market"
+    };
+
+    int MapPixelWidth()
     {
-        const float x = static_cast<float>(g_Engine->m_RenderWidth) - static_cast<float>(kNextTurnButtonWidth + kPanelMargin);
-        const float y = static_cast<float>(g_Engine->m_RenderHeight) - static_cast<float>(kNextTurnButtonHeight + kPanelMargin);
-        return Rectangle{ x, y, static_cast<float>(kNextTurnButtonWidth), static_cast<float>(kNextTurnButtonHeight) };
+        return OVERWORLD_MAP_WIDTH * kMapPixelsPerCell;
+    }
+
+    int MapPixelHeight()
+    {
+        return OVERWORLD_MAP_HEIGHT * kMapPixelsPerCell;
+    }
+
+    int TopBarWidth()
+    {
+        return static_cast<int>(g_Engine->m_RenderWidth) - 2;
     }
 
     Vector2 GetScaledMousePosition()
@@ -60,25 +96,31 @@ namespace
         return mouse;
     }
 
-    void DrawResourceBarEntry(
+    void DrawBarStat(
         int slotX,
         int barY,
-        CountyResource resource,
+        int slotWidth,
+        CountyResource resourceIcon,
         int amount,
-        int delta)
+        int delta,
+        bool drawResourceIcon)
     {
-        const float centerY = static_cast<float>(barY) + static_cast<float>(kResourceBarHeight) * 0.5f;
-        const Vector2 iconCenter{
-            static_cast<float>(slotX + kResourceIconCenterOffset),
-            centerY
-        };
-        DrawRegionResourceIcon(resource, iconCenter, WHITE);
+        const float centerY = static_cast<float>(barY) + static_cast<float>(kTopBarHeight) * 0.5f;
+        float textX = static_cast<float>(slotX + 2);
+
+        if (drawResourceIcon)
+        {
+            const Vector2 iconCenter{
+                static_cast<float>(slotX + kResourceIconCenterOffset),
+                centerY
+            };
+            DrawRegionResourceIcon(resourceIcon, iconCenter, WHITE);
+            textX = static_cast<float>(slotX + 12);
+        }
 
         const string amountText = to_string(amount);
         const Vector2 amountSize = MeasureTextEx(*g_smallFont, amountText.c_str(), g_smallFontDrawSize, 1.0f);
-        const float textX = static_cast<float>(slotX + 12);
         const float textY = centerY - amountSize.y * 0.5f;
-
         DrawOutlinedText(g_smallFont, amountText, Vector2{ textX, textY }, g_smallFontDrawSize, 1, WHITE);
 
         if (delta != 0)
@@ -87,17 +129,42 @@ namespace
             const Color deltaColor = delta > 0
                 ? Color{ 120, 220, 120, 255 }
                 : Color{ 220, 120, 120, 255 };
-
             DrawOutlinedText(
                 g_smallFont,
                 deltaText,
-                Vector2{ textX + amountSize.x + 3.0f, textY },
+                Vector2{ textX + amountSize.x + 2.0f, textY },
                 g_smallFontDrawSize,
                 1,
                 deltaColor);
         }
+
+        (void)slotWidth;
     }
 
+    void DrawUnitBarEntry(int slotX, int barY, const char* tag, int amount, Color tagColor)
+    {
+        const float centerY = static_cast<float>(barY) + static_cast<float>(kTopBarHeight) * 0.5f;
+        const string tagText = tag;
+        const Vector2 tagSize = MeasureTextEx(*g_smallFont, tagText.c_str(), g_smallFontDrawSize, 1.0f);
+        const float textY = centerY - tagSize.y * 0.5f;
+        DrawOutlinedText(g_smallFont, tagText, Vector2{ static_cast<float>(slotX + 2), textY },
+            g_smallFontDrawSize, 1, tagColor);
+        DrawOutlinedText(g_smallFont, to_string(amount),
+            Vector2{ static_cast<float>(slotX + 2) + tagSize.x + 2.0f, textY },
+            g_smallFontDrawSize, 1, WHITE);
+    }
+
+    void DrawPanelFrame(int x, int y, int w, int h, const char* title)
+    {
+        DrawRectangle(x, y, w, h, Color{ 34, 38, 48, 255 });
+        DrawRectangleLines(x, y, w, h, Color{ 90, 90, 100, 255 });
+        if (title && g_font)
+        {
+            DrawOutlinedText(g_font, title,
+                Vector2{ static_cast<float>(x + 3), static_cast<float>(y + 2) },
+                g_fontDrawSize, 1, Color{ 255, 230, 90, 255 });
+        }
+    }
 }
 
 void MainState::Init(const std::string& configfile)
@@ -107,7 +174,6 @@ void MainState::Init(const std::string& configfile)
 
 void MainState::Shutdown()
 {
-
 }
 
 void MainState::OnEnter()
@@ -133,8 +199,7 @@ void MainState::OnEnter()
 
     g_GameDatabase.SyncPlayersFromOverworld(g_OverworldMap, false);
 
-    // All-AI campaigns open the observer by default so you can see what is happening.
-    m_AiObserverOpen = IsAllAiGame();
+    m_AiObserverOpen = false;
     m_AiAutoPlay = false;
     m_AiAutoPlayTimer = 0.0f;
     m_AiObserverFilter = -1;
@@ -149,11 +214,194 @@ void MainState::OnEnter()
         g_GameDatabase.BuildRegionsFromOverworld(g_OverworldMap);
         g_GameDatabase.GenerateAllRegionHeightfields();
     }
+
+    if (g_AiObserverLog.GetEntries().empty())
+    {
+        g_AiObserverLog.BeginTurn(std::max(0, g_GameDatabase.m_Turn));
+        g_AiObserverLog.Add(-1, "Campaign ready. Issue orders, then Next Turn.");
+    }
 }
 
 void MainState::OnExit()
 {
+}
 
+MainState::SideLayout MainState::ComputeSideLayout() const
+{
+    SideLayout layout{};
+    layout.m_PanelX = kMapDrawX + MapPixelWidth() + kSidePanelGap;
+    layout.m_PanelW = static_cast<int>(g_Engine->m_RenderWidth) - layout.m_PanelX - kSidePanelRightMargin;
+    if (layout.m_PanelW < 1)
+    {
+        layout.m_PanelW = 1;
+    }
+
+    layout.m_TopY = kMapDrawY;
+    layout.m_TopH = kSelectionPaneHeight;
+
+    const int mapBottom = kMapDrawY + MapPixelHeight();
+    layout.m_BotH = kActionPaneMinHeight;
+    layout.m_BotY = mapBottom - layout.m_BotH;
+
+    layout.m_MidY = layout.m_TopY + layout.m_TopH + kPaneGap;
+    layout.m_MidH = layout.m_BotY - kPaneGap - layout.m_MidY;
+    if (layout.m_MidH < 24)
+    {
+        // Prefer keeping selection + actions; shrink middle if squeezed.
+        layout.m_MidH = 24;
+        layout.m_BotY = layout.m_MidY + layout.m_MidH + kPaneGap;
+        layout.m_BotH = mapBottom - layout.m_BotY;
+    }
+
+    return layout;
+}
+
+const char* MainState::GetActionTaskId(int actionIndex) const
+{
+    if (actionIndex < 0 || actionIndex >= kActionCount)
+    {
+        return nullptr;
+    }
+    return kActionTaskIds[actionIndex];
+}
+
+const char* MainState::GetActionLabel(int actionIndex) const
+{
+    if (actionIndex < 0 || actionIndex >= kActionCount)
+    {
+        return "";
+    }
+    return kActionLabels[actionIndex];
+}
+
+Rectangle MainState::GetTopBarSlotRect(int slotIndex) const
+{
+    const int barX = 1;
+    const int barW = TopBarWidth();
+    const int slotW = barW / kTopBarSlotCount;
+    return Rectangle{
+        static_cast<float>(barX + slotIndex * slotW),
+        static_cast<float>(kTopBarY),
+        static_cast<float>(slotW),
+        static_cast<float>(kTopBarHeight)
+    };
+}
+
+void MainState::HandleTopBarInput()
+{
+    m_HoveredTopBarSlot = -1;
+    const Vector2 mouse = GetScaledMousePosition();
+    for (int i = 0; i < kTopBarSlotCount; ++i)
+    {
+        if (CheckCollisionPointRec(mouse, GetTopBarSlotRect(i)))
+        {
+            m_HoveredTopBarSlot = i;
+            break;
+        }
+    }
+}
+
+void MainState::DrawTopBar() const
+{
+    const Player* watched = GetWatchedPlayer();
+    if (!watched)
+    {
+        return;
+    }
+
+    const int barX = 1;
+    const int barW = TopBarWidth();
+    DrawRectangle(barX, kTopBarY, barW, kTopBarHeight, Color{ 30, 34, 42, 255 });
+    DrawRectangleLines(barX, kTopBarY, barW, kTopBarHeight, Color{ 90, 90, 100, 255 });
+
+    ResourceAmount turnDelta{};
+    ComputePlayerTurnDelta(g_OverworldMap, *watched, turnDelta);
+
+    const int slotW = barW / kTopBarSlotCount;
+    DrawBarStat(barX + slotW * 0, kTopBarY, slotW, CountyResource::Food, watched->m_Food, turnDelta.m_Food, true);
+    DrawBarStat(barX + slotW * 1, kTopBarY, slotW, CountyResource::Wood, watched->m_Wood, turnDelta.m_Wood, true);
+    DrawBarStat(barX + slotW * 2, kTopBarY, slotW, CountyResource::Iron, watched->m_Iron, turnDelta.m_Iron, true);
+    DrawBarStat(barX + slotW * 3, kTopBarY, slotW, CountyResource::Gold, watched->m_Gold, turnDelta.m_Gold, true);
+
+    DrawUnitBarEntry(barX + slotW * 4, kTopBarY, "Sw", watched->m_Swordsmen, Color{ 200, 200, 210, 255 });
+    DrawUnitBarEntry(barX + slotW * 5, kTopBarY, "Ar", watched->m_Archers, Color{ 160, 210, 160, 255 });
+    DrawUnitBarEntry(barX + slotW * 6, kTopBarY, "Kn", watched->m_Knights, Color{ 220, 200, 120, 255 });
+    DrawUnitBarEntry(barX + slotW * 7, kTopBarY, "Ct", watched->m_Catapults, Color{ 180, 160, 140, 255 });
+
+    // Turn number on the far right edge of the last slot.
+    const string turnText = "T" + to_string(g_GameDatabase.m_Turn);
+    const Vector2 turnSize = MeasureTextEx(*g_smallFont, turnText.c_str(), g_smallFontDrawSize, 1.0f);
+    DrawOutlinedText(g_smallFont, turnText,
+        Vector2{ static_cast<float>(barX + barW) - turnSize.x - 3.0f, static_cast<float>(kTopBarY + 2) },
+        g_smallFontDrawSize, 1, Color{ 180, 180, 200, 255 });
+}
+
+void MainState::DrawTopBarTooltip() const
+{
+    if (m_HoveredTopBarSlot < 0 || m_HoveredTopBarSlot >= 4)
+    {
+        return;
+    }
+
+    const Player* watched = GetWatchedPlayer();
+    if (!watched)
+    {
+        return;
+    }
+
+    const CountyResource resource = kResourceBarSlotOrder[m_HoveredTopBarSlot];
+    std::vector<ResourceTurnLine> lines;
+    ComputePlayerResourceBreakdown(g_OverworldMap, *watched, resource, lines);
+    if (lines.empty())
+    {
+        return;
+    }
+
+    float maxTextWidth = 0.0f;
+    std::vector<string> rowTexts;
+    std::vector<Color> rowColors;
+    for (const ResourceTurnLine& line : lines)
+    {
+        string text;
+        Color color;
+        if (line.m_Amount > 0)
+        {
+            text = "+" + to_string(line.m_Amount) + " " + line.m_Label;
+            color = Color{ 120, 220, 120, 255 };
+        }
+        else
+        {
+            text = to_string(line.m_Amount) + " " + line.m_Label;
+            color = Color{ 220, 120, 120, 255 };
+        }
+        rowTexts.push_back(text);
+        rowColors.push_back(color);
+        const Vector2 textSize = MeasureTextEx(*g_smallFont, text.c_str(), g_smallFontDrawSize, 1.0f);
+        maxTextWidth = std::max(maxTextWidth, textSize.x);
+    }
+
+    const Rectangle slot = GetTopBarSlotRect(m_HoveredTopBarSlot);
+    const int tooltipX = static_cast<int>(slot.x);
+    const int tooltipY = kMapDrawY;
+    const int tooltipWidth = static_cast<int>(maxTextWidth) + (kResourceTooltipPadding * 2);
+    const int tooltipHeight = (kResourceTooltipPadding * 2)
+        + (static_cast<int>(rowTexts.size()) * kResourceTooltipLineHeight);
+
+    DrawRectangle(tooltipX, tooltipY, tooltipWidth, tooltipHeight, Color{ 24, 28, 36, 245 });
+    DrawRectangleLines(tooltipX, tooltipY, tooltipWidth, tooltipHeight, Color{ 90, 90, 100, 255 });
+
+    int lineY = tooltipY + kResourceTooltipPadding;
+    for (size_t i = 0; i < rowTexts.size(); ++i)
+    {
+        DrawOutlinedText(
+            g_smallFont,
+            rowTexts[i],
+            Vector2{ static_cast<float>(tooltipX + kResourceTooltipPadding), static_cast<float>(lineY) },
+            g_smallFontDrawSize,
+            1,
+            rowColors[i]);
+        lineY += kResourceTooltipLineHeight;
+    }
 }
 
 void MainState::HandleMapSelection()
@@ -165,8 +413,8 @@ void MainState::HandleMapSelection()
 
     Vector2 mouse = GetScaledMousePosition();
 
-    const int mapPixelWidth = OVERWORLD_MAP_SIZE * kMapPixelsPerCell;
-    const int mapPixelHeight = OVERWORLD_MAP_SIZE * kMapPixelsPerCell;
+    const int mapPixelWidth = MapPixelWidth();
+    const int mapPixelHeight = MapPixelHeight();
 
     if (mouse.x < static_cast<float>(kMapDrawX) || mouse.y < static_cast<float>(kMapDrawY)
         || mouse.x >= static_cast<float>(kMapDrawX + mapPixelWidth)
@@ -192,7 +440,6 @@ void MainState::HandleMapSelection()
         {
             m_SelectedImpassable = false;
         }
-
         return;
     }
 
@@ -208,116 +455,6 @@ void MainState::HandleMapSelection()
     m_SelectedImpassable = false;
     m_SelectedRegionId = regionId;
     g_GameDatabase.SetActiveRegion(regionId);
-}
-
-Rectangle MainState::GetResourceBarSlotRect(int barX, int barWidth, int slotIndex) const
-{
-    const int slotWidth = barWidth / 4;
-    return Rectangle{
-        static_cast<float>(barX + (slotIndex * slotWidth)),
-        static_cast<float>(kResourceBarY),
-        static_cast<float>(slotWidth),
-        static_cast<float>(kResourceBarHeight)
-    };
-}
-
-void MainState::HandleResourceBarInput(int barX, int barWidth)
-{
-    m_HoveredResourceBarSlot = -1;
-    const Vector2 mouse = GetScaledMousePosition();
-
-    for (int slotIndex = 0; slotIndex < 4; ++slotIndex)
-    {
-        if (CheckCollisionPointRec(mouse, GetResourceBarSlotRect(barX, barWidth, slotIndex)))
-        {
-            m_HoveredResourceBarSlot = slotIndex;
-            break;
-        }
-    }
-}
-
-int MainState::GetResourceBarIconLeftX(int barX, int barWidth, int slotIndex) const
-{
-    const int slotWidth = barWidth / 4;
-    const int slotX = barX + (slotIndex * slotWidth);
-    const CountyResource resource = kResourceBarSlotOrder[slotIndex];
-    const MapTilesSpriteSpec iconSpec = GetMapTilesResourceSpec(resource);
-    return slotX + kResourceIconCenterOffset - (iconSpec.m_Width / 2);
-}
-
-void MainState::DrawResourceBarTooltip(int barX, int barWidth) const
-{
-    if (m_HoveredResourceBarSlot < 0 || m_HoveredResourceBarSlot >= 4)
-    {
-        return;
-    }
-
-    const Player* watched = GetWatchedPlayer();
-    if (!watched)
-    {
-        return;
-    }
-
-    const CountyResource resource = kResourceBarSlotOrder[m_HoveredResourceBarSlot];
-    std::vector<ResourceTurnLine> lines;
-    ComputePlayerResourceBreakdown(g_OverworldMap, *watched, resource, lines);
-    if (lines.empty())
-    {
-        return;
-    }
-
-    struct TooltipRow
-    {
-        string m_Text;
-        Color m_Color;
-    };
-
-    std::vector<TooltipRow> rows;
-    rows.reserve(lines.size());
-    for (const ResourceTurnLine& line : lines)
-    {
-        TooltipRow row{};
-        if (line.m_Amount > 0)
-        {
-            row.m_Text = "+" + to_string(line.m_Amount) + " " + line.m_Label;
-            row.m_Color = Color{ 120, 220, 120, 255 };
-        }
-        else
-        {
-            row.m_Text = to_string(line.m_Amount) + " " + line.m_Label;
-            row.m_Color = Color{ 220, 120, 120, 255 };
-        }
-
-        rows.push_back(row);
-    }
-
-    float maxTextWidth = 0.0f;
-    for (const TooltipRow& row : rows)
-    {
-        const Vector2 textSize = MeasureTextEx(*g_smallFont, row.m_Text.c_str(), g_smallFontDrawSize, 1.0f);
-        maxTextWidth = std::max(maxTextWidth, textSize.x);
-    }
-
-    const int tooltipX = GetResourceBarIconLeftX(barX, barWidth, m_HoveredResourceBarSlot);
-    const int tooltipY = kMapDrawY;
-    const int tooltipWidth = static_cast<int>(maxTextWidth) + (kResourceTooltipPadding * 2);
-    const int tooltipHeight = (kResourceTooltipPadding * 2) + (static_cast<int>(rows.size()) * kResourceTooltipLineHeight);
-
-    DrawRectangle(tooltipX, tooltipY, tooltipWidth, tooltipHeight, Color{ 24, 28, 36, 245 });
-    DrawRectangleLines(tooltipX, tooltipY, tooltipWidth, tooltipHeight, Color{ 90, 90, 100, 255 });
-
-    int lineY = tooltipY + kResourceTooltipPadding;
-    for (const TooltipRow& row : rows)
-    {
-        DrawOutlinedText(
-            g_smallFont,
-            row.m_Text,
-            Vector2{ static_cast<float>(tooltipX + kResourceTooltipPadding), static_cast<float>(lineY) },
-            g_smallFontDrawSize,
-            1,
-            row.m_Color);
-        lineY += kResourceTooltipLineHeight;
-    }
 }
 
 bool MainState::IsAllAiGame() const
@@ -350,8 +487,7 @@ void MainState::CycleObserverFilter(int delta)
         return;
     }
 
-    // Cycle: All (-1) -> 0 -> 1 -> ... -> last -> All
-    int index = m_AiObserverFilter; // -1 means All
+    int index = m_AiObserverFilter;
     index += delta;
     if (index < -1)
     {
@@ -408,11 +544,11 @@ void MainState::DrawAiObserverPane() const
         return;
     }
 
-    const int mapPixelWidth = OVERWORLD_MAP_SIZE * kMapPixelsPerCell;
+    const int mapPixelWidth = MapPixelWidth();
     const int paneX = kMapDrawX;
     const int paneY = kMapDrawY + 2;
     const int paneW = mapPixelWidth;
-    const int paneH = static_cast<int>(g_Engine->m_RenderHeight) - paneY - 18;
+    const int paneH = MapPixelHeight() - 4;
 
     DrawRectangle(paneX, paneY, paneW, paneH, Color{ 12, 14, 20, 220 });
     DrawRectangleLines(paneX, paneY, paneW, paneH, Color{ 120, 160, 200, 255 });
@@ -437,47 +573,13 @@ void MainState::DrawAiObserverPane() const
         Vector2{ static_cast<float>(paneX + 4), static_cast<float>(paneY + 14) },
         g_smallFontDrawSize, 1, Color{ 200, 200, 210, 255 });
 
-    // Compact roster strip
-    float rosterX = static_cast<float>(paneX + 4);
-    const float rosterY = static_cast<float>(paneY + 24);
-    for (const Player& player : g_GameDatabase.m_Players)
-    {
-        if (player.m_IsHuman)
-        {
-            continue;
-        }
-        if (player.m_TotalRegions <= 0 && !IsAllAiGame())
-        {
-            // Still show eliminated lightly
-        }
-
-        const string chip = string(player.GetColorName()) + " "
-            + string(AiPersonalityName(player.m_AiPersonality)).substr(0, 3)
-            + " r" + to_string(player.m_TotalRegions)
-            + " a" + to_string(GetPlayerArmyStrength(player));
-        const Vector2 chipSize = MeasureTextEx(*g_smallFont, chip.c_str(), g_smallFontDrawSize, 1.0f);
-        if (rosterX + chipSize.x > static_cast<float>(paneX + paneW - 4))
-        {
-            break;
-        }
-        const Color chipColor = (m_AiObserverFilter == player.m_Id) ? WHITE : player.GetColor();
-        DrawOutlinedText(g_smallFont, chip, Vector2{ rosterX, rosterY }, g_smallFontDrawSize, 1, chipColor);
-        rosterX += chipSize.x + 6.0f;
-    }
-
-    // Action log (newest first)
     std::vector<const AiLogEntry*> lines;
-    g_AiObserverLog.CollectFiltered(m_AiObserverFilter, 18, lines);
+    g_AiObserverLog.CollectFiltered(m_AiObserverFilter, 22, lines);
 
-    float lineY = rosterY + 12.0f;
-    DrawOutlinedText(g_smallFont, "Recent AI actions:",
-        Vector2{ static_cast<float>(paneX + 4), lineY },
-        g_smallFontDrawSize, 1, Color{ 180, 180, 120, 255 });
-    lineY += 10.0f;
-
+    float lineY = static_cast<float>(paneY + 28);
     if (lines.empty())
     {
-        DrawOutlinedText(g_smallFont, "(no AI actions yet — press Next Turn)",
+        DrawOutlinedText(g_smallFont, "(no log entries yet)",
             Vector2{ static_cast<float>(paneX + 4), lineY },
             g_smallFontDrawSize, 1, GRAY);
     }
@@ -485,7 +587,7 @@ void MainState::DrawAiObserverPane() const
     {
         for (const AiLogEntry* entry : lines)
         {
-            if (lineY + g_smallFontDrawSize > static_cast<float>(paneY + paneH - 16))
+            if (lineY + g_smallFontDrawSize > static_cast<float>(paneY + paneH - 14))
             {
                 break;
             }
@@ -505,72 +607,38 @@ void MainState::DrawAiObserverPane() const
         }
     }
 
-    DrawOutlinedText(g_smallFont, "O:close  [/]:filter  A:auto (all-AI)  Next Turn advances",
+    DrawOutlinedText(g_smallFont, "O:close  [/]:filter  A:auto (all-AI)",
         Vector2{ static_cast<float>(paneX + 4), static_cast<float>(paneY + paneH - 12) },
         g_smallFontDrawSize, 1, Color{ 150, 150, 160, 255 });
 }
 
-void MainState::DrawPlayerResourceBar(int barX, int barY, int barWidth) const
+void MainState::DrawSelectionPanel(const SideLayout& layout) const
 {
-    const Player* watched = GetWatchedPlayer();
-    if (!watched)
-    {
-        return;
-    }
+    DrawPanelFrame(layout.m_PanelX, layout.m_TopY, layout.m_PanelW, layout.m_TopH, "Selection");
 
-    DrawRectangle(barX, barY, barWidth, kResourceBarHeight, Color{ 30, 34, 42, 255 });
-    DrawRectangleLines(barX, barY, barWidth, kResourceBarHeight, Color{ 90, 90, 100, 255 });
-
-    // In observer mode, tag whose resources we are showing.
-    if (IsAllAiGame() || GetHumanPlayer(g_GameDatabase.m_Players) == nullptr)
-    {
-        const string tag = string(watched->GetColorName()) + " res";
-        DrawOutlinedText(g_smallFont, tag,
-            Vector2{ static_cast<float>(barX + barWidth - 48), static_cast<float>(barY + 1) },
-            g_smallFontDrawSize, 1, watched->GetColor());
-    }
-
-    ResourceAmount turnDelta{};
-    ComputePlayerTurnDelta(g_OverworldMap, *watched, turnDelta);
-
-    const int slotWidth = barWidth / 4;
-    DrawResourceBarEntry(barX, barY, CountyResource::Food, watched->m_Food, turnDelta.m_Food);
-    DrawResourceBarEntry(barX + slotWidth, barY, CountyResource::Wood, watched->m_Wood, turnDelta.m_Wood);
-    DrawResourceBarEntry(barX + (slotWidth * 2), barY, CountyResource::Iron, watched->m_Iron, turnDelta.m_Iron);
-    DrawResourceBarEntry(barX + (slotWidth * 3), barY, CountyResource::Gold, watched->m_Gold, turnDelta.m_Gold);
-}
-
-void MainState::DrawCountyInfo(int panelX, int panelY, int panelWidth) const
-{
-    DrawRectangle(panelX, panelY, panelWidth, kCountyInfoHeight, Color{ 40, 44, 54, 255 });
-    DrawRectangleLines(panelX, panelY, panelWidth, kCountyInfoHeight, Color{ 90, 90, 100, 255 });
+    const int textX = layout.m_PanelX + 3;
+    int textY = layout.m_TopY + 14;
 
     if (m_SelectedRegionId < 0)
     {
         if (m_SelectedImpassable && m_SelectedImpassableCellType == static_cast<unsigned char>(OW_MOUNTAIN))
         {
-            DrawOutlinedText(g_font, "Mountains", Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 4) },
-                g_fontDrawSize, 1, Color{ 180, 180, 180, 255 });
-            DrawOutlinedText(g_smallFont, "Impassable",
-                Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 20) },
-                g_smallFontDrawSize, 1, Color{ 200, 200, 200, 255 });
+            DrawOutlinedText(g_smallFont, "Mountains (impassable)",
+                Vector2{ static_cast<float>(textX), static_cast<float>(textY) },
+                g_smallFontDrawSize, 1, Color{ 180, 180, 180, 255 });
             return;
         }
-
         if (m_SelectedImpassable && m_SelectedImpassableCellType == static_cast<unsigned char>(OW_WATER))
         {
-            DrawOutlinedText(g_font, "Water", Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 4) },
-                g_fontDrawSize, 1, Color{ 140, 200, 255, 255 });
-            DrawOutlinedText(g_smallFont, "Impassable",
-                Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 20) },
-                g_smallFontDrawSize, 1, Color{ 200, 200, 200, 255 });
+            DrawOutlinedText(g_smallFont, "Water (impassable)",
+                Vector2{ static_cast<float>(textX), static_cast<float>(textY) },
+                g_smallFontDrawSize, 1, Color{ 140, 200, 255, 255 });
             return;
         }
 
-        DrawOutlinedText(g_font, "County", Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 4) },
-            g_fontDrawSize, 1, WHITE);
-        DrawOutlinedText(g_smallFont, "Click a county on the map", Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 20) },
-            g_smallFontDrawSize, 1, Color{ 200, 200, 200, 255 });
+        DrawOutlinedText(g_smallFont, "Click a county on the map",
+            Vector2{ static_cast<float>(textX), static_cast<float>(textY) },
+            g_smallFontDrawSize, 1, Color{ 180, 180, 190, 255 });
         return;
     }
 
@@ -580,58 +648,53 @@ void MainState::DrawCountyInfo(int panelX, int panelY, int panelWidth) const
         return;
     }
 
-    const string title = region->m_IsWater
-        ? "Lake " + to_string(region->m_Id)
-        : "County " + to_string(region->m_Id);
-    DrawOutlinedText(g_font, title, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 4) },
-        g_fontDrawSize, 1, Color{ 255, 230, 90, 255 });
+    const string title = "County " + to_string(region->m_Id);
+    DrawOutlinedText(g_smallFont, title,
+        Vector2{ static_cast<float>(textX), static_cast<float>(textY) },
+        g_smallFontDrawSize, 1, WHITE);
+    textY += 10;
 
-    if (region->m_IsWater)
-    {
-        DrawOutlinedText(g_smallFont, "Inland water - impassable",
-            Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 20) },
-            g_smallFontDrawSize, 1, Color{ 140, 200, 255, 255 });
-        return;
-    }
-
-    const string resourceText = string("Resource: ") + CountyResourceName(region->m_Resource);
     string ownerText = string("Owner: ") + PlayerOwnerName(region->m_OwnerId);
-    if (region->m_OwnerId >= 0
-        && region->m_OwnerId < static_cast<int>(g_GameDatabase.m_Players.size()))
-    {
-        const Player& owner = g_GameDatabase.m_Players[static_cast<size_t>(region->m_OwnerId)];
-        if (!owner.m_IsHuman)
-        {
-            ownerText += string(" (") + AiPersonalityName(owner.m_AiPersonality) + ")";
-        }
-    }
-    string castleText = string("Castle: ");
+    DrawOutlinedText(g_smallFont, ownerText,
+        Vector2{ static_cast<float>(textX), static_cast<float>(textY) },
+        g_smallFontDrawSize, 1, WHITE);
+    textY += 10;
+
+    const string resText = string(CountyResourceName(region->m_Resource))
+        + "  +" + to_string(GetRegionTurnIncome(g_OverworldMap, *region)) + "/t";
+    DrawOutlinedText(g_smallFont, resText,
+        Vector2{ static_cast<float>(textX), static_cast<float>(textY) },
+        g_smallFontDrawSize, 1, Color{ 180, 220, 180, 255 });
+    textY += 10;
+
+    string status;
     if (region->m_HasCastle)
     {
-        castleText += "Yes";
+        status = "Castle";
     }
     else if (region->m_CastleBuildTurnsRemaining > 0)
     {
-        castleText += "Building (" + to_string(region->m_CastleBuildTurnsRemaining) + " turns)";
+        status = "Building (" + to_string(region->m_CastleBuildTurnsRemaining) + "t)";
+    }
+    else if (g_OverworldMap.IsRegionFortified(region->m_Id))
+    {
+        status = "Fortified";
     }
     else
     {
-        castleText += "No";
+        status = "Open";
     }
+    DrawOutlinedText(g_smallFont, status,
+        Vector2{ static_cast<float>(textX), static_cast<float>(textY) },
+        g_smallFontDrawSize, 1,
+        g_OverworldMap.IsRegionFortified(region->m_Id)
+            ? Color{ 180, 230, 180, 255 }
+            : Color{ 200, 200, 210, 255 });
 
-    const string outputText = "Output: " + to_string(GetRegionTurnIncome(*region))
-        + "/turn (x" + to_string(GetRegionIncomeMultiplier(*region)) + ")";
-
-    DrawOutlinedText(g_smallFont, resourceText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 16) },
-        g_smallFontDrawSize, 1, WHITE);
-    DrawOutlinedText(g_smallFont, ownerText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 28) },
-        g_smallFontDrawSize, 1, WHITE);
-    DrawOutlinedText(g_smallFont, castleText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 40) },
-        g_smallFontDrawSize, 1, WHITE);
-    DrawOutlinedText(g_smallFont, outputText, Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 52) },
-        g_smallFontDrawSize, 1, Color{ 180, 220, 180, 255 });
-
-    DrawVisitButton(panelX, panelY, panelWidth);
+    if (CanVisitSelectedRegion())
+    {
+        DrawVisitRegionButton(layout);
+    }
 }
 
 bool MainState::CanVisitSelectedRegion() const
@@ -640,68 +703,38 @@ bool MainState::CanVisitSelectedRegion() const
     {
         return false;
     }
-
     const OverworldRegionData* region = g_OverworldMap.GetRegion(m_SelectedRegionId);
     return region && !region->m_IsWater;
 }
 
-Rectangle MainState::GetVisitButtonRect(int panelX, int panelY, int panelWidth) const
+Rectangle MainState::GetVisitRegionButtonRect(const SideLayout& layout) const
 {
     return Rectangle{
-        static_cast<float>(panelX + panelWidth - kVisitButtonWidth - 4),
-        static_cast<float>(panelY + kCountyInfoHeight - kVisitButtonHeight - 4),
-        static_cast<float>(kVisitButtonWidth),
-        static_cast<float>(kVisitButtonHeight)
+        static_cast<float>(layout.m_PanelX + layout.m_PanelW - 40),
+        static_cast<float>(layout.m_TopY + layout.m_TopH - 14),
+        36.0f,
+        12.0f
     };
 }
 
-bool MainState::IsMouseOverVisitButton(int panelX, int panelY, int panelWidth) const
+void MainState::DrawVisitRegionButton(const SideLayout& layout) const
 {
-    if (!CanVisitSelectedRegion())
-    {
-        return false;
-    }
-
-    return CheckCollisionPointRec(GetScaledMousePosition(), GetVisitButtonRect(panelX, panelY, panelWidth));
+    const Rectangle rect = GetVisitRegionButtonRect(layout);
+    const bool hovered = CheckCollisionPointRec(GetScaledMousePosition(), rect);
+    DrawRectangleRec(rect, hovered ? Color{ 70, 110, 70, 255 } : Color{ 50, 80, 50, 255 });
+    DrawRectangleLinesEx(rect, 1.0f, hovered ? Color{ 160, 220, 160, 255 } : Color{ 110, 160, 110, 255 });
+    DrawOutlinedText(g_smallFont, "Visit",
+        Vector2{ rect.x + 4.0f, rect.y + 1.0f },
+        g_smallFontDrawSize, 1, WHITE);
 }
 
-void MainState::DrawVisitButton(int panelX, int panelY, int panelWidth) const
+void MainState::HandleVisitRegionButton(const SideLayout& layout)
 {
-    if (!CanVisitSelectedRegion())
+    if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || !CanVisitSelectedRegion())
     {
         return;
     }
-
-    const Rectangle buttonRect = GetVisitButtonRect(panelX, panelY, panelWidth);
-    const bool hovered = IsMouseOverVisitButton(panelX, panelY, panelWidth);
-    const Color fill = hovered ? Color{ 70, 110, 70, 255 } : Color{ 50, 80, 50, 255 };
-    const Color border = hovered ? Color{ 160, 220, 160, 255 } : Color{ 110, 160, 110, 255 };
-
-    DrawRectangleRec(buttonRect, fill);
-    DrawRectangleLinesEx(buttonRect, 1.0f, border);
-
-    const string label = "Visit";
-    const Vector2 textSize = MeasureTextEx(*g_smallFont, label.c_str(), g_smallFontDrawSize, 1.0f);
-    DrawOutlinedText(
-        g_smallFont,
-        label,
-        Vector2{
-            buttonRect.x + (buttonRect.width - textSize.x) * 0.5f,
-            buttonRect.y + (buttonRect.height - textSize.y) * 0.5f
-        },
-        g_smallFontDrawSize,
-        1,
-        WHITE);
-}
-
-void MainState::HandleVisitButton(int panelX, int panelY, int panelWidth)
-{
-    if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-    {
-        return;
-    }
-
-    if (!IsMouseOverVisitButton(panelX, panelY, panelWidth))
+    if (!CheckCollisionPointRec(GetScaledMousePosition(), GetVisitRegionButtonRect(layout)))
     {
         return;
     }
@@ -711,91 +744,403 @@ void MainState::HandleVisitButton(int panelX, int panelY, int panelWidth)
     g_StateMachine->MakeStateTransition(STATE_COMBATSTATE);
 }
 
-bool MainState::IsMouseOverNextTurnButton() const
+float MainState::GetTurnLogLineStep() const
 {
-    return CheckCollisionPointRec(GetScaledMousePosition(), GetNextTurnButtonRect());
+    return g_smallFontDrawSize + 1.0f;
 }
 
-void MainState::HandleNextTurnButton()
+Rectangle MainState::GetTurnLogContentRect(const SideLayout& layout) const
 {
-    if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-    {
-        return;
-    }
-
-    if (!IsMouseOverNextTurnButton())
-    {
-        return;
-    }
-
-    g_GameDatabase.AdvanceTurn(g_OverworldMap);
-}
-
-int MainState::GetTaskPanelHeight() const
-{
-    if (IsAllAiGame())
-    {
-        // Compact strip: all-AI mode has no player tasks.
-        return 28;
-    }
-
-    const int taskCount = g_PlayerTasksConfig.GetTaskCount();
-    if (taskCount <= 0)
-    {
-        return 0;
-    }
-
-    const PlayerTaskLayout& layout = g_PlayerTasksConfig.GetLayout();
-    return 16 + (taskCount * layout.m_RowHeight) + 14;
-}
-
-Rectangle MainState::GetTaskRowRect(int panelX, int panelY, int taskIndex) const
-{
-    const PlayerTaskLayout& layout = g_PlayerTasksConfig.GetLayout();
-    const float y = static_cast<float>(panelY + 16 + (taskIndex * layout.m_RowHeight));
+    constexpr int kScrollBarWidth = 5;
     return Rectangle{
-        static_cast<float>(panelX),
-        y,
-        static_cast<float>(layout.m_CostX + 80),
-        static_cast<float>(layout.m_RowHeight)
+        static_cast<float>(layout.m_PanelX + 2),
+        static_cast<float>(layout.m_MidY + 13),
+        static_cast<float>(layout.m_PanelW - 4 - kScrollBarWidth - 1),
+        static_cast<float>(layout.m_MidH - 15)
     };
 }
 
-bool MainState::IsMouseOverTaskRow(int panelX, int panelY, int taskIndex) const
+Rectangle MainState::GetTurnLogScrollBarRect(const SideLayout& layout) const
 {
-    return CheckCollisionPointRec(GetScaledMousePosition(), GetTaskRowRect(panelX, panelY, taskIndex));
+    constexpr int kScrollBarWidth = 5;
+    return Rectangle{
+        static_cast<float>(layout.m_PanelX + layout.m_PanelW - 2 - kScrollBarWidth),
+        static_cast<float>(layout.m_MidY + 13),
+        static_cast<float>(kScrollBarWidth),
+        static_cast<float>(layout.m_MidH - 15)
+    };
 }
 
-void MainState::HandleTaskPanelInput(int panelX, int panelY, int panelWidth)
+void MainState::BuildTurnLogDisplayLines(
+    const SideLayout& layout,
+    std::vector<std::pair<std::string, Color>>& outLines) const
 {
-    (void)panelWidth;
+    outLines.clear();
 
-    // Observer / all-AI games have no task orders to issue.
-    if (IsAllAiGame())
-    {
-        m_HoveredTaskIndex = -1;
-        return;
-    }
+    const Rectangle content = GetTurnLogContentRect(layout);
+    const float maxTextWidth = std::max(8.0f, content.width - 2.0f);
 
-    const int taskCount = g_PlayerTasksConfig.GetTaskCount();
-    if (taskCount <= 0)
-    {
-        m_HoveredTaskIndex = -1;
-        return;
-    }
+    std::vector<const AiLogEntry*> entries;
+    g_AiObserverLog.CollectFiltered(-1, AiObserverLog::kMaxEntries, entries);
+    // CollectFiltered is newest-first; reverse so oldest is at the top of the scroll view.
+    std::reverse(entries.begin(), entries.end());
 
-    m_HoveredTaskIndex = -1;
-    for (int taskIndex = 0; taskIndex < taskCount; ++taskIndex)
+    auto WrapLogLine = [&](const string& text, std::vector<string>& outWrapped)
     {
-        if (IsMouseOverTaskRow(panelX, panelY, taskIndex))
+        outWrapped.clear();
+        if (text.empty() || !g_smallFont)
         {
-            m_HoveredTaskIndex = taskIndex;
-            break;
+            outWrapped.push_back(text);
+            return;
+        }
+
+        size_t start = 0;
+        while (start < text.size())
+        {
+            while (start < text.size() && text[start] == ' ')
+            {
+                ++start;
+            }
+            if (start >= text.size())
+            {
+                break;
+            }
+
+            size_t fitEnd = start;
+            size_t lastSpace = start;
+            for (size_t i = start; i < text.size(); ++i)
+            {
+                const string candidate = text.substr(start, i - start + 1);
+                const Vector2 size = MeasureTextEx(
+                    *g_smallFont, candidate.c_str(), g_smallFontDrawSize, 1.0f);
+                if (size.x <= maxTextWidth)
+                {
+                    fitEnd = i + 1;
+                    if (text[i] == ' ')
+                    {
+                        lastSpace = i;
+                    }
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            if (fitEnd == start)
+            {
+                fitEnd = start + 1;
+            }
+
+            size_t lineEnd = fitEnd;
+            if (lastSpace > start && fitEnd < text.size())
+            {
+                lineEnd = lastSpace;
+            }
+
+            string piece = text.substr(start, lineEnd - start);
+            while (!piece.empty() && piece.back() == ' ')
+            {
+                piece.pop_back();
+            }
+            if (!piece.empty())
+            {
+                outWrapped.push_back(piece);
+            }
+            start = lineEnd;
+        }
+
+        if (outWrapped.empty())
+        {
+            outWrapped.push_back(text);
+        }
+    };
+
+    std::vector<string> wrapped;
+    for (const AiLogEntry* entry : entries)
+    {
+        Color color = Color{ 190, 190, 200, 255 };
+        if (entry->m_PlayerId >= 0
+            && entry->m_PlayerId < static_cast<int>(g_GameDatabase.m_Players.size()))
+        {
+            color = g_GameDatabase.m_Players[static_cast<size_t>(entry->m_PlayerId)].GetColor();
+        }
+
+        const string row = "T" + to_string(entry->m_Turn) + " " + entry->m_Message;
+        WrapLogLine(row, wrapped);
+        for (const string& piece : wrapped)
+        {
+            outLines.emplace_back(piece, color);
+        }
+    }
+}
+
+void MainState::HandleTurnLogInput(const SideLayout& layout)
+{
+    const Rectangle content = GetTurnLogContentRect(layout);
+    const Rectangle bar = GetTurnLogScrollBarRect(layout);
+    const Vector2 mouse = GetScaledMousePosition();
+    const bool overConsole = CheckCollisionPointRec(mouse, content)
+        || CheckCollisionPointRec(mouse, bar);
+
+    std::vector<std::pair<string, Color>> displayLines;
+    BuildTurnLogDisplayLines(layout, displayLines);
+
+    const int entryCount = static_cast<int>(g_AiObserverLog.GetEntries().size());
+    const float lineStep = GetTurnLogLineStep();
+    const float contentHeight = static_cast<float>(displayLines.size()) * lineStep;
+    const float viewHeight = content.height;
+    const float maxScroll = std::max(0.0f, contentHeight - viewHeight);
+
+    // New log lines: keep following the bottom unless the user has scrolled up.
+    if (entryCount != m_TurnLogLastEntryCount)
+    {
+        if (m_TurnLogStickToBottom)
+        {
+            m_TurnLogScroll = maxScroll;
+        }
+        m_TurnLogLastEntryCount = entryCount;
+    }
+
+    if (overConsole)
+    {
+        const float wheel = GetMouseWheelMove();
+        if (wheel != 0.0f)
+        {
+            m_TurnLogScroll -= wheel * lineStep * 3.0f;
+            m_TurnLogStickToBottom = false;
         }
     }
 
-    if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || m_HoveredTaskIndex < 0)
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(mouse, bar) && maxScroll > 0.0f)
     {
+        m_TurnLogDragging = true;
+        m_TurnLogStickToBottom = false;
+
+        // Jump scroll so the thumb centers on the click.
+        const float thumbH = std::max(10.0f, (viewHeight / contentHeight) * bar.height);
+        const float track = std::max(1.0f, bar.height - thumbH);
+        const float localY = std::clamp(mouse.y - bar.y - thumbH * 0.5f, 0.0f, track);
+        m_TurnLogScroll = (localY / track) * maxScroll;
+        m_TurnLogDragGrabY = mouse.y;
+    }
+
+    if (m_TurnLogDragging)
+    {
+        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && maxScroll > 0.0f)
+        {
+            const float thumbH = std::max(10.0f, (viewHeight / contentHeight) * bar.height);
+            const float track = std::max(1.0f, bar.height - thumbH);
+            const float localY = std::clamp(mouse.y - bar.y - thumbH * 0.5f, 0.0f, track);
+            m_TurnLogScroll = (localY / track) * maxScroll;
+            m_TurnLogStickToBottom = false;
+            (void)m_TurnLogDragGrabY;
+        }
+        else
+        {
+            m_TurnLogDragging = false;
+        }
+    }
+
+    m_TurnLogScroll = std::clamp(m_TurnLogScroll, 0.0f, maxScroll);
+    if (maxScroll <= 0.0f || m_TurnLogScroll >= maxScroll - 0.5f)
+    {
+        m_TurnLogStickToBottom = true;
+        m_TurnLogScroll = maxScroll;
+    }
+}
+
+void MainState::DrawTurnConsole(const SideLayout& layout) const
+{
+    DrawPanelFrame(layout.m_PanelX, layout.m_MidY, layout.m_PanelW, layout.m_MidH, "Turn Log");
+
+    const Rectangle content = GetTurnLogContentRect(layout);
+    const Rectangle bar = GetTurnLogScrollBarRect(layout);
+    const float textX = content.x + 1.0f;
+
+    std::vector<std::pair<string, Color>> displayLines;
+    BuildTurnLogDisplayLines(layout, displayLines);
+
+    if (displayLines.empty())
+    {
+        DrawOutlinedText(g_smallFont, "No events yet.",
+            Vector2{ textX, content.y },
+            g_smallFontDrawSize, 1, GRAY);
+        return;
+    }
+
+    const float lineStep = GetTurnLogLineStep();
+    const float contentHeight = static_cast<float>(displayLines.size()) * lineStep;
+    const float viewHeight = content.height;
+    const float maxScroll = std::max(0.0f, contentHeight - viewHeight);
+    const float scroll = std::clamp(m_TurnLogScroll, 0.0f, maxScroll);
+
+    // Clip log text to the console body.
+    BeginScissorMode(
+        static_cast<int>(content.x),
+        static_cast<int>(content.y),
+        static_cast<int>(content.width),
+        static_cast<int>(content.height));
+
+    float lineY = content.y - scroll;
+    for (const auto& line : displayLines)
+    {
+        if (lineY + lineStep < content.y)
+        {
+            lineY += lineStep;
+            continue;
+        }
+        if (lineY > content.y + content.height)
+        {
+            break;
+        }
+
+        DrawOutlinedText(g_smallFont, line.first,
+            Vector2{ textX, lineY },
+            g_smallFontDrawSize, 1, line.second);
+        lineY += lineStep;
+    }
+
+    EndScissorMode();
+
+    // Scrollbar track + thumb (only when content overflows).
+    DrawRectangleRec(bar, Color{ 24, 26, 32, 255 });
+    DrawRectangleLinesEx(bar, 1.0f, Color{ 70, 74, 86, 255 });
+
+    if (maxScroll > 0.0f)
+    {
+        const float thumbH = std::max(10.0f, (viewHeight / contentHeight) * bar.height);
+        const float track = std::max(1.0f, bar.height - thumbH);
+        const float thumbY = bar.y + (scroll / maxScroll) * track;
+        const Rectangle thumb{
+            bar.x + 1.0f,
+            thumbY,
+            bar.width - 2.0f,
+            thumbH
+        };
+        DrawRectangleRec(thumb, Color{ 120, 130, 150, 255 });
+    }
+}
+
+Rectangle MainState::GetActionButtonRect(const SideLayout& layout, int actionIndex) const
+{
+    const int gridX = layout.m_PanelX + kActionPad;
+    const int gridY = layout.m_BotY + 14;
+    const int gridW = layout.m_PanelW - (kActionPad * 2);
+    const int col = actionIndex % kActionButtonCols;
+    const int row = actionIndex / kActionButtonCols;
+    const int btnW = (gridW - (kActionButtonCols - 1) * 2) / kActionButtonCols;
+    const int btnH = kActionButtonHeight;
+    return Rectangle{
+        static_cast<float>(gridX + col * (btnW + 2)),
+        static_cast<float>(gridY + row * (btnH + 2)),
+        static_cast<float>(btnW),
+        static_cast<float>(btnH)
+    };
+}
+
+Rectangle MainState::GetNextTurnButtonRect(const SideLayout& layout) const
+{
+    const int x = layout.m_PanelX + kActionPad;
+    const int w = layout.m_PanelW - (kActionPad * 2);
+    const int y = layout.m_BotY + layout.m_BotH - kNextTurnButtonHeight - kActionPad;
+    return Rectangle{
+        static_cast<float>(x),
+        static_cast<float>(y),
+        static_cast<float>(w),
+        static_cast<float>(kNextTurnButtonHeight)
+    };
+}
+
+bool MainState::IsMouseOverNextTurnButton(const SideLayout& layout) const
+{
+    return CheckCollisionPointRec(GetScaledMousePosition(), GetNextTurnButtonRect(layout));
+}
+
+void MainState::DrawActionPanel(const SideLayout& layout) const
+{
+    DrawPanelFrame(layout.m_PanelX, layout.m_BotY, layout.m_PanelW, layout.m_BotH, "Actions");
+
+    const Player* humanPlayer = GetHumanPlayer(g_GameDatabase.m_Players);
+    const bool actionsEnabled = humanPlayer != nullptr && !IsAllAiGame();
+
+    for (int i = 0; i < kActionCount; ++i)
+    {
+        const Rectangle rect = GetActionButtonRect(layout, i);
+        const bool hovered = (i == m_HoveredActionIndex);
+        const char* taskId = GetActionTaskId(i);
+        const PlayerTaskDefinition* task = taskId ? g_PlayerTasksConfig.FindTaskById(taskId) : nullptr;
+
+        bool affordable = false;
+        if (actionsEnabled && humanPlayer && task)
+        {
+            affordable = g_PlayerTasksConfig.CanPlayerPerformTask(
+                *humanPlayer, *task, g_OverworldMap, m_SelectedRegionId);
+        }
+
+        Color fill = Color{ 44, 48, 58, 255 };
+        Color border = Color{ 90, 90, 100, 255 };
+        Color textColor = Color{ 140, 140, 150, 255 };
+        if (actionsEnabled)
+        {
+            textColor = affordable ? WHITE : Color{ 140, 140, 150, 255 };
+            fill = hovered
+                ? (affordable ? Color{ 58, 78, 108, 255 } : Color{ 52, 52, 60, 255 })
+                : (affordable ? Color{ 48, 56, 70, 255 } : Color{ 40, 42, 50, 255 });
+            border = hovered ? Color{ 140, 160, 200, 255 } : Color{ 100, 105, 120, 255 };
+        }
+
+        DrawRectangleRec(rect, fill);
+        DrawRectangleLinesEx(rect, 1.0f, border);
+
+        if (task)
+        {
+            const Vector2 iconCenter{
+                rect.x + 8.0f,
+                rect.y + rect.height * 0.5f
+            };
+            DrawPlayerTaskIcon(*task, iconCenter, textColor);
+        }
+
+        const char* label = GetActionLabel(i);
+        DrawOutlinedText(g_smallFont, label,
+            Vector2{ rect.x + 14.0f, rect.y + 4.0f },
+            g_smallFontDrawSize, 1, textColor);
+    }
+
+    // Status / help line between grid and Next Turn.
+    const Rectangle nextRect = GetNextTurnButtonRect(layout);
+    const float statusY = nextRect.y - 11.0f;
+    if (!m_TaskStatusMessage.empty())
+    {
+        string status = m_TaskStatusMessage;
+        if (status.size() > 36)
+        {
+            status = status.substr(0, 33) + "...";
+        }
+        DrawOutlinedText(g_smallFont, status,
+            Vector2{ static_cast<float>(layout.m_PanelX + 3), statusY },
+            g_smallFontDrawSize, 1, Color{ 180, 220, 180, 255 });
+    }
+
+    const bool nextHovered = IsMouseOverNextTurnButton(layout);
+    DrawRectangleRec(nextRect, nextHovered ? Color{ 70, 120, 70, 255 } : Color{ 48, 88, 48, 255 });
+    DrawRectangleLinesEx(nextRect, 1.0f, nextHovered ? Color{ 140, 220, 140, 255 } : Color{ 100, 160, 100, 255 });
+    const string nextLabel = "Next Turn";
+    const Vector2 nextSize = MeasureTextEx(*g_font, nextLabel.c_str(), g_fontDrawSize, 1.0f);
+    DrawOutlinedText(g_font, nextLabel,
+        Vector2{
+            nextRect.x + (nextRect.width - nextSize.x) * 0.5f,
+            nextRect.y + (nextRect.height - nextSize.y) * 0.5f - 1.0f
+        },
+        g_fontDrawSize, 1, WHITE);
+}
+
+void MainState::TryPerformAction(int actionIndex)
+{
+    if (IsAllAiGame())
+    {
+        m_TaskStatusMessage = "Observe mode — no player orders";
         return;
     }
 
@@ -805,219 +1150,89 @@ void MainState::HandleTaskPanelInput(int panelX, int panelY, int panelWidth)
         return;
     }
 
-    const PlayerTaskDefinition& task = g_PlayerTasksConfig.GetTask(m_HoveredTaskIndex);
-    if (g_PlayerTasksConfig.ExecuteTask(*humanPlayer, task, g_OverworldMap, m_SelectedRegionId))
+    const char* taskId = GetActionTaskId(actionIndex);
+    if (!taskId)
     {
-        if (task.m_Effect.m_Type == "attack")
+        return;
+    }
+
+    const PlayerTaskDefinition* task = g_PlayerTasksConfig.FindTaskById(taskId);
+    if (!task)
+    {
+        m_TaskStatusMessage = string("Missing task: ") + taskId;
+        return;
+    }
+
+    if (g_PlayerTasksConfig.ExecuteTask(*humanPlayer, *task, g_OverworldMap, m_SelectedRegionId))
+    {
+        m_TaskStatusMessage = string("OK: ") + task->m_Name;
+        if (task->m_Effect.m_Type == "startCastleBuild")
         {
-            m_TaskStatusMessage = "Attack succeeded — county seized";
+            m_TaskStatusMessage += " (building)";
         }
-        else
+        else if (!task->m_Maintenance.IsEmpty())
         {
-            m_TaskStatusMessage = "Performed: " + task.m_Name;
+            m_TaskStatusMessage += " (+" + task->m_Maintenance.ToShortLabel() + "/t)";
         }
-        if (task.m_Effect.m_Type == "startCastleBuild")
+        else if (task->m_Effect.m_Type == "sendDiplomat"
+            || task->m_Effect.m_Type == "sendSpy"
+            || task->m_Effect.m_Type == "merchant")
         {
-            m_TaskStatusMessage += " (construction started)";
+            m_TaskStatusMessage += " (stub)";
         }
-        else if (!task.m_Maintenance.IsEmpty())
-        {
-            m_TaskStatusMessage += " (+" + task.m_Maintenance.ToShortLabel() + "/turn)";
-        }
-        else if (task.m_Effect.m_Type == "scouting"
-            || task.m_Effect.m_Type == "saboteur"
-            || task.m_Effect.m_Type == "merchant"
-            || task.m_Effect.m_Type == "sendDiplomat"
-            || task.m_Effect.m_Type == "sendSpy")
-        {
-            m_TaskStatusMessage += " (not yet implemented)";
-        }
+
+        g_AiObserverLog.Add(humanPlayer->m_Id,
+            string(humanPlayer->GetColorName()) + ": " + task->m_Name);
     }
     else
     {
         m_TaskStatusMessage = g_PlayerTasksConfig.GetTaskFailureReason(
-            *humanPlayer, task, g_OverworldMap, m_SelectedRegionId);
+            *humanPlayer, *task, g_OverworldMap, m_SelectedRegionId);
     }
 }
 
-void MainState::DrawTaskPanel(int panelX, int panelY, int panelWidth) const
+void MainState::HandleActionPanelInput(const SideLayout& layout)
 {
-    if (IsAllAiGame())
+    m_HoveredActionIndex = -1;
+    const Vector2 mouse = GetScaledMousePosition();
+
+    for (int i = 0; i < kActionCount; ++i)
     {
-        const int panelHeight = GetTaskPanelHeight();
-        DrawRectangle(panelX, panelY, panelWidth, panelHeight, Color{ 34, 38, 48, 255 });
-        DrawRectangleLines(panelX, panelY, panelWidth, panelHeight, Color{ 90, 90, 100, 255 });
-        DrawOutlinedText(g_font, "Observe Mode",
-            Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 2) },
-            g_fontDrawSize, 1, Color{ 160, 210, 255, 255 });
-        DrawOutlinedText(g_smallFont, "All AI game. O:observer  A:auto  Next Turn",
-            Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 14) },
-            g_smallFontDrawSize, 1, Color{ 180, 180, 190, 255 });
-        return;
-    }
-
-    const int taskCount = g_PlayerTasksConfig.GetTaskCount();
-    if (taskCount <= 0)
-    {
-        return;
-    }
-
-    const int panelHeight = GetTaskPanelHeight();
-    const PlayerTaskLayout& layout = g_PlayerTasksConfig.GetLayout();
-    const Player* humanPlayer = GetHumanPlayer(g_GameDatabase.m_Players);
-
-    DrawRectangle(panelX, panelY, panelWidth, panelHeight, Color{ 34, 38, 48, 255 });
-    DrawRectangleLines(panelX, panelY, panelWidth, panelHeight, Color{ 90, 90, 100, 255 });
-
-    DrawOutlinedText(g_font, g_PlayerTasksConfig.GetTitle(),
-        Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + 2) },
-        g_fontDrawSize, 1, Color{ 255, 230, 90, 255 });
-
-    for (int taskIndex = 0; taskIndex < taskCount; ++taskIndex)
-    {
-        const PlayerTaskDefinition& task = g_PlayerTasksConfig.GetTask(taskIndex);
-        const Rectangle rowRect = GetTaskRowRect(panelX, panelY, taskIndex);
-        const bool hovered = taskIndex == m_HoveredTaskIndex;
-        const bool affordable = humanPlayer
-            && g_PlayerTasksConfig.CanPlayerPerformTask(*humanPlayer, task, g_OverworldMap, m_SelectedRegionId);
-
-        if (hovered)
+        if (CheckCollisionPointRec(mouse, GetActionButtonRect(layout, i)))
         {
-            DrawRectangle(static_cast<int>(rowRect.x), static_cast<int>(rowRect.y),
-                panelWidth, static_cast<int>(rowRect.height), Color{ 58, 72, 98, 255 });
+            m_HoveredActionIndex = i;
+            break;
         }
-
-        const Color textColor = affordable ? WHITE : Color{ 140, 140, 150, 255 };
-        const Vector2 iconCenter{
-            rowRect.x + static_cast<float>(layout.m_IconX) + static_cast<float>(layout.m_IconSize) * 0.5f,
-            rowRect.y + rowRect.height * 0.5f
-        };
-        DrawPlayerTaskIcon(task, iconCenter, textColor);
-
-        DrawOutlinedText(g_smallFont, task.m_Name,
-            Vector2{ rowRect.x + static_cast<float>(layout.m_NameX), rowRect.y + 3.0f },
-            g_smallFontDrawSize, 1, textColor);
-
-        std::string costLabel = task.m_Cost.ToShortLabel();
-        const bool hasUpkeep = humanPlayer
-            && GetPlayerActiveTaskCount(*humanPlayer, task.m_Id) > 0
-            && !task.m_Maintenance.IsEmpty();
-        if (hasUpkeep)
-        {
-            costLabel += "  Upkeep " + task.m_Maintenance.ToShortLabel();
-        }
-
-        DrawOutlinedText(g_smallFont, costLabel,
-            Vector2{ rowRect.x + static_cast<float>(layout.m_CostX), rowRect.y + 3.0f },
-            g_smallFontDrawSize, 1, Color{ 255, 220, 120, 255 });
     }
 
-    if (!m_TaskStatusMessage.empty())
-    {
-        DrawOutlinedText(g_smallFont, m_TaskStatusMessage,
-            Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + panelHeight - 12) },
-            g_smallFontDrawSize, 1, Color{ 180, 220, 180, 255 });
-    }
-    else
-    {
-        DrawOutlinedText(g_smallFont, g_PlayerTasksConfig.GetHelpText(),
-            Vector2{ static_cast<float>(panelX + 4), static_cast<float>(panelY + panelHeight - 12) },
-            g_smallFontDrawSize, 1, Color{ 170, 170, 180, 255 });
-    }
-}
-
-void MainState::DrawNextTurnButton() const
-{
-    const Rectangle buttonRect = GetNextTurnButtonRect();
-    const bool hovered = IsMouseOverNextTurnButton();
-    const Color fillColor = hovered ? Color{ 70, 120, 70, 255 } : Color{ 48, 88, 48, 255 };
-    const Color borderColor = hovered ? Color{ 140, 220, 140, 255 } : Color{ 100, 160, 100, 255 };
-
-    DrawRectangle(static_cast<int>(buttonRect.x), static_cast<int>(buttonRect.y),
-        static_cast<int>(buttonRect.width), static_cast<int>(buttonRect.height), fillColor);
-    DrawRectangleLines(static_cast<int>(buttonRect.x), static_cast<int>(buttonRect.y),
-        static_cast<int>(buttonRect.width), static_cast<int>(buttonRect.height), borderColor);
-
-    const string label = "Next Turn";
-    const Vector2 textSize = MeasureTextEx(*g_font, label.c_str(), g_fontDrawSize, 1.0f);
-    const float textX = buttonRect.x + (buttonRect.width - textSize.x) * 0.5f;
-    const float textY = buttonRect.y + (buttonRect.height - textSize.y) * 0.5f - 1.0f;
-    DrawOutlinedText(g_font, label, Vector2{ textX, textY }, g_fontDrawSize, 1, WHITE);
-}
-
-void MainState::DrawPlayerSummaries(int panelX, int panelY, int panelWidth) const
-{
-    const vector<Player>& players = g_GameDatabase.m_Players;
-    if (players.empty())
+    if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || m_HoveredActionIndex < 0)
     {
         return;
     }
 
-    const int columnWidth = (panelWidth - kPlayerColumnGap) / kPlayerColumns;
+    TryPerformAction(m_HoveredActionIndex);
+}
 
-    for (size_t playerIndex = 0; playerIndex < players.size(); ++playerIndex)
+void MainState::HandleNextTurnButton(const SideLayout& layout)
+{
+    if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
-        const Player& player = players[playerIndex];
-        const int column = static_cast<int>(playerIndex) % kPlayerColumns;
-        const int row = static_cast<int>(playerIndex) / kPlayerColumns;
-        const int boxX = panelX + (column * (columnWidth + kPlayerColumnGap));
-        const int boxY = panelY + (row * (kPlayerBoxHeight + kPlayerBoxGap));
-
-        const Color playerColor = player.GetColor();
-        const Color bgColor = Color{
-            static_cast<unsigned char>(playerColor.r / 5 + 18),
-            static_cast<unsigned char>(playerColor.g / 5 + 18),
-            static_cast<unsigned char>(playerColor.b / 5 + 18),
-            255
-        };
-
-        DrawRectangle(boxX, boxY, columnWidth, kPlayerBoxHeight, bgColor);
-        DrawRectangleLines(boxX, boxY, columnWidth, kPlayerBoxHeight, playerColor);
-
-        string title = player.GetColorName();
-        if (player.m_IsHuman)
-        {
-            title += " (you)";
-        }
-
-        DrawOutlinedText(g_font, title,
-            Vector2{ static_cast<float>(boxX + 3), static_cast<float>(boxY + 2) },
-            g_fontDrawSize, 1, playerColor);
-
-        const string resources = "F:" + to_string(player.m_Food)
-            + " I:" + to_string(player.m_Iron)
-            + " G:" + to_string(player.m_Gold)
-            + " W:" + to_string(player.m_Wood);
-        DrawOutlinedText(g_smallFont, resources,
-            Vector2{ static_cast<float>(boxX + 3), static_cast<float>(boxY + 11) },
-            g_smallFontDrawSize, 1, WHITE);
-
-        const string regions = "Rgns F" + to_string(player.m_FoodRegions)
-            + " I" + to_string(player.m_IronRegions)
-            + " G" + to_string(player.m_GoldRegions)
-            + " W" + to_string(player.m_WoodRegions)
-            + " (" + to_string(player.m_TotalRegions) + ")";
-        DrawOutlinedText(g_smallFont, regions,
-            Vector2{ static_cast<float>(boxX + 3), static_cast<float>(boxY + 20) },
-            g_smallFontDrawSize, 1, Color{ 210, 210, 210, 255 });
-
-        const string units = "C" + to_string(player.m_Castles)
-            + " Sw" + to_string(player.m_Swordsmen)
-            + " Ar" + to_string(player.m_Archers)
-            + " Kn" + to_string(player.m_Knights)
-            + " Ct" + to_string(player.m_Catapults)
-            + " St" + to_string(player.m_SiegeTowers);
-        DrawOutlinedText(g_smallFont, units,
-            Vector2{ static_cast<float>(boxX + 3), static_cast<float>(boxY + 29) },
-            g_smallFontDrawSize, 1, Color{ 210, 210, 210, 255 });
+        return;
     }
+    if (!IsMouseOverNextTurnButton(layout))
+    {
+        return;
+    }
+
+    g_GameDatabase.AdvanceTurn(g_OverworldMap);
+    m_TaskStatusMessage = "Turn " + to_string(g_GameDatabase.m_Turn);
 }
 
 void MainState::Update()
 {
     if (IsKeyPressed(KEY_ESCAPE))
     {
-        if (m_AiObserverOpen && !IsAllAiGame())
+        if (m_AiObserverOpen)
         {
             m_AiObserverOpen = false;
             return;
@@ -1034,22 +1249,34 @@ void MainState::Update()
         g_GameDatabase.SyncPlayersFromOverworld(g_OverworldMap, true);
         g_GameDatabase.BuildRegionsFromOverworld(g_OverworldMap);
         g_GameDatabase.GenerateAllRegionHeightfields();
+        g_AiObserverLog.Clear();
+        g_AiObserverLog.BeginTurn(0);
+        g_AiObserverLog.Add(-1, "New map generated.");
     }
 
     HandleAiObserverInput();
 
-    const int mapRight = kMapDrawX + (OVERWORLD_MAP_SIZE * kMapPixelsPerCell);
-    const int panelX = mapRight + 8;
-    const int panelWidth = static_cast<int>(g_Engine->m_RenderWidth) - panelX - 4;
-    const int taskPanelY = kMapDrawY + kCountyInfoHeight + kPlayerBoxGap;
+    const SideLayout layout = ComputeSideLayout();
 
-    const int mapPixelWidth = OVERWORLD_MAP_SIZE * kMapPixelsPerCell;
+    HandleTopBarInput();
+    HandleTurnLogInput(layout);
+    HandleNextTurnButton(layout);
+    HandleActionPanelInput(layout);
+    HandleVisitRegionButton(layout);
 
-    HandleNextTurnButton();
-    HandleResourceBarInput(kMapDrawX, mapPixelWidth);
-    HandleTaskPanelInput(panelX, taskPanelY, panelWidth);
-    HandleVisitButton(panelX, kMapDrawY, panelWidth);
-    if (!m_AiObserverOpen && !IsMouseOverVisitButton(panelX, kMapDrawY, panelWidth))
+    const Rectangle turnLogHit = Rectangle{
+        static_cast<float>(layout.m_PanelX),
+        static_cast<float>(layout.m_MidY),
+        static_cast<float>(layout.m_PanelW),
+        static_cast<float>(layout.m_MidH)
+    };
+
+    if (!m_AiObserverOpen
+        && !IsMouseOverNextTurnButton(layout)
+        && m_HoveredActionIndex < 0
+        && !m_TurnLogDragging
+        && !CheckCollisionPointRec(GetScaledMousePosition(), turnLogHit)
+        && !CheckCollisionPointRec(GetScaledMousePosition(), GetVisitRegionButtonRect(layout)))
     {
         HandleMapSelection();
     }
@@ -1060,38 +1287,14 @@ void MainState::Draw()
     DrawRectangle(0, 0, static_cast<int>(g_Engine->m_RenderWidth), static_cast<int>(g_Engine->m_RenderHeight),
         Color{ 24, 28, 36, 255 });
 
-    const int mapPixelWidth = OVERWORLD_MAP_SIZE * kMapPixelsPerCell;
-    DrawPlayerResourceBar(kMapDrawX, kResourceBarY, mapPixelWidth);
+    DrawTopBar();
     g_OverworldMap.Draw(kMapDrawX, kMapDrawY, kMapPixelsPerCell, m_SelectedRegionId);
-    DrawResourceBarTooltip(kMapDrawX, mapPixelWidth);
+    DrawTopBarTooltip();
 
-    const int mapRight = kMapDrawX + mapPixelWidth;
-    const int panelX = mapRight + 8;
-    const int panelWidth = static_cast<int>(g_Engine->m_RenderWidth) - panelX - 4;
-    const int taskPanelY = kMapDrawY + kCountyInfoHeight + kPlayerBoxGap;
-    const int taskPanelHeight = GetTaskPanelHeight();
-    const int sidePanelY = taskPanelY + taskPanelHeight + kPlayerBoxGap;
-    const int sidePanelHeight = static_cast<int>(g_Engine->m_RenderHeight) - sidePanelY - kNextTurnButtonHeight - (kPanelMargin * 2);
+    const SideLayout layout = ComputeSideLayout();
+    DrawSelectionPanel(layout);
+    DrawTurnConsole(layout);
+    DrawActionPanel(layout);
 
-    DrawCountyInfo(panelX, kMapDrawY, panelWidth);
-    DrawTaskPanel(panelX, taskPanelY, panelWidth);
-
-    if (kShowAccessibilityGrid && sidePanelHeight > 0)
-    {
-        g_OverworldMap.DrawAccessibilityGrid(panelX, sidePanelY, panelWidth, sidePanelHeight, m_SelectedRegionId);
-    }
-
-    if (kShowPlayerStatusBoxes)
-    {
-        DrawPlayerSummaries(panelX, sidePanelY, panelWidth);
-    }
-
-    DrawNextTurnButton();
     DrawAiObserverPane();
-
-    const char* help = m_AiObserverOpen
-        ? "O:close observer  [/]:filter  A:auto(all-AI)  Esc: title"
-        : "O: AI observer  R: new map  Esc: title";
-    DrawOutlinedText(g_smallFont, help, Vector2{ 4.0f, static_cast<float>(g_Engine->m_RenderHeight - 14.0f) },
-        g_smallFontDrawSize, 1, WHITE);
 }

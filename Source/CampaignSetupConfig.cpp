@@ -400,7 +400,19 @@ void CampaignSetupScreenConfig::SetEnumIndex(const SetupOptionDefinition& option
 
     if (option.m_Field == "controlMode")
     {
+        const bool wasAllAi = setup.m_AllAi;
         setup.m_AllAi = (index != 0);
+        // Human stores opponent count; All-AI stores total player count.
+        if (setup.m_AllAi && !wasAllAi)
+        {
+            setup.m_EnemyCount = std::clamp(
+                setup.m_EnemyCount + 1, kMinAiObservePlayers, kMaxAiObservePlayers);
+        }
+        else if (!setup.m_AllAi && wasAllAi)
+        {
+            setup.m_EnemyCount = std::clamp(
+                setup.m_EnemyCount - 1, kMinOpponents, kMaxOpponents);
+        }
         return;
     }
 
@@ -471,6 +483,17 @@ void CampaignSetupScreenConfig::ApplyDefaults(CampaignSetup& setup) const
     ClampCampaignSetup(setup);
 }
 
+std::string CampaignSetupScreenConfig::GetOptionLabel(int optionIndex, const CampaignSetup& setup) const
+{
+    const SetupOptionDefinition& option = GetOption(optionIndex);
+    if (option.m_Field == "enemyCount" && setup.m_AllAi)
+    {
+        return "Players";
+    }
+
+    return option.m_Label;
+}
+
 std::string CampaignSetupScreenConfig::GetValueLabel(int optionIndex, const CampaignSetup& setup) const
 {
     const SetupOptionDefinition& option = GetOption(optionIndex);
@@ -510,7 +533,9 @@ void CampaignSetupScreenConfig::AdjustOption(int optionIndex, int delta, Campaig
     {
         if (option.m_Field == "enemyCount")
         {
-            setup.m_EnemyCount = std::clamp(setup.m_EnemyCount + delta, option.m_Min, option.m_Max);
+            const int minCount = setup.m_AllAi ? kMinAiObservePlayers : option.m_Min;
+            const int maxCount = setup.m_AllAi ? kMaxAiObservePlayers : option.m_Max;
+            setup.m_EnemyCount = std::clamp(setup.m_EnemyCount + delta, minCount, maxCount);
         }
 
         return;

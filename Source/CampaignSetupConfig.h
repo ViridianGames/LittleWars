@@ -62,6 +62,7 @@ public:
     int GetStartOptionIndex() const { return m_StartOptionIndex; }
 
     void ApplyDefaults(CampaignSetup& setup) const;
+    std::string GetOptionLabel(int optionIndex, const CampaignSetup& setup) const;
     std::string GetValueLabel(int optionIndex, const CampaignSetup& setup) const;
     void AdjustOption(int optionIndex, int delta, CampaignSetup& setup) const;
     bool IsActionOption(int optionIndex) const;

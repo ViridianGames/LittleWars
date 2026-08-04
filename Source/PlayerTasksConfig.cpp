@@ -748,7 +748,7 @@ void ComputePlayerResourceBreakdown(
             continue;
         }
 
-        countyIncome += GetRegionTurnIncome(region);
+        countyIncome += GetRegionTurnIncome(map, region);
     }
 
     if (countyIncome > 0)

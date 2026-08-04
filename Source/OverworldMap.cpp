@@ -1,5 +1,6 @@
 #include "OverworldMap.h"
 
+#include "CampaignAI.h"
 #include "GameGlobals.h"
 #include "MapTilesSprites.h"
 #include "Player.h"
@@ -16,7 +17,7 @@ OverworldMap g_OverworldMap;
 
 namespace
 {
-    constexpr int kCellCount = OVERWORLD_MAP_SIZE * OVERWORLD_MAP_SIZE;
+    constexpr int kCellCount = OVERWORLD_MAP_WIDTH * OVERWORLD_MAP_HEIGHT;
 
     unsigned long long BorderKey(int regionA, int regionB)
     {
@@ -34,17 +35,88 @@ namespace
         switch (type)
         {
         case OW_CLEAR:
-            return Color{ 72, 140, 48, 255 };
+            return Color{ 78, 148, 52, 255 };      // meadow green
         case OW_MOUNTAIN:
-            return Color{ 130, 130, 130, 255 };
+            return Color{ 118, 118, 128, 255 };    // cool stone
         case OW_WATER:
-            return Color{ 50, 100, 200, 255 };
+            return Color{ 42, 96, 180, 255 };      // deeper sea
         case OW_TREES:
-            return Color{ 34, 100, 34, 255 };
+            return Color{ 28, 92, 36, 255 };       // dense forest
         case OW_MARSH:
-            return Color{ 120, 90, 50, 255 };
+            return Color{ 92, 110, 48, 255 };      // damp meadow / fen
         default:
-            return Color{ 72, 140, 48, 255 };
+            return Color{ 78, 148, 52, 255 };
+        }
+    }
+
+    // Deterministic hash for per-cell visual noise (does not touch generation RNG).
+    unsigned int CellHash(int x, int y, unsigned int seed)
+    {
+        unsigned int h = seed;
+        h ^= static_cast<unsigned int>(x) * 374761393u;
+        h ^= static_cast<unsigned int>(y) * 668265263u;
+        h = (h ^ (h >> 13)) * 1274126177u;
+        return h ^ (h >> 16);
+    }
+
+    Color BlendColor(Color a, Color b, float t)
+    {
+        t = std::clamp(t, 0.0f, 1.0f);
+        return Color{
+            static_cast<unsigned char>(a.r + (b.r - a.r) * t),
+            static_cast<unsigned char>(a.g + (b.g - a.g) * t),
+            static_cast<unsigned char>(a.b + (b.b - a.b) * t),
+            255
+        };
+    }
+
+    Color ShadeCellColor(OverworldCellType type, int cellX, int cellY, unsigned int mapSeed)
+    {
+        Color base = CellColor(type);
+        const unsigned int h = CellHash(cellX, cellY, mapSeed);
+        const float n = static_cast<float>(h & 0xFFu) / 255.0f; // 0..1
+
+        switch (type)
+        {
+        case OW_CLEAR:
+        {
+            // Meadow variation: brighter grass / wildflower flecks / dry patches.
+            const Color bright = Color{ 110, 176, 62, 255 };
+            const Color dry = Color{ 120, 150, 58, 255 };
+            const Color flower = Color{ 150, 160, 70, 255 };
+            if ((h % 47u) == 0u)
+            {
+                return flower;
+            }
+            return BlendColor(base, (h & 1u) ? bright : dry, 0.18f + n * 0.35f);
+        }
+        case OW_TREES:
+        {
+            // Forest canopy: deep green with occasional lighter canopy gaps.
+            const Color deep = Color{ 18, 70, 28, 255 };
+            const Color light = Color{ 48, 120, 48, 255 };
+            return BlendColor(deep, light, n * 0.55f);
+        }
+        case OW_MARSH:
+        {
+            const Color wet = Color{ 70, 100, 55, 255 };
+            const Color mud = Color{ 110, 95, 50, 255 };
+            return BlendColor(wet, mud, n * 0.5f);
+        }
+        case OW_MOUNTAIN:
+        {
+            const Color highlight = Color{ 160, 160, 168, 255 };
+            const Color shadow = Color{ 90, 90, 98, 255 };
+            return BlendColor(shadow, highlight, n * 0.65f);
+        }
+        case OW_WATER:
+        {
+            const Color deep = Color{ 30, 70, 150, 255 };
+            const Color shallow = Color{ 55, 120, 195, 255 };
+            return BlendColor(deep, shallow, n * 0.4f);
+        }
+        default:
+            return base;
         }
     }
 
@@ -62,12 +134,12 @@ namespace
 
                 const int sampleX = x + offsetX;
                 const int sampleY = y + offsetY;
-                if (sampleX < 0 || sampleY < 0 || sampleX >= OVERWORLD_MAP_SIZE || sampleY >= OVERWORLD_MAP_SIZE)
+                if (sampleX < 0 || sampleY < 0 || sampleX >= OVERWORLD_MAP_WIDTH || sampleY >= OVERWORLD_MAP_HEIGHT)
                 {
                     continue;
                 }
 
-                if (cells[static_cast<size_t>(sampleY * OVERWORLD_MAP_SIZE + sampleX)] == type)
+                if (cells[static_cast<size_t>(sampleY * OVERWORLD_MAP_WIDTH + sampleX)] == type)
                 {
                     ++count;
                 }
@@ -84,7 +156,7 @@ namespace
         const int treeNeighbors = CountNeighborsOfType(cells, x, y, OW_TREES);
         const int marshNeighbors = CountNeighborsOfType(cells, x, y, OW_MARSH);
 
-        const size_t index = static_cast<size_t>(y * OVERWORLD_MAP_SIZE + x);
+        const size_t index = static_cast<size_t>(y * OVERWORLD_MAP_WIDTH + x);
         const OverworldCellType current = cells[index];
 
         if (waterNeighbors >= 5 || (current == OW_WATER && waterNeighbors >= 3))
@@ -142,20 +214,49 @@ char CountyResourceMarker(CountyResource resource)
     }
 }
 
-int GetRegionIncomeMultiplier(const OverworldRegionData& region)
+bool OverworldMap::IsRegionFortified(int regionId) const
+{
+    const OverworldRegionData* region = GetRegion(regionId);
+    if (!region || region->m_IsWater || region->m_OwnerId < 0)
+    {
+        return false;
+    }
+
+    // Castle site itself is fortified.
+    if (region->m_HasCastle)
+    {
+        return true;
+    }
+
+    // Same-owner neighbors of a castled county are also fortified.
+    for (int neighborId : GetTraversableAdjacentRegions(regionId))
+    {
+        const OverworldRegionData* neighbor = GetRegion(neighborId);
+        if (neighbor
+            && neighbor->m_HasCastle
+            && neighbor->m_OwnerId == region->m_OwnerId)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+int GetRegionIncomeMultiplier(const OverworldMap& map, const OverworldRegionData& region)
 {
     int multiplier = std::max(1, region.m_OutputMultiplier);
-    if (region.m_HasCastle)
+    if (map.IsRegionFortified(region.m_Id))
     {
-        multiplier *= kCastleOutputMultiplier;
+        multiplier *= kFortifiedOutputMultiplier;
     }
 
     return multiplier;
 }
 
-int GetRegionTurnIncome(const OverworldRegionData& region)
+int GetRegionTurnIncome(const OverworldMap& map, const OverworldRegionData& region)
 {
-    return kRegionBaseIncome * GetRegionIncomeMultiplier(region);
+    return kRegionBaseIncome * GetRegionIncomeMultiplier(map, region);
 }
 
 void OverworldMap::Clear()
@@ -199,17 +300,19 @@ int OverworldMap::GetLakeRegionCount() const
 
 bool OverworldMap::IsInBounds(int x, int y) const
 {
-    return x >= 0 && y >= 0 && x < OVERWORLD_MAP_SIZE && y < OVERWORLD_MAP_SIZE;
+    return x >= 0 && y >= 0 && x < OVERWORLD_MAP_WIDTH && y < OVERWORLD_MAP_HEIGHT;
 }
 
 int OverworldMap::GetCellIndex(int x, int y) const
 {
-    return y * OVERWORLD_MAP_SIZE + x;
+    return y * OVERWORLD_MAP_WIDTH + x;
 }
 
 bool OverworldMap::IsLandCell(OverworldCellType type) const
 {
-    return type == OW_CLEAR;
+    // Trees/marsh are still land for gameplay queries; region generation only
+    // runs while interiors are OW_CLEAR, then DecorateLandTerrain paints cover.
+    return type == OW_CLEAR || type == OW_TREES || type == OW_MARSH;
 }
 
 OverworldCellType OverworldMap::GetCell(int x, int y) const
@@ -283,9 +386,10 @@ void OverworldMap::GenerateTerrain(RNG& rng)
 
 void OverworldMap::SculptCoastline(RNG& rng)
 {
-    constexpr int kMinCoastDepth = 6;
-    constexpr int kMaxCoastDepth = 14;
-    constexpr int kNoOceanConstraint = OVERWORLD_MAP_SIZE;
+    // Thin ocean rims so land (and region cells) stay large on water-bordered maps.
+    constexpr int kMinCoastDepth = 3;
+    constexpr int kMaxCoastDepth = 7;
+    constexpr int kNoOceanConstraint = OVERWORLD_MAP_WIDTH + OVERWORLD_MAP_HEIGHT;
 
     const int oceanEdgeCount = rng.RandomRange(1, 4);
     bool oceanLeft = false;
@@ -320,36 +424,41 @@ void OverworldMap::SculptCoastline(RNG& rng)
         }
     }
 
-    auto BuildCoastProfile = [&](int variation) -> std::vector<int>
+    // Left/right profiles are sampled per row (height); top/bottom per column (width).
+    auto BuildCoastProfile = [&](int length, int variation) -> std::vector<int>
     {
-        std::vector<int> profile(static_cast<size_t>(OVERWORLD_MAP_SIZE));
+        std::vector<int> profile(static_cast<size_t>(length));
         int depth = rng.RandomRange(kMinCoastDepth, kMaxCoastDepth + 1);
-        for (int i = 0; i < OVERWORLD_MAP_SIZE; ++i)
+        for (int i = 0; i < length; ++i)
         {
             depth = std::clamp(depth + rng.RandomRange(-variation, variation + 1), kMinCoastDepth, kMaxCoastDepth);
-            const int wave = static_cast<int>(std::sin(static_cast<float>(i) * 0.17f) * 2.5f);
-            profile[static_cast<size_t>(i)] = std::clamp(depth + wave, 4, kMaxCoastDepth + 3);
+            const int wave = static_cast<int>(std::sin(static_cast<float>(i) * 0.17f) * 1.5f);
+            profile[static_cast<size_t>(i)] = std::clamp(depth + wave, 2, kMaxCoastDepth + 1);
         }
 
         return profile;
     };
 
-    const std::vector<int> leftCoast = oceanLeft ? BuildCoastProfile(2) : std::vector<int>();
-    const std::vector<int> rightCoast = oceanRight ? BuildCoastProfile(2) : std::vector<int>();
-    const std::vector<int> topCoast = oceanTop ? BuildCoastProfile(2) : std::vector<int>();
-    const std::vector<int> bottomCoast = oceanBottom ? BuildCoastProfile(2) : std::vector<int>();
+    const std::vector<int> leftCoast = oceanLeft
+        ? BuildCoastProfile(OVERWORLD_MAP_HEIGHT, 1) : std::vector<int>();
+    const std::vector<int> rightCoast = oceanRight
+        ? BuildCoastProfile(OVERWORLD_MAP_HEIGHT, 1) : std::vector<int>();
+    const std::vector<int> topCoast = oceanTop
+        ? BuildCoastProfile(OVERWORLD_MAP_WIDTH, 1) : std::vector<int>();
+    const std::vector<int> bottomCoast = oceanBottom
+        ? BuildCoastProfile(OVERWORLD_MAP_WIDTH, 1) : std::vector<int>();
 
-    for (int y = 0; y < OVERWORLD_MAP_SIZE; ++y)
+    for (int y = 0; y < OVERWORLD_MAP_HEIGHT; ++y)
     {
-        for (int x = 0; x < OVERWORLD_MAP_SIZE; ++x)
+        for (int x = 0; x < OVERWORLD_MAP_WIDTH; ++x)
         {
             const int inlandFromLeft = oceanLeft ? (x - leftCoast[static_cast<size_t>(y)]) : kNoOceanConstraint;
             const int inlandFromRight = oceanRight
-                ? ((OVERWORLD_MAP_SIZE - 1 - x) - rightCoast[static_cast<size_t>(y)])
+                ? ((OVERWORLD_MAP_WIDTH - 1 - x) - rightCoast[static_cast<size_t>(y)])
                 : kNoOceanConstraint;
             const int inlandFromTop = oceanTop ? (y - topCoast[static_cast<size_t>(x)]) : kNoOceanConstraint;
             const int inlandFromBottom = oceanBottom
-                ? ((OVERWORLD_MAP_SIZE - 1 - y) - bottomCoast[static_cast<size_t>(x)])
+                ? ((OVERWORLD_MAP_HEIGHT - 1 - y) - bottomCoast[static_cast<size_t>(x)])
                 : kNoOceanConstraint;
             const int inlandMargin = std::min({ inlandFromLeft, inlandFromRight, inlandFromTop, inlandFromBottom });
 
@@ -360,19 +469,21 @@ void OverworldMap::SculptCoastline(RNG& rng)
                 continue;
             }
 
-            if (inlandMargin < 5 && rng.Random(100) < (58 - (inlandMargin * 11)))
+            // Light fray only in a thin band just inland of the solid coast.
+            if (inlandMargin < 3 && rng.Random(100) < (36 - (inlandMargin * 12)))
             {
                 m_Cells[cellIndex] = OW_WATER;
             }
         }
     }
 
-    for (int pass = 0; pass < 2; ++pass)
+    // One softer dilate pass — keeps irregular shores without eating deep inland.
+    for (int pass = 0; pass < 1; ++pass)
     {
         std::vector<OverworldCellType> nextCells = m_Cells;
-        for (int y = 1; y < OVERWORLD_MAP_SIZE - 1; ++y)
+        for (int y = 1; y < OVERWORLD_MAP_HEIGHT - 1; ++y)
         {
-            for (int x = 1; x < OVERWORLD_MAP_SIZE; ++x)
+            for (int x = 1; x < OVERWORLD_MAP_WIDTH; ++x)
             {
                 const size_t cellIndex = static_cast<size_t>(GetCellIndex(x, y));
                 if (m_Cells[cellIndex] == OW_WATER)
@@ -381,19 +492,19 @@ void OverworldMap::SculptCoastline(RNG& rng)
                 }
 
                 bool nearOceanEdge = false;
-                if (oceanLeft && x < kMaxCoastDepth + 5)
+                if (oceanLeft && x < kMaxCoastDepth + 3)
                 {
                     nearOceanEdge = true;
                 }
-                if (oceanRight && x > OVERWORLD_MAP_SIZE - 1 - (kMaxCoastDepth + 5))
+                if (oceanRight && x > OVERWORLD_MAP_WIDTH - 1 - (kMaxCoastDepth + 3))
                 {
                     nearOceanEdge = true;
                 }
-                if (oceanTop && y < kMaxCoastDepth + 5)
+                if (oceanTop && y < kMaxCoastDepth + 3)
                 {
                     nearOceanEdge = true;
                 }
-                if (oceanBottom && y > OVERWORLD_MAP_SIZE - 1 - (kMaxCoastDepth + 5))
+                if (oceanBottom && y > OVERWORLD_MAP_HEIGHT - 1 - (kMaxCoastDepth + 3))
                 {
                     nearOceanEdge = true;
                 }
@@ -404,7 +515,7 @@ void OverworldMap::SculptCoastline(RNG& rng)
                 }
 
                 const int waterNeighbors = CountNeighborsOfType(m_Cells, x, y, OW_WATER);
-                if (waterNeighbors >= 3 && rng.Random(100) < 42)
+                if (waterNeighbors >= 4 && rng.Random(100) < 28)
                 {
                     nextCells[cellIndex] = OW_WATER;
                 }
@@ -416,30 +527,30 @@ void OverworldMap::SculptCoastline(RNG& rng)
 
     if (oceanTop)
     {
-        for (int x = 0; x < OVERWORLD_MAP_SIZE; ++x)
+        for (int x = 0; x < OVERWORLD_MAP_WIDTH; ++x)
         {
             m_Cells[static_cast<size_t>(x)] = OW_WATER;
         }
     }
     if (oceanBottom)
     {
-        for (int x = 0; x < OVERWORLD_MAP_SIZE; ++x)
+        for (int x = 0; x < OVERWORLD_MAP_WIDTH; ++x)
         {
-            m_Cells[static_cast<size_t>((OVERWORLD_MAP_SIZE - 1) * OVERWORLD_MAP_SIZE + x)] = OW_WATER;
+            m_Cells[static_cast<size_t>((OVERWORLD_MAP_HEIGHT - 1) * OVERWORLD_MAP_WIDTH + x)] = OW_WATER;
         }
     }
     if (oceanLeft)
     {
-        for (int y = 0; y < OVERWORLD_MAP_SIZE; ++y)
+        for (int y = 0; y < OVERWORLD_MAP_HEIGHT; ++y)
         {
-            m_Cells[static_cast<size_t>(y * OVERWORLD_MAP_SIZE)] = OW_WATER;
+            m_Cells[static_cast<size_t>(y * OVERWORLD_MAP_WIDTH)] = OW_WATER;
         }
     }
     if (oceanRight)
     {
-        for (int y = 0; y < OVERWORLD_MAP_SIZE; ++y)
+        for (int y = 0; y < OVERWORLD_MAP_HEIGHT; ++y)
         {
-            m_Cells[static_cast<size_t>(y * OVERWORLD_MAP_SIZE + (OVERWORLD_MAP_SIZE - 1))] = OW_WATER;
+            m_Cells[static_cast<size_t>(y * OVERWORLD_MAP_WIDTH + (OVERWORLD_MAP_WIDTH - 1))] = OW_WATER;
         }
     }
 }
@@ -477,8 +588,8 @@ void OverworldMap::PartitionIntoRegions(RNG& rng, int targetRegionCount, int min
         while (static_cast<int>(seeds.size()) < targetRegions && attempts < 8000)
         {
             ++attempts;
-            const int x = rng.Random(OVERWORLD_MAP_SIZE);
-            const int y = rng.Random(OVERWORLD_MAP_SIZE);
+            const int x = rng.Random(OVERWORLD_MAP_WIDTH);
+            const int y = rng.Random(OVERWORLD_MAP_HEIGHT);
             if (!IsLandCell(GetCell(x, y)))
             {
                 continue;
@@ -678,8 +789,8 @@ void OverworldMap::DesignateWaterRegions(RNG& rng, int minConquerableRegions)
         const int edgeDistance = std::min({
             region.m_SeedX,
             region.m_SeedY,
-            OVERWORLD_MAP_SIZE - 1 - region.m_SeedX,
-            OVERWORLD_MAP_SIZE - 1 - region.m_SeedY
+            OVERWORLD_MAP_WIDTH - 1 - region.m_SeedX,
+            OVERWORLD_MAP_HEIGHT - 1 - region.m_SeedY
         });
 
         if (edgeDistance < 4)
@@ -720,9 +831,9 @@ void OverworldMap::DesignateWaterRegions(RNG& rng, int minConquerableRegions)
         region->m_OwnerId = -1;
         region->m_HasCastle = false;
 
-        for (int y = 0; y < OVERWORLD_MAP_SIZE; ++y)
+        for (int y = 0; y < OVERWORLD_MAP_HEIGHT; ++y)
         {
-            for (int x = 0; x < OVERWORLD_MAP_SIZE; ++x)
+            for (int x = 0; x < OVERWORLD_MAP_WIDTH; ++x)
             {
                 if (GetRegionId(x, y) != region->m_Id)
                 {
@@ -737,9 +848,9 @@ void OverworldMap::DesignateWaterRegions(RNG& rng, int minConquerableRegions)
 
 void OverworldMap::ClearLandRegionInteriors()
 {
-    for (int y = 0; y < OVERWORLD_MAP_SIZE; ++y)
+    for (int y = 0; y < OVERWORLD_MAP_HEIGHT; ++y)
     {
-        for (int x = 0; x < OVERWORLD_MAP_SIZE; ++x)
+        for (int x = 0; x < OVERWORLD_MAP_WIDTH; ++x)
         {
             const int regionId = GetRegionId(x, y);
             if (regionId < 0)
@@ -756,6 +867,173 @@ void OverworldMap::ClearLandRegionInteriors()
             m_Cells[static_cast<size_t>(GetCellIndex(x, y))] = OW_CLEAR;
         }
     }
+}
+
+void OverworldMap::DecorateLandTerrain(RNG& rng)
+{
+    // Purely cosmetic land cover. Runs after regions/owners are fixed so
+    // partition, borders, and campaign start positions are unchanged.
+    if (m_Cells.size() != static_cast<size_t>(kCellCount))
+    {
+        return;
+    }
+
+    auto IsPaintableLand = [this](int x, int y) -> bool
+    {
+        if (!IsInBounds(x, y))
+        {
+            return false;
+        }
+        const OverworldCellType type = GetCell(x, y);
+        if (type == OW_WATER || type == OW_MOUNTAIN)
+        {
+            return false;
+        }
+        const int regionId = GetRegionId(x, y);
+        if (regionId < 0)
+        {
+            return false;
+        }
+        const OverworldRegionData* region = GetRegion(regionId);
+        return region && !region->m_IsWater;
+    };
+
+    // --- Forest seeds: clumps of trees across clear land ---
+    std::vector<OverworldCellType> next = m_Cells;
+    for (int y = 1; y < OVERWORLD_MAP_HEIGHT - 1; ++y)
+    {
+        for (int x = 1; x < OVERWORLD_MAP_WIDTH - 1; ++x)
+        {
+            if (!IsPaintableLand(x, y) || GetCell(x, y) != OW_CLEAR)
+            {
+                continue;
+            }
+
+            // ~7% seed chance; slightly higher near mountains for "wooded foothills".
+            int chance = 7;
+            if (GetCell(x + 1, y) == OW_MOUNTAIN || GetCell(x - 1, y) == OW_MOUNTAIN
+                || GetCell(x, y + 1) == OW_MOUNTAIN || GetCell(x, y - 1) == OW_MOUNTAIN)
+            {
+                chance = 14;
+            }
+
+            if (static_cast<int>(rng.Random(100)) < chance)
+            {
+                next[static_cast<size_t>(GetCellIndex(x, y))] = OW_TREES;
+            }
+        }
+    }
+    m_Cells.swap(next);
+
+    // Grow forests into organic patches (2–3 dilate passes).
+    for (int pass = 0; pass < 3; ++pass)
+    {
+        next = m_Cells;
+        for (int y = 1; y < OVERWORLD_MAP_HEIGHT - 1; ++y)
+        {
+            for (int x = 1; x < OVERWORLD_MAP_WIDTH - 1; ++x)
+            {
+                if (!IsPaintableLand(x, y) || GetCell(x, y) != OW_CLEAR)
+                {
+                    continue;
+                }
+
+                const int treeNeighbors = CountNeighborsOfType(m_Cells, x, y, OW_TREES);
+                // Prefer clumping; leave meadow openings inside woods.
+                int growChance = 0;
+                if (treeNeighbors >= 4)
+                {
+                    growChance = 70;
+                }
+                else if (treeNeighbors == 3)
+                {
+                    growChance = 45;
+                }
+                else if (treeNeighbors == 2)
+                {
+                    growChance = 22;
+                }
+
+                if (growChance > 0 && static_cast<int>(rng.Random(100)) < growChance)
+                {
+                    next[static_cast<size_t>(GetCellIndex(x, y))] = OW_TREES;
+                }
+            }
+        }
+        m_Cells.swap(next);
+    }
+
+    // Thin overly dense forest a little so meadows break up the canopy.
+    next = m_Cells;
+    for (int y = 1; y < OVERWORLD_MAP_HEIGHT - 1; ++y)
+    {
+        for (int x = 1; x < OVERWORLD_MAP_WIDTH - 1; ++x)
+        {
+            if (GetCell(x, y) != OW_TREES || !IsPaintableLand(x, y))
+            {
+                continue;
+            }
+
+            const int treeNeighbors = CountNeighborsOfType(m_Cells, x, y, OW_TREES);
+            if (treeNeighbors >= 7 && static_cast<int>(rng.Random(100)) < 35)
+            {
+                next[static_cast<size_t>(GetCellIndex(x, y))] = OW_CLEAR;
+            }
+        }
+    }
+    m_Cells.swap(next);
+
+    // Light marsh/fen along coasts and lake shores (keeps land traversable).
+    next = m_Cells;
+    for (int y = 1; y < OVERWORLD_MAP_HEIGHT - 1; ++y)
+    {
+        for (int x = 1; x < OVERWORLD_MAP_WIDTH - 1; ++x)
+        {
+            if (!IsPaintableLand(x, y) || GetCell(x, y) != OW_CLEAR)
+            {
+                continue;
+            }
+
+            const int waterNeighbors = CountNeighborsOfType(m_Cells, x, y, OW_WATER);
+            if (waterNeighbors >= 2 && static_cast<int>(rng.Random(100)) < 28)
+            {
+                next[static_cast<size_t>(GetCellIndex(x, y))] = OW_MARSH;
+            }
+            else if (waterNeighbors >= 1 && static_cast<int>(rng.Random(100)) < 10)
+            {
+                next[static_cast<size_t>(GetCellIndex(x, y))] = OW_MARSH;
+            }
+        }
+    }
+    m_Cells.swap(next);
+
+    // Soften marsh edges once so shorelines look natural.
+    next = m_Cells;
+    for (int y = 1; y < OVERWORLD_MAP_HEIGHT - 1; ++y)
+    {
+        for (int x = 1; x < OVERWORLD_MAP_WIDTH - 1; ++x)
+        {
+            if (!IsPaintableLand(x, y))
+            {
+                continue;
+            }
+
+            const OverworldCellType current = GetCell(x, y);
+            const int marshNeighbors = CountNeighborsOfType(m_Cells, x, y, OW_MARSH);
+            const int waterNeighbors = CountNeighborsOfType(m_Cells, x, y, OW_WATER);
+            if (current == OW_CLEAR && marshNeighbors >= 3 && waterNeighbors >= 1
+                && static_cast<int>(rng.Random(100)) < 40)
+            {
+                next[static_cast<size_t>(GetCellIndex(x, y))] = OW_MARSH;
+            }
+            else if (current == OW_MARSH && marshNeighbors <= 1 && waterNeighbors == 0
+                && static_cast<int>(rng.Random(100)) < 50)
+            {
+                next[static_cast<size_t>(GetCellIndex(x, y))] = OW_CLEAR;
+            }
+        }
+    }
+    m_Cells.swap(next);
 }
 
 RegionBorderType OverworldMap::GetBorderType(int regionA, int regionB) const
@@ -816,9 +1094,9 @@ void OverworldMap::CarveInterRegionMountains()
     std::vector<bool> carve(static_cast<size_t>(kCellCount), false);
     const int offsets[4][2] = { {1, 0}, {-1, 0}, {0, 1}, {0, -1} };
 
-    for (int y = 0; y < OVERWORLD_MAP_SIZE; ++y)
+    for (int y = 0; y < OVERWORLD_MAP_HEIGHT; ++y)
     {
-        for (int x = 0; x < OVERWORLD_MAP_SIZE; ++x)
+        for (int x = 0; x < OVERWORLD_MAP_WIDTH; ++x)
         {
             const int regionId = GetRegionId(x, y);
             if (regionId < 0)
@@ -944,9 +1222,9 @@ void OverworldMap::BuildAdjacency()
     }
 
     const int offsets[4][2] = { {1, 0}, {-1, 0}, {0, 1}, {0, -1} };
-    for (int y = 0; y < OVERWORLD_MAP_SIZE; ++y)
+    for (int y = 0; y < OVERWORLD_MAP_HEIGHT; ++y)
     {
-        for (int x = 0; x < OVERWORLD_MAP_SIZE; ++x)
+        for (int x = 0; x < OVERWORLD_MAP_WIDTH; ++x)
         {
             const int regionId = GetRegionId(x, y);
             if (regionId < 0)
@@ -1006,9 +1284,9 @@ void OverworldMap::AssignRegionResources(RNG& rng, int resourceDistribution)
 
         RegionTerrainStats& stats = terrainStats[static_cast<size_t>(region.m_Id)];
 
-        for (int y = 0; y < OVERWORLD_MAP_SIZE; ++y)
+        for (int y = 0; y < OVERWORLD_MAP_HEIGHT; ++y)
         {
-            for (int x = 0; x < OVERWORLD_MAP_SIZE; ++x)
+            for (int x = 0; x < OVERWORLD_MAP_WIDTH; ++x)
             {
                 if (GetRegionId(x, y) != region.m_Id)
                 {
@@ -1314,7 +1592,7 @@ void OverworldMap::AssignRegionResources(RNG& rng, int resourceDistribution)
     }
 }
 
-void OverworldMap::AssignRegionCampaignState(RNG& rng, int enemyCount, int startingRegionsPerPlayer)
+void OverworldMap::AssignRegionCampaignState(RNG& rng, int playerCount, int startingRegionsPerPlayer)
 {
     for (OverworldRegionData& region : m_Regions)
     {
@@ -1327,8 +1605,7 @@ void OverworldMap::AssignRegionCampaignState(RNG& rng, int enemyCount, int start
         return;
     }
 
-    const int clampedEnemies = std::clamp(enemyCount, kMinOpponents, kMaxOpponents);
-    const int playerCount = std::clamp(1 + clampedEnemies, 1, kMaxCampaignPlayers);
+    playerCount = std::clamp(playerCount, 1, kMaxCampaignPlayers);
     const int regionsPerPlayer = std::max(startingRegionsPerPlayer, 1);
 
     auto squaredDistance = [](const OverworldRegionData& a, const OverworldRegionData& b) -> int
@@ -1462,7 +1739,7 @@ void OverworldMap::AssignRegionCampaignState(RNG& rng, int enemyCount, int start
                 continue;
             }
 
-            int nearestOwnedDistance = OVERWORLD_MAP_SIZE * OVERWORLD_MAP_SIZE;
+            int nearestOwnedDistance = OVERWORLD_MAP_WIDTH * OVERWORLD_MAP_HEIGHT;
             for (const OverworldRegionData& owned : m_Regions)
             {
                 if (owned.m_OwnerId < 0)
@@ -1617,7 +1894,12 @@ void OverworldMap::Generate(unsigned int seed, const CampaignSetup& setup)
     RecalculateRegionCellCounts();
     BuildAdjacency();
     AssignRegionResources(rng, static_cast<int>(resolvedSetup.m_ResourceDistribution));
-    AssignRegionCampaignState(rng, resolvedSetup.m_EnemyCount, MapSizeStartingRegions(resolvedSetup.m_MapSize));
+    AssignRegionCampaignState(
+        rng,
+        GetCampaignPlayerCount(resolvedSetup),
+        MapSizeStartingRegions(resolvedSetup.m_MapSize));
+    // After regions and ownership are locked: paint forests/meadows for the campaign map look.
+    DecorateLandTerrain(rng);
 
     m_Generated = true;
 }
@@ -1629,12 +1911,13 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
         return;
     }
 
-    const int mapPixelWidth = OVERWORLD_MAP_SIZE * pixelsPerCell;
-    const int mapPixelHeight = OVERWORLD_MAP_SIZE * pixelsPerCell;
+    const int mapPixelWidth = OVERWORLD_MAP_WIDTH * pixelsPerCell;
+    const int mapPixelHeight = OVERWORLD_MAP_HEIGHT * pixelsPerCell;
     constexpr int kRegionBorderWidth = 1;
-    constexpr int kMountainBorderWidth = 2;
+    constexpr int kMountainBorderWidth = 1;
     const Color unownedRegionBorderColor = WHITE;
-    const Color mountainBorderColor = CellColor(OW_MOUNTAIN);
+    // Darker than mountain fill so 1px ridges still read clearly.
+    const Color mountainBorderColor = Color{ 48, 48, 56, 255 };
 
     auto RegionTint = [](int regionId) -> Color
     {
@@ -1642,29 +1925,64 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
         return Color{ shade, shade, static_cast<unsigned char>(shade + 20), 50 };
     };
 
-    for (int cellY = 0; cellY < OVERWORLD_MAP_SIZE; ++cellY)
+    for (int cellY = 0; cellY < OVERWORLD_MAP_HEIGHT; ++cellY)
     {
-        for (int cellX = 0; cellX < OVERWORLD_MAP_SIZE; ++cellX)
+        for (int cellX = 0; cellX < OVERWORLD_MAP_WIDTH; ++cellX)
         {
             const int pixelX = x + (cellX * pixelsPerCell);
             const int pixelY = y + (cellY * pixelsPerCell);
-            Color color = CellColor(GetCell(cellX, cellY));
-
-            const int regionId = GetRegionId(cellX, cellY);
             const OverworldCellType cellType = GetCell(cellX, cellY);
-            if (regionId >= 0 && cellType == OW_CLEAR)
+            Color color = ShadeCellColor(cellType, cellX, cellY, m_Seed);
+
+            // Soft owner/region tint on all land cover (not only bare clear cells).
+            const int regionId = GetRegionId(cellX, cellY);
+            if (regionId >= 0 && cellType != OW_WATER && cellType != OW_MOUNTAIN)
             {
                 const OverworldRegionData* region = GetRegion(regionId);
                 if (region && !region->m_IsWater)
                 {
                     const Color tint = RegionTint(regionId);
-                    color.r = static_cast<unsigned char>((color.r + tint.r) / 2);
-                    color.g = static_cast<unsigned char>((color.g + tint.g) / 2);
-                    color.b = static_cast<unsigned char>((color.b + tint.b) / 2);
+                    const float tintStrength = (cellType == OW_TREES) ? 0.28f : 0.42f;
+                    color = BlendColor(color, tint, tintStrength);
                 }
             }
 
+            // Fortified land (castle + same-owner neighbors): slight lighten so the
+            // secure core of a kingdom reads against vulnerable counties.
+            // No player hue — borders still carry ownership color.
+            if (regionId >= 0 && IsRegionFortified(regionId))
+            {
+                color = BlendColor(color, WHITE, 0.14f);
+            }
+
             DrawRectangle(pixelX, pixelY, pixelsPerCell, pixelsPerCell, color);
+
+            // Micro-detail when cells are 2px+: forest canopy, meadow flecks, marsh wet spots.
+            if (pixelsPerCell >= 2)
+            {
+                const unsigned int h = CellHash(cellX, cellY, m_Seed ^ 0xA5A5u);
+                const int maxOffset = std::max(1, pixelsPerCell - 1);
+                const int ox = pixelX + static_cast<int>(h % static_cast<unsigned int>(maxOffset));
+                const int oy = pixelY + static_cast<int>((h >> 4) % static_cast<unsigned int>(maxOffset));
+
+                if (cellType == OW_TREES && (h & 3u) == 0u)
+                {
+                    const int dot = std::max(1, pixelsPerCell / 3);
+                    DrawRectangle(ox, oy, dot, dot, Color{ 20, 55, 24, 255 });
+                }
+                else if (cellType == OW_CLEAR && (h % 11u) == 0u)
+                {
+                    // Sparse wildflower / sunlit grass flecks on meadows.
+                    const Color fleck = ((h >> 8) & 1u)
+                        ? Color{ 190, 175, 70, 255 }
+                        : Color{ 95, 170, 55, 255 };
+                    DrawRectangle(ox, oy, 1, 1, fleck);
+                }
+                else if (cellType == OW_MARSH && (h & 7u) == 0u)
+                {
+                    DrawRectangle(ox, oy, 1, 1, Color{ 55, 85, 70, 255 });
+                }
+            }
         }
     }
 
@@ -1681,29 +1999,10 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
 
     constexpr int kFortifiedBorderWidth = 2;
 
-    std::vector<bool> fortifiedRegions(m_Regions.size(), false);
-    for (const OverworldRegionData& region : m_Regions)
-    {
-        if (!region.m_HasCastle)
-        {
-            continue;
-        }
-
-        fortifiedRegions[static_cast<size_t>(region.m_Id)] = true;
-        for (int neighborId : GetTraversableAdjacentRegions(region.m_Id))
-        {
-            if (neighborId >= 0 && neighborId < static_cast<int>(fortifiedRegions.size()))
-            {
-                fortifiedRegions[static_cast<size_t>(neighborId)] = true;
-            }
-        }
-    }
-
+    // Same rule as gameplay fortification (castle + same-owner neighbors).
     auto IsFortifiedRegion = [&](int regionId) -> bool
     {
-        return regionId >= 0
-            && regionId < static_cast<int>(fortifiedRegions.size())
-            && fortifiedRegions[static_cast<size_t>(regionId)];
+        return IsRegionFortified(regionId);
     };
 
     auto IsMountainBorderBetween = [&](int regionA, int regionB) -> bool
@@ -1829,9 +2128,9 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
             PlayerOwnerColor(region.m_OwnerId));
     };
 
-    for (int cellY = 0; cellY < OVERWORLD_MAP_SIZE; ++cellY)
+    for (int cellY = 0; cellY < OVERWORLD_MAP_HEIGHT; ++cellY)
     {
-        for (int cellX = 0; cellX < OVERWORLD_MAP_SIZE; ++cellX)
+        for (int cellX = 0; cellX < OVERWORLD_MAP_WIDTH; ++cellX)
         {
             const int regionId = GetRegionId(cellX, cellY);
             if (!IsLandRegion(regionId))
@@ -1869,7 +2168,7 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
                     *region);
             }
 
-            if (cellX + 1 < OVERWORLD_MAP_SIZE)
+            if (cellX + 1 < OVERWORLD_MAP_WIDTH)
             {
                 const int rightRegionId = GetRegionId(cellX + 1, cellY);
                 const int boundaryX = x + ((cellX + 1) * pixelsPerCell);
@@ -1914,7 +2213,7 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
                     *region);
             }
 
-            if (cellY + 1 < OVERWORLD_MAP_SIZE)
+            if (cellY + 1 < OVERWORLD_MAP_HEIGHT)
             {
                 const int downRegionId = GetRegionId(cellX, cellY + 1);
                 const int boundaryY = y + ((cellY + 1) * pixelsPerCell);
@@ -1968,8 +2267,8 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
 
     struct RegionCellBounds
     {
-        int m_MinX = OVERWORLD_MAP_SIZE;
-        int m_MinY = OVERWORLD_MAP_SIZE;
+        int m_MinX = OVERWORLD_MAP_WIDTH;
+        int m_MinY = OVERWORLD_MAP_HEIGHT;
         int m_MaxX = -1;
         int m_MaxY = -1;
 
@@ -1980,9 +2279,9 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
     };
 
     std::vector<RegionCellBounds> regionCellBounds(m_Regions.size());
-    for (int cellY = 0; cellY < OVERWORLD_MAP_SIZE; ++cellY)
+    for (int cellY = 0; cellY < OVERWORLD_MAP_HEIGHT; ++cellY)
     {
-        for (int cellX = 0; cellX < OVERWORLD_MAP_SIZE; ++cellX)
+        for (int cellX = 0; cellX < OVERWORLD_MAP_WIDTH; ++cellX)
         {
             const int regionId = GetRegionId(cellX, cellY);
             if (regionId < 0 || regionId >= static_cast<int>(regionCellBounds.size()))
@@ -2053,9 +2352,9 @@ void OverworldMap::DrawRegionHighlight(int x, int y, int pixelsPerCell, int regi
 
     const Color fill = Color{ 255, 230, 90, 90 };
 
-    for (int cellY = 0; cellY < OVERWORLD_MAP_SIZE; ++cellY)
+    for (int cellY = 0; cellY < OVERWORLD_MAP_HEIGHT; ++cellY)
     {
-        for (int cellX = 0; cellX < OVERWORLD_MAP_SIZE; ++cellX)
+        for (int cellX = 0; cellX < OVERWORLD_MAP_WIDTH; ++cellX)
         {
             if (GetRegionId(cellX, cellY) != regionId)
             {
@@ -2155,7 +2454,8 @@ void OverworldMap::DrawAccessibilityGrid(int x, int y, int width, int height, in
     constexpr float kTopInset = 30.0f;
     const float usableWidth = static_cast<float>(width) - (2.0f * kPadding);
     const float usableHeight = static_cast<float>(height) - kTopInset - kPadding;
-    const float mapScale = static_cast<float>(OVERWORLD_MAP_SIZE - 1);
+    const float mapScaleX = static_cast<float>(OVERWORLD_MAP_WIDTH - 1);
+    const float mapScaleY = static_cast<float>(OVERWORLD_MAP_HEIGHT - 1);
 
     std::vector<Vector2> nodePositions(static_cast<size_t>(m_Regions.size()));
     for (const OverworldRegionData& region : m_Regions)
@@ -2166,8 +2466,8 @@ void OverworldMap::DrawAccessibilityGrid(int x, int y, int width, int height, in
         }
 
         nodePositions[static_cast<size_t>(region.m_Id)] = Vector2{
-            static_cast<float>(x) + kPadding + (static_cast<float>(region.m_SeedX) / mapScale) * usableWidth,
-            static_cast<float>(y) + kTopInset + (static_cast<float>(region.m_SeedY) / mapScale) * usableHeight
+            static_cast<float>(x) + kPadding + (static_cast<float>(region.m_SeedX) / mapScaleX) * usableWidth,
+            static_cast<float>(y) + kTopInset + (static_cast<float>(region.m_SeedY) / mapScaleY) * usableHeight
         };
     }
 

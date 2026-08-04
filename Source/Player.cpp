@@ -229,7 +229,7 @@ void CollectTurnIncomeFromRegions(const OverworldMap& map, std::vector<Player>& 
             continue;
         }
 
-        const int income = GetRegionTurnIncome(region);
+        const int income = GetRegionTurnIncome(map, region);
         if (income <= 0)
         {
             continue;
@@ -265,7 +265,7 @@ void ComputePlayerTurnDelta(const OverworldMap& map, const Player& player, Resou
             continue;
         }
 
-        const int income = GetRegionTurnIncome(region);
+        const int income = GetRegionTurnIncome(map, region);
         switch (region.m_Resource)
         {
         case CountyResource::Food:

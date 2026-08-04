@@ -239,7 +239,8 @@ void SetupGameState::Draw()
         }
 
         const Color labelColor = selected ? WHITE : Color{ 210, 210, 220, 255 };
-        DrawOutlinedText(g_smallFont, option.m_Label,
+        const string optionLabel = g_CampaignSetupScreenConfig.GetOptionLabel(optionIndex, m_DraftSetup);
+        DrawOutlinedText(g_smallFont, optionLabel,
             Vector2{ static_cast<float>(layout.m_LabelX), rowRect.y + 3.0f },
             g_smallFontDrawSize, 1, labelColor);
 
