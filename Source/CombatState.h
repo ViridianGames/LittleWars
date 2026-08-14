@@ -22,8 +22,12 @@ public:
 
 private:
    void InitializeDemoUnits();
+   void InitializeCampaignBattleUnits();
    void UpdateTerrainTargetPreview(const RegionHeightfield& heightfield);
    void HandleCombatInput(const RegionHeightfield& heightfield);
+   void ResolveCampaignBattle(bool attackerWon, bool retreated);
+   bool IsCampaignBattleActive() const;
+   bool IsCampaignInspectOnly() const;
 
    bool HasSelectedPlayerUnit() const;
    CombatUnitInstance* GetSelectedPlayerUnit();
@@ -46,6 +50,17 @@ private:
    double m_LeftMousePressTime = 0.0;
    bool m_HasGestureFacingTarget = false;
    Vector3 m_GestureFacingTarget{};
+
+   // Snapshot of overworld army sizes at battle start (for casualty ratios).
+   int m_BattleStartAtkS = 0;
+   int m_BattleStartAtkA = 0;
+   int m_BattleStartAtkK = 0;
+   int m_BattleStartAtkC = 0;
+   int m_BattleStartDefS = 0;
+   int m_BattleStartDefA = 0;
+   int m_BattleStartDefK = 0;
+   int m_BattleStartDefC = 0;
+   bool m_BattleEnded = false;
 };
 
 #endif

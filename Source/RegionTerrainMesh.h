@@ -6,7 +6,7 @@
 class RegionTerrainMesh
 {
 public:
-    static constexpr unsigned int MESH_BUILD_VERSION = 7;
+    static constexpr unsigned int MESH_BUILD_VERSION = 8;
 
     void SetHeightfield(const RegionHeightfield* heightfield);
     void SetFlatShaded(bool flatShaded);

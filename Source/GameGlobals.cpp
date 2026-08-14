@@ -7,6 +7,7 @@
 #include <queue>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "../Geist/Source/Globals.h"
@@ -1073,8 +1074,15 @@ void GameDatabase::Clear()
     m_Setup = CampaignSetup{};
     m_Turn = 0;
     m_ActiveRegionId = -1;
+    m_Outcome = CampaignOutcome::None;
+    ClearPendingBattle();
     m_Players.clear();
     m_Regions.clear();
+}
+
+void GameDatabase::ClearPendingBattle()
+{
+    m_PendingBattle = PendingBattle{};
 }
 
 void GameDatabase::InitNewCampaign(const CampaignSetup& setup)
@@ -1380,6 +1388,11 @@ void GameDatabase::SyncPlayersFromOverworld(const OverworldMap& map, bool resetA
 
 void GameDatabase::AdvanceTurn(OverworldMap& map)
 {
+    if (m_Outcome != CampaignOutcome::None)
+    {
+        return; // Campaign finished — no more turns.
+    }
+
     if (m_Players.empty())
     {
         const int playerCount = GetCampaignPlayerCount(m_Setup);
@@ -1412,6 +1425,229 @@ void GameDatabase::AdvanceTurn(OverworldMap& map)
     }
 
     ++m_Turn;
+
+    // New turn: everyone may issue one attack again.
+    for (Player& player : m_Players)
+    {
+        player.m_AttacksThisTurn = 0;
+    }
+
+    EvaluateCampaignOutcome(map);
+}
+
+void GameDatabase::EvaluateCampaignOutcome(const OverworldMap& map)
+{
+    if (m_Setup.m_AllAi)
+    {
+        m_Outcome = CampaignOutcome::None;
+        return;
+    }
+
+    Player* human = GetHumanPlayer(m_Players);
+    if (!human)
+    {
+        m_Outcome = CampaignOutcome::None;
+        return;
+    }
+
+    // Keep region counts current before judging.
+    ::SyncPlayersFromOverworld(map, m_Players, false);
+
+    if (human->m_TotalRegions <= 0)
+    {
+        m_Outcome = CampaignOutcome::Defeat;
+        g_AiObserverLog.Add(human->m_Id, "DEFEAT — you hold no counties.");
+        return;
+    }
+
+    bool rivalHoldsLand = false;
+    for (const Player& player : m_Players)
+    {
+        if (player.m_Id == human->m_Id)
+        {
+            continue;
+        }
+        if (player.m_TotalRegions > 0)
+        {
+            rivalHoldsLand = true;
+            break;
+        }
+    }
+
+    if (!rivalHoldsLand)
+    {
+        m_Outcome = CampaignOutcome::Victory;
+        g_AiObserverLog.Add(human->m_Id, "VICTORY — all rivals have been driven from the map!");
+    }
+}
+
+bool GameDatabase::BeginPendingBattle(int attackerId, int targetRegionId, OverworldMap& map)
+{
+    if (attackerId < 0 || attackerId >= static_cast<int>(m_Players.size()))
+    {
+        return false;
+    }
+
+    Player& attacker = m_Players[static_cast<size_t>(attackerId)];
+    if (attacker.m_AttacksThisTurn >= 1)
+    {
+        return false;
+    }
+    if (!CanPlayerAttackRegion(attacker, map, targetRegionId))
+    {
+        return false;
+    }
+
+    const PlayerTaskDefinition* attackTask = g_PlayerTasksConfig.FindTaskById("attack");
+    if (attackTask && !attackTask->m_Cost.CanAfford(attacker))
+    {
+        return false;
+    }
+
+    OverworldRegionData* target = map.GetRegion(targetRegionId);
+    if (!target || target->m_IsWater)
+    {
+        return false;
+    }
+
+    if (attackTask)
+    {
+        attackTask->m_Cost.Deduct(attacker);
+    }
+
+    // Counts as this turn's one attack (even if battle is later resolved on the combat map).
+    ++attacker.m_AttacksThisTurn;
+
+    ClearPendingBattle();
+    m_PendingBattle.m_Active = true;
+    m_PendingBattle.m_RegionId = targetRegionId;
+    m_PendingBattle.m_AttackerId = attackerId;
+    m_PendingBattle.m_DefenderId = target->m_OwnerId;
+
+    m_PendingBattle.m_AtkSwordsmen = attacker.m_Swordsmen;
+    m_PendingBattle.m_AtkArchers = attacker.m_Archers;
+    m_PendingBattle.m_AtkKnights = attacker.m_Knights;
+    m_PendingBattle.m_AtkCatapults = attacker.m_Catapults;
+
+    if (m_PendingBattle.m_DefenderId >= 0
+        && m_PendingBattle.m_DefenderId < static_cast<int>(m_Players.size()))
+    {
+        const Player& defender = m_Players[static_cast<size_t>(m_PendingBattle.m_DefenderId)];
+        m_PendingBattle.m_DefSwordsmen = defender.m_Swordsmen;
+        m_PendingBattle.m_DefArchers = defender.m_Archers;
+        m_PendingBattle.m_DefKnights = defender.m_Knights;
+        m_PendingBattle.m_DefCatapults = defender.m_Catapults;
+    }
+    else
+    {
+        // Neutral garrison: 1S + 1A, 50% chance of one extra S or A.
+        int neutralS = 1;
+        int neutralA = 1;
+        RollNeutralRegionGarrison(neutralS, neutralA, g_vitalRNG ? g_vitalRNG.get() : nullptr);
+        m_PendingBattle.m_DefSwordsmen = neutralS;
+        m_PendingBattle.m_DefArchers = neutralA;
+        m_PendingBattle.m_DefKnights = 0;
+        m_PendingBattle.m_DefCatapults = 0;
+    }
+
+    SetActiveRegion(targetRegionId);
+    EnsureRegionHeightfield(targetRegionId);
+    return true;
+}
+
+namespace
+{
+    void ClampActiveTaskStacksToArmy(Player& player)
+    {
+        for (auto& entry : player.m_ActiveTasks)
+        {
+            if (entry.first == "recruitInfantry")
+            {
+                entry.second = std::min(entry.second, std::max(0, player.m_Swordsmen));
+            }
+            else if (entry.first == "recruitArchers")
+            {
+                entry.second = std::min(entry.second, std::max(0, player.m_Archers));
+            }
+            else if (entry.first == "recruitKnights")
+            {
+                entry.second = std::min(entry.second, std::max(0, player.m_Knights));
+            }
+        }
+        player.m_ActiveTasks.erase(
+            std::remove_if(player.m_ActiveTasks.begin(), player.m_ActiveTasks.end(),
+                [](const std::pair<std::string, int>& e) { return e.second <= 0; }),
+            player.m_ActiveTasks.end());
+    }
+}
+
+void GameDatabase::FinalizePendingBattle(OverworldMap& map)
+{
+    if (!m_PendingBattle.m_Active || !m_PendingBattle.m_Resolved)
+    {
+        ClearPendingBattle();
+        return;
+    }
+
+    // CombatState rewrites army fields to REMAINING counts before setting m_Resolved.
+    PendingBattle battle = m_PendingBattle;
+    ClearPendingBattle();
+
+    if (battle.m_AttackerId < 0 || battle.m_AttackerId >= static_cast<int>(m_Players.size()))
+    {
+        return;
+    }
+
+    Player& attacker = m_Players[static_cast<size_t>(battle.m_AttackerId)];
+    OverworldRegionData* target = map.GetRegion(battle.m_RegionId);
+
+    attacker.m_Swordsmen = std::max(0, battle.m_AtkSwordsmen);
+    attacker.m_Archers = std::max(0, battle.m_AtkArchers);
+    attacker.m_Knights = std::max(0, battle.m_AtkKnights);
+    attacker.m_Catapults = std::max(0, battle.m_AtkCatapults);
+    ClampActiveTaskStacksToArmy(attacker);
+
+    if (battle.m_DefenderId >= 0 && battle.m_DefenderId < static_cast<int>(m_Players.size()))
+    {
+        Player& defender = m_Players[static_cast<size_t>(battle.m_DefenderId)];
+        defender.m_Swordsmen = std::max(0, battle.m_DefSwordsmen);
+        defender.m_Archers = std::max(0, battle.m_DefArchers);
+        defender.m_Knights = std::max(0, battle.m_DefKnights);
+        defender.m_Catapults = std::max(0, battle.m_DefCatapults);
+        ClampActiveTaskStacksToArmy(defender);
+    }
+
+    if (battle.m_AttackerWon && !battle.m_Retreated && target)
+    {
+        target->m_OwnerId = attacker.m_Id;
+        if (target->m_CastleBuildTurnsRemaining > 0 && !target->m_HasCastle)
+        {
+            target->m_CastleBuildTurnsRemaining = 0;
+        }
+
+        if (RegionData* dbRegion = GetRegion(battle.m_RegionId))
+        {
+            dbRegion->m_OwnerId = attacker.m_Id;
+            dbRegion->m_HasCastle = target->m_HasCastle;
+        }
+
+        g_AiObserverLog.Add(attacker.m_Id,
+            string(attacker.GetColorName()) + " captured county "
+            + to_string(battle.m_RegionId) + " in battle");
+    }
+    else if (battle.m_Retreated)
+    {
+        g_AiObserverLog.Add(attacker.m_Id,
+            string(attacker.GetColorName()) + " retreated from county " + to_string(battle.m_RegionId));
+    }
+    else
+    {
+        g_AiObserverLog.Add(attacker.m_Id,
+            string(attacker.GetColorName()) + " lost the battle for county " + to_string(battle.m_RegionId));
+    }
+
+    ::SyncPlayersFromOverworld(map, m_Players, false);
+    EvaluateCampaignOutcome(map);
 }
 
 bool GameDatabase::SaveCampaign(const std::string& path) const
@@ -1488,6 +1724,7 @@ bool GameDatabase::SaveCampaign(const std::string& path) const
             IO::Serialize(stream, region.m_OutputMultiplier);
             IO::Serialize(stream, region.m_CastleBuildTurnsRemaining);
             IO::Serialize(stream, region.m_HasCastle);
+            IO::Serialize(stream, region.m_OwnerId);
         }
     }
 
@@ -1514,7 +1751,8 @@ bool GameDatabase::LoadCampaign(const std::string& path)
 
     int version = 0;
     IO::Serialize(stream, version);
-    if (version != SAVE_VERSION)
+    // v11: no ownerId in overworld overlay. v12: ownerId + RegionData ownership restore.
+    if (version < 11 || version > SAVE_VERSION)
     {
         Log("GameDatabase::LoadCampaign - unsupported save version in " + path);
         return false;
@@ -1581,19 +1819,53 @@ bool GameDatabase::LoadCampaign(const std::string& path)
         int outputMultiplier = 1;
         int castleBuildTurnsRemaining = 0;
         bool hasCastle = false;
+        int ownerId = -1;
         IO::Serialize(stream, regionId);
         IO::Serialize(stream, outputMultiplier);
         IO::Serialize(stream, castleBuildTurnsRemaining);
         IO::Serialize(stream, hasCastle);
+        if (version >= 12)
+        {
+            IO::Serialize(stream, ownerId);
+        }
         g_OverworldMap.ApplyRegionCampaignOverlay(
             regionId,
             outputMultiplier,
             castleBuildTurnsRemaining,
-            hasCastle);
+            hasCastle,
+            ownerId);
+    }
+
+    // Restore ownership from serialized RegionData (authoritative for older saves too).
+    for (const RegionData& region : m_Regions)
+    {
+        if (OverworldRegionData* ow = g_OverworldMap.GetRegion(region.m_Id))
+        {
+            if (!ow->m_IsWater)
+            {
+                ow->m_OwnerId = region.m_OwnerId;
+                ow->m_HasCastle = region.m_HasCastle;
+            }
+        }
     }
 
     SyncPlayersFromOverworld(g_OverworldMap, false);
+    m_Outcome = CampaignOutcome::None;
+    ClearPendingBattle();
+    EvaluateCampaignOutcome(g_OverworldMap);
 
     Log("GameDatabase::LoadCampaign - loaded from " + path);
     return true;
+}
+
+bool GameDatabase::HasSaveFile(const std::string& path) const
+{
+    ifstream stream(path, ios::binary);
+    if (!stream)
+    {
+        return false;
+    }
+    char magic[4] = {};
+    stream.read(magic, 4);
+    return stream && strncmp(magic, SAVE_MAGIC, 4) == 0;
 }

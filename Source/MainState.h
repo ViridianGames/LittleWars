@@ -70,6 +70,14 @@ private:
     Rectangle GetVisitRegionButtonRect(const SideLayout& layout) const;
     bool CanVisitSelectedRegion() const;
 
+    void DrawAttackButton(const SideLayout& layout) const;
+    void HandleAttackButton(const SideLayout& layout);
+    Rectangle GetAttackButtonRect(const SideLayout& layout) const;
+    bool CanAttackSelectedRegion() const;
+
+    void DrawCampaignOutcomeOverlay() const;
+    void HandleCampaignOutcomeInput();
+
     // Optional full-map AI observer overlay (debug / all-AI).
     void HandleAiObserverInput();
     void DrawAiObserverPane() const;

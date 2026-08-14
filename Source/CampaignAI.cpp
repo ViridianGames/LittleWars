@@ -205,7 +205,9 @@ namespace
     {
         if (ownerId < 0 || ownerId >= static_cast<int>(players.size()))
         {
-            return fortified ? 4 : 1;
+            // Neutral garrison is 1S+1A (~2) with ~50% chance of +1 → expected ~2.5.
+            // Use 3 as AI planning estimate; fortified still gets the usual bonus.
+            return fortified ? 3 + 8 : 3;
         }
 
         const Player& defender = players[static_cast<size_t>(ownerId)];
@@ -296,10 +298,8 @@ namespace
                     continue;
                 }
 
-                std::string message;
-                if (ResolveRegionAttack(player, map, players, candidate.m_RegionId, &message))
+                if (ResolveRegionAttack(player, map, players, candidate.m_RegionId, nullptr, &rng))
                 {
-                    AiNote(player, message);
                     didSomething = true;
                 }
                 break;
@@ -322,11 +322,9 @@ namespace
 
     void RunExpansionistAi(Player& player, OverworldMap& map, std::vector<Player>& players, RNG& /*rng*/)
     {
-        bool captured = true;
-        int captures = 0;
-        while (captured && captures < 8)
+        // One attack per turn for all sides.
+        bool attacked = false;
         {
-            captured = false;
             const auto candidates = CollectAttackCandidates(player, map);
             for (const AttackCandidate& candidate : candidates)
             {
@@ -338,20 +336,13 @@ namespace
                 const PlayerTaskDefinition* attackTask = g_PlayerTasksConfig.FindTaskById("attack");
                 if (attackTask && !attackTask->m_Cost.CanAfford(player))
                 {
-                    if (player.m_Iron < attackTask->m_Cost.m_Iron)
-                    {
-                        break;
-                    }
-                }
-
-                std::string message;
-                if (ResolveRegionAttack(player, map, players, candidate.m_RegionId, &message))
-                {
-                    AiNote(player, message);
-                    captured = true;
-                    ++captures;
                     break;
                 }
+
+                // Expansionist has no per-turn RNG in signature — use vital/non-vital via default.
+                attacked = ResolveRegionAttack(player, map, players, candidate.m_RegionId, nullptr, nullptr)
+                    || player.m_AttacksThisTurn > 0;
+                break;
             }
         }
 
@@ -367,13 +358,9 @@ namespace
             }
         }
 
-        if (captures == 0 && recruited == 0)
+        if (!attacked && recruited == 0)
         {
             AiNote(player, "no expansion this turn (blocked or broke)");
-        }
-        else if (captures > 0)
-        {
-            AiNote(player, "expansion wave: " + std::to_string(captures) + " county(ies)");
         }
     }
 
@@ -469,30 +456,20 @@ namespace
             }
         }
 
-        // 3) Expand when opportunity looks good (1-3 captures).
-        int captures = 0;
+        // 3) Expand when opportunity looks good (one attack per turn).
+        bool attacked = false;
         {
-            bool captured = true;
-            while (captured && captures < 3)
+            const auto candidates = CollectAttackCandidates(player, map);
+            for (const AttackCandidate& candidate : candidates)
             {
-                captured = false;
-                const auto candidates = CollectAttackCandidates(player, map);
-                for (const AttackCandidate& candidate : candidates)
+                if (!ShouldAttemptAttack(player, candidate, map, players, AiPersonality::Balanced))
                 {
-                    if (!ShouldAttemptAttack(player, candidate, map, players, AiPersonality::Balanced))
-                    {
-                        continue;
-                    }
-
-                    std::string message;
-                    if (ResolveRegionAttack(player, map, players, candidate.m_RegionId, &message))
-                    {
-                        AiNote(player, message);
-                        captured = true;
-                        ++captures;
-                        break;
-                    }
+                    continue;
                 }
+
+                ResolveRegionAttack(player, map, players, candidate.m_RegionId, nullptr, &rng);
+                attacked = player.m_AttacksThisTurn > 0;
+                break;
             }
         }
 
@@ -526,7 +503,7 @@ namespace
             {
                 AiNote(player, "recruited " + std::to_string(recruited) + " (balanced)");
             }
-            else if (captures == 0)
+            else if (!attacked)
             {
                 AiNote(player, "consolidating holdings");
             }
@@ -610,10 +587,163 @@ int GetPlayerArmyStrength(const Player& player)
         + player.m_SiegeTowers;
 }
 
+namespace
+{
+    struct ArmyCounts
+    {
+        int m_Swordsmen = 0;
+        int m_Archers = 0;
+        int m_Knights = 0;
+        int m_Catapults = 0;
+        int m_SiegeTowers = 0;
+    };
+
+    ArmyCounts SnapshotPlayerArmy(const Player& player)
+    {
+        return ArmyCounts{
+            player.m_Swordsmen,
+            player.m_Archers,
+            player.m_Knights,
+            player.m_Catapults,
+            player.m_SiegeTowers
+        };
+    }
+
+    int ArmyCountsStrength(const ArmyCounts& army)
+    {
+        return army.m_Swordsmen
+            + army.m_Archers
+            + army.m_Knights * 2
+            + army.m_Catapults
+            + army.m_SiegeTowers;
+    }
+
+    std::string FormatArmyCounts(const ArmyCounts& army)
+    {
+        std::ostringstream oss;
+        oss << "S" << army.m_Swordsmen
+            << " A" << army.m_Archers
+            << " K" << army.m_Knights
+            << " C" << army.m_Catapults;
+        if (army.m_SiegeTowers > 0)
+        {
+            oss << " T" << army.m_SiegeTowers;
+        }
+        return oss.str();
+    }
+
+    void ApplyLossPointsToArmy(ArmyCounts& army, int lossPoints)
+    {
+        lossPoints = std::max(0, lossPoints);
+        while (lossPoints > 0
+            && (army.m_Swordsmen + army.m_Archers + army.m_Knights + army.m_Catapults) > 0)
+        {
+            if (army.m_Swordsmen > 0)
+            {
+                --army.m_Swordsmen;
+                --lossPoints;
+            }
+            else if (army.m_Archers > 0)
+            {
+                --army.m_Archers;
+                --lossPoints;
+            }
+            else if (army.m_Knights > 0)
+            {
+                --army.m_Knights;
+                lossPoints -= 2;
+            }
+            else if (army.m_Catapults > 0)
+            {
+                --army.m_Catapults;
+                --lossPoints;
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
+
+    void WriteArmyToPlayer(Player& player, const ArmyCounts& army)
+    {
+        player.m_Swordsmen = std::max(0, army.m_Swordsmen);
+        player.m_Archers = std::max(0, army.m_Archers);
+        player.m_Knights = std::max(0, army.m_Knights);
+        player.m_Catapults = std::max(0, army.m_Catapults);
+        player.m_SiegeTowers = std::max(0, army.m_SiegeTowers);
+
+        for (auto& entry : player.m_ActiveTasks)
+        {
+            if (entry.first == "recruitInfantry")
+            {
+                entry.second = std::min(entry.second, player.m_Swordsmen);
+            }
+            else if (entry.first == "recruitArchers")
+            {
+                entry.second = std::min(entry.second, player.m_Archers);
+            }
+            else if (entry.first == "recruitKnights")
+            {
+                entry.second = std::min(entry.second, player.m_Knights);
+            }
+        }
+        player.m_ActiveTasks.erase(
+            std::remove_if(player.m_ActiveTasks.begin(), player.m_ActiveTasks.end(),
+                [](const std::pair<std::string, int>& e) { return e.second <= 0; }),
+            player.m_ActiveTasks.end());
+    }
+
+    RNG* ResolveBattleRng(RNG* preferred)
+    {
+        if (preferred)
+        {
+            return preferred;
+        }
+        if (g_vitalRNG)
+        {
+            return g_vitalRNG.get();
+        }
+        if (g_nonVitalRNG)
+        {
+            return g_nonVitalRNG.get();
+        }
+        return nullptr;
+    }
+}
+
+void RollNeutralRegionGarrison(int& outSwordsmen, int& outArchers, RNG* rng)
+{
+    outSwordsmen = 1;
+    outArchers = 1;
+
+    RNG* rollRng = ResolveBattleRng(rng);
+    const bool extraUnit = rollRng ? (rollRng->Random(2) == 0) : false;
+    if (!extraUnit)
+    {
+        return;
+    }
+
+    // 50/50 swordsmen vs archers for the bonus unit.
+    if (rollRng && rollRng->Random(2) == 0)
+    {
+        ++outSwordsmen;
+    }
+    else
+    {
+        ++outArchers;
+    }
+}
+
 bool CanPlayerAttackRegion(const Player& attacker, const OverworldMap& map, int targetRegionId)
 {
     const OverworldRegionData* target = map.GetRegion(targetRegionId);
     if (!target || target->m_IsWater || target->m_OwnerId == attacker.m_Id)
+    {
+        return false;
+    }
+
+    if (attacker.m_AttacksThisTurn >= 1)
     {
         return false;
     }
@@ -640,8 +770,18 @@ bool ResolveRegionAttack(
     OverworldMap& map,
     std::vector<Player>& players,
     int targetRegionId,
-    std::string* outMessage)
+    std::string* outMessage,
+    RNG* rng)
 {
+    if (attacker.m_AttacksThisTurn >= 1)
+    {
+        if (outMessage)
+        {
+            *outMessage = "Already attacked this turn";
+        }
+        return false;
+    }
+
     if (!CanPlayerAttackRegion(attacker, map, targetRegionId))
     {
         if (outMessage)
@@ -672,122 +812,125 @@ bool ResolveRegionAttack(
         attackTask->m_Cost.Deduct(attacker);
     }
 
+    // One attack order per player per turn (win or lose).
+    ++attacker.m_AttacksThisTurn;
+
     const int defenderId = target->m_OwnerId;
     const bool wasNeutral = defenderId < 0;
-    const int attackPower = GetPlayerArmyStrength(attacker);
-    const int defendPower = EstimateDefendStrength(
-        map, players, defenderId, map.IsRegionFortified(targetRegionId));
+    const bool fortified = map.IsRegionFortified(targetRegionId);
 
-    // Light RNG-free auto-resolve: edge of 0 is a hard fight that still favors attacker slightly.
-    const bool attackerWins = wasNeutral || (attackPower + 1 >= defendPower);
+    ArmyCounts atkBefore = SnapshotPlayerArmy(attacker);
+    ArmyCounts defBefore{};
+    std::string defenderName = "Neutral";
 
-    auto applyLosses = [](Player& p, int lossPoints)
+    if (wasNeutral)
     {
-        lossPoints = std::max(0, lossPoints);
-        while (lossPoints > 0 && (p.m_Swordsmen + p.m_Archers + p.m_Knights) > 0)
-        {
-            if (p.m_Swordsmen > 0)
-            {
-                --p.m_Swordsmen;
-                --lossPoints;
-            }
-            else if (p.m_Archers > 0)
-            {
-                --p.m_Archers;
-                --lossPoints;
-            }
-            else if (p.m_Knights > 0)
-            {
-                --p.m_Knights;
-                lossPoints -= 2;
-            }
-            else
-            {
-                break;
-            }
-        }
+        RollNeutralRegionGarrison(defBefore.m_Swordsmen, defBefore.m_Archers, rng);
+        defenderName = "Neutral garrison";
+    }
+    else if (defenderId >= 0 && defenderId < static_cast<int>(players.size()))
+    {
+        defBefore = SnapshotPlayerArmy(players[static_cast<size_t>(defenderId)]);
+        defenderName = players[static_cast<size_t>(defenderId)].GetColorName();
+    }
 
-        // Keep active-task upkeep stacks roughly in sync with living units.
-        int infantryStacks = 0;
-        int archerStacks = 0;
-        int knightStacks = 0;
-        for (auto& entry : p.m_ActiveTasks)
-        {
-            if (entry.first == "recruitInfantry")
-            {
-                entry.second = std::min(entry.second, std::max(0, p.m_Swordsmen));
-                infantryStacks = entry.second;
-            }
-            else if (entry.first == "recruitArchers")
-            {
-                entry.second = std::min(entry.second, std::max(0, p.m_Archers));
-                archerStacks = entry.second;
-            }
-            else if (entry.first == "recruitKnights")
-            {
-                entry.second = std::min(entry.second, std::max(0, p.m_Knights));
-                knightStacks = entry.second;
-            }
-        }
-        (void)infantryStacks;
-        (void)archerStacks;
-        (void)knightStacks;
-        p.m_ActiveTasks.erase(
-            std::remove_if(p.m_ActiveTasks.begin(), p.m_ActiveTasks.end(),
-                [](const std::pair<std::string, int>& e) { return e.second <= 0; }),
-            p.m_ActiveTasks.end());
-    };
+    int attackPower = ArmyCountsStrength(atkBefore);
+    int defendPower = ArmyCountsStrength(defBefore);
+    // Owned land: dilute full roster across holdings (same idea as EstimateDefendStrength).
+    if (!wasNeutral && defenderId >= 0)
+    {
+        const int regions = std::max(1, CountOwnedRegions(map, defenderId));
+        defendPower = std::max(1, defendPower / std::max(1, regions / 2 + 1));
+    }
+    if (fortified)
+    {
+        defendPower += 8;
+    }
+
+    // Slight attacker edge on a pure tie (attackPower + 1 >= defendPower).
+    const bool attackerWins = (attackPower + 1 >= defendPower);
+
+    ArmyCounts atkAfter = atkBefore;
+    ArmyCounts defAfter = defBefore;
 
     if (!attackerWins)
     {
-        applyLosses(attacker, std::max(1, defendPower / 3));
-        if (defenderId >= 0 && defenderId < static_cast<int>(players.size()))
+        ApplyLossPointsToArmy(atkAfter, std::max(1, defendPower / 3));
+        ApplyLossPointsToArmy(defAfter, std::max(1, attackPower / 4));
+    }
+    else
+    {
+        ApplyLossPointsToArmy(atkAfter, std::max(1, defendPower / 4));
+        // Defeated garrison / army is gutted harder.
+        ApplyLossPointsToArmy(defAfter, std::max(1, attackPower / 3));
+        // If attacker still has any troops, wipe remaining defenders (county falls).
+        if (ArmyCountsStrength(atkAfter) > 0)
         {
-            applyLosses(players[static_cast<size_t>(defenderId)], std::max(1, attackPower / 4));
+            defAfter = ArmyCounts{};
+        }
+    }
+
+    WriteArmyToPlayer(attacker, atkAfter);
+    if (!wasNeutral && defenderId >= 0 && defenderId < static_cast<int>(players.size()))
+    {
+        WriteArmyToPlayer(players[static_cast<size_t>(defenderId)], defAfter);
+    }
+
+    if (attackerWins)
+    {
+        target->m_OwnerId = attacker.m_Id;
+        if (target->m_CastleBuildTurnsRemaining > 0 && !target->m_HasCastle)
+        {
+            target->m_CastleBuildTurnsRemaining = 0;
         }
 
-        if (outMessage)
-        {
-            *outMessage = "Attack on county " + std::to_string(targetRegionId) + " failed";
-        }
-        return false;
+        SyncGameDbOwner(targetRegionId, attacker.m_Id);
+        SyncGameDbCastle(targetRegionId, target->m_HasCastle);
     }
-
-    // Capture
-    applyLosses(attacker, wasNeutral ? 0 : std::max(1, defendPower / 4));
-    if (defenderId >= 0 && defenderId < static_cast<int>(players.size()))
-    {
-        applyLosses(players[static_cast<size_t>(defenderId)], std::max(1, attackPower / 3));
-        // Cancel incomplete castle builds on conquered land (finished castles remain).
-    }
-
-    target->m_OwnerId = attacker.m_Id;
-    if (target->m_CastleBuildTurnsRemaining > 0 && !target->m_HasCastle)
-    {
-        target->m_CastleBuildTurnsRemaining = 0;
-    }
-
-    SyncGameDbOwner(targetRegionId, attacker.m_Id);
-    SyncGameDbCastle(targetRegionId, target->m_HasCastle);
 
     SyncPlayersFromOverworld(map, players, false);
+
+    // Explicit multi-line turn log report.
+    {
+        std::ostringstream header;
+        header << attacker.GetColorName() << " attacks county " << targetRegionId
+               << " (" << defenderName
+               << (fortified ? ", fortified" : "")
+               << ")";
+        g_AiObserverLog.Add(attacker.m_Id, header.str());
+        g_AiObserverLog.Add(attacker.m_Id,
+            "  " + std::string(attacker.GetColorName()) + " force: " + FormatArmyCounts(atkBefore));
+        g_AiObserverLog.Add(attacker.m_Id,
+            "  " + defenderName + " force: " + FormatArmyCounts(defBefore));
+        g_AiObserverLog.Add(attacker.m_Id,
+            attackerWins
+                ? ("  Result: " + std::string(attacker.GetColorName()) + " WINS — county captured")
+                : ("  Result: " + defenderName + " HOLDS — attack fails"));
+        g_AiObserverLog.Add(attacker.m_Id,
+            "  " + std::string(attacker.GetColorName()) + " left: " + FormatArmyCounts(atkAfter));
+        g_AiObserverLog.Add(attacker.m_Id,
+            "  " + defenderName + " left: " + FormatArmyCounts(defAfter));
+    }
 
     if (outMessage)
     {
         std::ostringstream oss;
-        oss << "Captured county " << targetRegionId;
-        if (wasNeutral)
+        if (attackerWins)
         {
-            oss << " (unclaimed)";
+            oss << "Captured county " << targetRegionId
+                << " (" << FormatArmyCounts(atkBefore) << " vs " << FormatArmyCounts(defBefore)
+                << " → left " << FormatArmyCounts(atkAfter) << ")";
         }
-        else if (defenderId >= 0 && defenderId < static_cast<int>(players.size()))
+        else
         {
-            oss << " from " << players[static_cast<size_t>(defenderId)].GetColorName();
+            oss << "Failed attack on county " << targetRegionId
+                << " (" << FormatArmyCounts(atkBefore) << " vs " << FormatArmyCounts(defBefore)
+                << " → left " << FormatArmyCounts(atkAfter) << ")";
         }
         *outMessage = oss.str();
     }
 
-    return true;
+    return attackerWins;
 }
 
 void RunCampaignAiTurn(Player& player, OverworldMap& map, std::vector<Player>& players, RNG& rng)

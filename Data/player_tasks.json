@@ -23,7 +23,7 @@
       "id": "recruitInfantry",
       "name": "Recruit Infantry",
       "icon": { "preset": "iron" },
-      "cost": { "iron": 5, "gold": 5 },
+      "cost": { "iron": 10, "gold": 10 },
       "maintenance": { "food": 1 },
       "effect": { "type": "addSwordsmen", "amount": 1 }
     },
@@ -31,7 +31,7 @@
       "id": "recruitArchers",
       "name": "Recruit Archers",
       "icon": { "preset": "wood" },
-      "cost": { "wood": 5, "gold": 5 },
+      "cost": { "wood": 10, "gold": 10 },
       "maintenance": { "food": 1 },
       "effect": { "type": "addArchers", "amount": 1 }
     },
@@ -39,7 +39,7 @@
       "id": "recruitKnights",
       "name": "Recruit Knights",
       "icon": { "preset": "gold" },
-      "cost": { "iron": 5, "food": 5, "gold": 5 },
+      "cost": { "iron": 10, "food": 10, "gold": 10 },
       "maintenance": { "food": 1, "gold": 1 },
       "effect": { "type": "addKnights", "amount": 1 }
     },
@@ -47,14 +47,14 @@
       "id": "buildCatapult",
       "name": "Build Catapult",
       "icon": { "preset": "wood" },
-      "cost": { "wood": 10, "iron": 5, "gold": 10 },
+      "cost": { "wood": 20, "iron": 10, "gold": 20 },
       "effect": { "type": "addCatapults", "amount": 1 }
     },
     {
       "id": "buildSiegeTower",
       "name": "Build Siege Tower",
       "icon": { "preset": "wood" },
-      "cost": { "wood": 10, "iron": 5, "gold": 10 },
+      "cost": { "wood": 20, "iron": 10, "gold": 20 },
       "effect": { "type": "addSiegeTowers", "amount": 1 }
     },
     {

@@ -20,14 +20,19 @@ int GetPlayerArmyStrength(const Player& player);
 // True if target is land, not owned by attacker, and adjacent (traversable) to an owned county.
 bool CanPlayerAttackRegion(const Player& attacker, const OverworldMap& map, int targetRegionId);
 
+// Neutral county garrison: 1 swordsmen + 1 archers, plus 50% chance of one extra S or A.
+// Writes counts into outSwordsmen / outArchers. Uses rng when non-null, else g_vitalRNG / g_nonVitalRNG.
+void RollNeutralRegionGarrison(int& outSwordsmen, int& outArchers, RNG* rng = nullptr);
+
 // Auto-resolve conquest. Returns true if the attacker captured the region.
-// outMessage receives a short human-readable result when non-null.
+// Writes a multi-line battle report into the turn log; outMessage gets a one-line summary when non-null.
 bool ResolveRegionAttack(
     Player& attacker,
     OverworldMap& map,
     std::vector<Player>& players,
     int targetRegionId,
-    std::string* outMessage = nullptr);
+    std::string* outMessage = nullptr,
+    RNG* rng = nullptr);
 
 // Run one overworld decision pass for every non-human living player.
 void RunAllCampaignAiTurns(OverworldMap& map, std::vector<Player>& players, RNG& rng, int turnNumber);

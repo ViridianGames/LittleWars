@@ -464,6 +464,10 @@ std::string PlayerTasksConfig::GetTaskFailureReason(
 
     if (task.m_Effect.m_Type == "attack")
     {
+        if (player.m_AttacksThisTurn >= 1)
+        {
+            return "Already attacked this turn (one attack per turn)";
+        }
         if (selectedRegionId < 0)
         {
             return "Select a neighboring enemy or unclaimed county to attack";
@@ -594,14 +598,192 @@ bool PlayerTasksConfig::ApplyEffect(
         return true;
     }
 
-    if (effect.m_Type == "scouting"
-        || effect.m_Type == "saboteur"
-        || effect.m_Type == "spying"
-        || effect.m_Type == "diplomat"
-        || effect.m_Type == "sendDiplomat"
-        || effect.m_Type == "sendSpy"
-        || effect.m_Type == "merchant")
+    if (effect.m_Type == "scouting")
     {
+        // Free recon: log a short summary of neighboring foreign counties.
+        int foreignNeighbors = 0;
+        int unclaimedNeighbors = 0;
+        if (selectedRegionId >= 0)
+        {
+            for (int neighborId : map.GetTraversableAdjacentRegions(selectedRegionId))
+            {
+                const OverworldRegionData* neighbor = map.GetRegion(neighborId);
+                if (!neighbor || neighbor->m_IsWater)
+                {
+                    continue;
+                }
+                if (neighbor->m_OwnerId < 0)
+                {
+                    ++unclaimedNeighbors;
+                }
+                else if (neighbor->m_OwnerId != player.m_Id)
+                {
+                    ++foreignNeighbors;
+                }
+            }
+        }
+        g_AiObserverLog.Add(player.m_Id,
+            std::string(player.GetColorName()) + " scouts: "
+            + std::to_string(foreignNeighbors) + " rival, "
+            + std::to_string(unclaimedNeighbors) + " unclaimed borders");
+        return true;
+    }
+
+    if (effect.m_Type == "saboteur")
+    {
+        // Sabotage: if a foreign county is selected, slow its castle build or cut output.
+        OverworldRegionData* region = map.GetRegion(selectedRegionId);
+        if (region && !region->m_IsWater && region->m_OwnerId >= 0 && region->m_OwnerId != player.m_Id)
+        {
+            if (region->m_CastleBuildTurnsRemaining > 0)
+            {
+                region->m_CastleBuildTurnsRemaining += 2;
+            }
+            else if (region->m_OutputMultiplier > 1)
+            {
+                region->m_OutputMultiplier = std::max(1, region->m_OutputMultiplier / 2);
+            }
+            g_AiObserverLog.Add(player.m_Id,
+                std::string(player.GetColorName()) + " sabotaged county "
+                + std::to_string(selectedRegionId));
+        }
+        else
+        {
+            g_AiObserverLog.Add(player.m_Id,
+                std::string(player.GetColorName()) + " saboteur found no target");
+        }
+        return true;
+    }
+
+    if (effect.m_Type == "spying" || effect.m_Type == "sendSpy")
+    {
+        // Reveal a rival's army strength (selected foreign county owner, else strongest rival).
+        int targetId = -1;
+        if (const OverworldRegionData* region = map.GetRegion(selectedRegionId))
+        {
+            if (region->m_OwnerId >= 0 && region->m_OwnerId != player.m_Id)
+            {
+                targetId = region->m_OwnerId;
+            }
+        }
+        if (targetId < 0)
+        {
+            int bestStrength = -1;
+            for (const Player& other : g_GameDatabase.m_Players)
+            {
+                if (other.m_Id == player.m_Id || other.m_TotalRegions <= 0)
+                {
+                    continue;
+                }
+                const int strength = other.m_Swordsmen + other.m_Archers + other.m_Knights * 2;
+                if (strength > bestStrength)
+                {
+                    bestStrength = strength;
+                    targetId = other.m_Id;
+                }
+            }
+        }
+        if (targetId >= 0 && targetId < static_cast<int>(g_GameDatabase.m_Players.size()))
+        {
+            const Player& target = g_GameDatabase.m_Players[static_cast<size_t>(targetId)];
+            g_AiObserverLog.Add(player.m_Id,
+                std::string("Spy: ") + target.GetColorName()
+                + " army S" + std::to_string(target.m_Swordsmen)
+                + " A" + std::to_string(target.m_Archers)
+                + " K" + std::to_string(target.m_Knights)
+                + "  counties " + std::to_string(target.m_TotalRegions));
+        }
+        else
+        {
+            g_AiObserverLog.Add(player.m_Id, "Spy found no rivals");
+        }
+        return true;
+    }
+
+    if (effect.m_Type == "diplomat" || effect.m_Type == "sendDiplomat")
+    {
+        // Improve relations with selected foreign owner, else all living rivals one step.
+        auto bumpRelation = [&](Player& self, Player& other) {
+            if (other.m_Id == self.m_Id)
+            {
+                return;
+            }
+            if (other.m_Id >= 0 && other.m_Id < static_cast<int>(self.m_Relations.size()))
+            {
+                int rel = self.m_Relations[static_cast<size_t>(other.m_Id)];
+                rel = std::min(static_cast<int>(DiplomaticRelation::Allied), rel + 1);
+                self.m_Relations[static_cast<size_t>(other.m_Id)] = rel;
+            }
+            if (self.m_Id >= 0 && self.m_Id < static_cast<int>(other.m_Relations.size()))
+            {
+                int rel = other.m_Relations[static_cast<size_t>(self.m_Id)];
+                rel = std::min(static_cast<int>(DiplomaticRelation::Allied), rel + 1);
+                other.m_Relations[static_cast<size_t>(self.m_Id)] = rel;
+            }
+        };
+
+        int targetId = -1;
+        if (const OverworldRegionData* region = map.GetRegion(selectedRegionId))
+        {
+            if (region->m_OwnerId >= 0 && region->m_OwnerId != player.m_Id)
+            {
+                targetId = region->m_OwnerId;
+            }
+        }
+
+        if (targetId >= 0 && targetId < static_cast<int>(g_GameDatabase.m_Players.size()))
+        {
+            Player& other = g_GameDatabase.m_Players[static_cast<size_t>(targetId)];
+            bumpRelation(player, other);
+            g_AiObserverLog.Add(player.m_Id,
+                std::string(player.GetColorName()) + " diplomacy with "
+                + other.GetColorName() + " improved");
+        }
+        else
+        {
+            for (Player& other : g_GameDatabase.m_Players)
+            {
+                if (other.m_TotalRegions > 0)
+                {
+                    bumpRelation(player, other);
+                }
+            }
+            g_AiObserverLog.Add(player.m_Id,
+                std::string(player.GetColorName()) + " sent envoys to all courts");
+        }
+        return true;
+    }
+
+    if (effect.m_Type == "merchant")
+    {
+        // Market day: sell surplus wood/food for gold, or buy a little food with gold.
+        int goldGained = 0;
+        if (player.m_Wood >= 3)
+        {
+            const int sell = std::min(5, player.m_Wood / 2);
+            player.m_Wood -= sell;
+            goldGained += sell;
+        }
+        if (player.m_Food >= 4)
+        {
+            const int sell = std::min(3, player.m_Food / 3);
+            player.m_Food -= sell;
+            goldGained += sell;
+        }
+        if (goldGained <= 0 && player.m_Gold >= 2)
+        {
+            player.m_Gold -= 2;
+            player.m_Food += 3;
+            g_AiObserverLog.Add(player.m_Id,
+                std::string(player.GetColorName()) + " merchants bought food (+3)");
+        }
+        else
+        {
+            player.m_Gold += goldGained;
+            g_AiObserverLog.Add(player.m_Id,
+                std::string(player.GetColorName()) + " market day: +"
+                + std::to_string(goldGained) + " gold");
+        }
         return true;
     }
 

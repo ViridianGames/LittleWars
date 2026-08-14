@@ -197,12 +197,14 @@ void SyncPlayersFromOverworld(const OverworldMap& map, std::vector<Player>& play
             player.m_Gold = player.m_GoldRegions * kRegionBaseIncome + 25;
             player.m_Wood = player.m_WoodRegions * kRegionBaseIncome + 15;
 
-            player.m_Swordsmen = std::max(1, player.m_TotalRegions / 2);
-            player.m_Archers = std::max(0, player.m_TotalRegions / 3);
-            player.m_Knights = player.m_Castles;
-            player.m_Catapults = player.m_Castles / 2;
+            // Starting army is the same for every side: 2 swordsmen, 1 archer.
+            player.m_Swordsmen = 2;
+            player.m_Archers = 1;
+            player.m_Knights = 0;
+            player.m_Catapults = 0;
             player.m_SiegeTowers = 0;
             player.m_Happiness = 50;
+            player.m_AttacksThisTurn = 0;
         }
         else if (resetAssets)
         {
@@ -216,6 +218,7 @@ void SyncPlayersFromOverworld(const OverworldMap& map, std::vector<Player>& play
             player.m_Catapults = 0;
             player.m_SiegeTowers = 0;
             player.m_Happiness = 50;
+            player.m_AttacksThisTurn = 0;
         }
     }
 }

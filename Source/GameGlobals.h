@@ -100,6 +100,37 @@ enum class RulerGender : int
     Female
 };
 
+enum class CampaignOutcome : int
+{
+    None = 0,
+    Victory,
+    Defeat
+};
+
+// Human attack waiting for CombatState resolution (Battles: On Map).
+struct PendingBattle
+{
+    bool m_Active = false;
+    int m_RegionId = -1;
+    int m_AttackerId = -1;
+    int m_DefenderId = -1; // -1 = unclaimed / neutral garrison
+    bool m_Resolved = false;
+    bool m_AttackerWon = false;
+    bool m_Retreated = false;
+
+    // Army snapshot at battle start (for proportional casualties).
+    int m_AtkSwordsmen = 0;
+    int m_AtkArchers = 0;
+    int m_AtkKnights = 0;
+    int m_AtkCatapults = 0;
+    int m_DefSwordsmen = 0;
+    int m_DefArchers = 0;
+    int m_DefKnights = 0;
+    int m_DefCatapults = 0;
+};
+
+constexpr const char* kDefaultCampaignSavePath = "campaign.sav";
+
 constexpr int kDifficultyCount = 5;
 constexpr int kRulerGenderCount = 2;
 constexpr int kMinOpponents = 3;
@@ -183,11 +214,13 @@ class GameDatabase
 {
 public:
     static constexpr const char* SAVE_MAGIC = "LWAR";
-    static constexpr int SAVE_VERSION = 11;
+    static constexpr int SAVE_VERSION = 12;
 
     CampaignSetup m_Setup;
     int m_Turn = 0;
     int m_ActiveRegionId = -1;
+    CampaignOutcome m_Outcome = CampaignOutcome::None;
+    PendingBattle m_PendingBattle;
     std::vector<Player> m_Players;
     std::vector<RegionData> m_Regions;
 
@@ -197,6 +230,17 @@ public:
     void GenerateAllRegionHeightfields();
     void SyncPlayersFromOverworld(const class OverworldMap& map, bool resetAssets);
     void AdvanceTurn(class OverworldMap& map);
+
+    // Victory = no rival still holds land. Defeat = human holds none.
+    void EvaluateCampaignOutcome(const class OverworldMap& map);
+
+    // Start an on-map battle for a human attack (returns false if invalid).
+    bool BeginPendingBattle(int attackerId, int targetRegionId, class OverworldMap& map);
+
+    // Apply capture + casualties after CombatState ends a pending battle.
+    void FinalizePendingBattle(class OverworldMap& map);
+
+    void ClearPendingBattle();
 
     RegionData* GetRegion(int regionId);
     const RegionData* GetRegion(int regionId) const;
@@ -211,6 +255,7 @@ public:
 
     bool SaveCampaign(const std::string& path) const;
     bool LoadCampaign(const std::string& path);
+    bool HasSaveFile(const std::string& path = kDefaultCampaignSavePath) const;
 
 private:
     void GenerateOverworldRegions();

@@ -365,7 +365,8 @@ void OverworldMap::ApplyRegionCampaignOverlay(
     int regionId,
     int outputMultiplier,
     int castleBuildTurnsRemaining,
-    bool hasCastle)
+    bool hasCastle,
+    int ownerId)
 {
     OverworldRegionData* region = GetRegion(regionId);
     if (!region || region->m_IsWater)
@@ -376,6 +377,10 @@ void OverworldMap::ApplyRegionCampaignOverlay(
     region->m_OutputMultiplier = std::max(1, outputMultiplier);
     region->m_CastleBuildTurnsRemaining = std::max(0, castleBuildTurnsRemaining);
     region->m_HasCastle = hasCastle;
+    if (ownerId != -2)
+    {
+        region->m_OwnerId = ownerId;
+    }
 }
 
 void OverworldMap::GenerateTerrain(RNG& rng)
@@ -1183,6 +1188,15 @@ void OverworldMap::AssignRegionBorders(RNG& rng)
 {
     m_BorderTypes.clear();
 
+    struct Edge
+    {
+        int m_A = -1;
+        int m_B = -1;
+    };
+
+    std::vector<Edge> edges;
+    edges.reserve(m_Regions.size() * 3);
+
     for (const OverworldRegionData& region : m_Regions)
     {
         if (region.m_IsWater)
@@ -1203,13 +1217,179 @@ void OverworldMap::AssignRegionBorders(RNG& rng)
                 continue;
             }
 
-            RegionBorderType borderType = RegionBorderType::Open;
-            if (rng.Random(100) < 18)
-            {
-                borderType = RegionBorderType::Mountain;
-            }
+            edges.push_back(Edge{ region.m_Id, neighborId });
+        }
+    }
 
-            m_BorderTypes[BorderKey(region.m_Id, neighborId)] = borderType;
+    if (edges.empty())
+    {
+        return;
+    }
+
+    // Random spanning tree of open borders so every land county stays reachable
+    // for attack (mountain walls cannot partition the map).
+    const int regionCount = static_cast<int>(m_Regions.size());
+    std::vector<int> parent(static_cast<size_t>(std::max(1, regionCount)), -1);
+    auto findRoot = [&](int id) -> int {
+        int root = id;
+        while (root >= 0 && root < regionCount && parent[static_cast<size_t>(root)] >= 0)
+        {
+            root = parent[static_cast<size_t>(root)];
+        }
+        // Path compression
+        int cur = id;
+        while (cur >= 0 && cur < regionCount && parent[static_cast<size_t>(cur)] >= 0)
+        {
+            const int next = parent[static_cast<size_t>(cur)];
+            parent[static_cast<size_t>(cur)] = root;
+            cur = next;
+        }
+        return root;
+    };
+    auto unite = [&](int a, int b) {
+        a = findRoot(a);
+        b = findRoot(b);
+        if (a == b || a < 0 || b < 0)
+        {
+            return false;
+        }
+        parent[static_cast<size_t>(a)] = b;
+        return true;
+    };
+
+    // Fisher–Yates shuffle so the spanning tree is seed-dependent.
+    for (int i = static_cast<int>(edges.size()) - 1; i > 0; --i)
+    {
+        const int j = rng.Random(i + 1);
+        std::swap(edges[static_cast<size_t>(i)], edges[static_cast<size_t>(j)]);
+    }
+
+    std::unordered_set<unsigned long long> treeEdges;
+    treeEdges.reserve(edges.size());
+    for (const Edge& edge : edges)
+    {
+        if (unite(edge.m_A, edge.m_B))
+        {
+            treeEdges.insert(BorderKey(edge.m_A, edge.m_B));
+        }
+    }
+
+    // Non-tree edges may become mountains (kept low so ridges stay sparse).
+    constexpr int kMountainBorderPercent = 14;
+    for (const Edge& edge : edges)
+    {
+        const unsigned long long key = BorderKey(edge.m_A, edge.m_B);
+        RegionBorderType borderType = RegionBorderType::Open;
+        if (treeEdges.find(key) == treeEdges.end() && rng.Random(100) < kMountainBorderPercent)
+        {
+            borderType = RegionBorderType::Mountain;
+        }
+        m_BorderTypes[key] = borderType;
+    }
+}
+
+void OverworldMap::EnsureTraversableLandConnectivity()
+{
+    // Safety net after mountain carving: if land splits into islands for attack
+    // pathfinding, reopen mountain borders between components until one component remains.
+    std::vector<int> landIds;
+    landIds.reserve(m_Regions.size());
+    for (const OverworldRegionData& region : m_Regions)
+    {
+        if (!region.m_IsWater)
+        {
+            landIds.push_back(region.m_Id);
+        }
+    }
+    if (landIds.size() <= 1)
+    {
+        return;
+    }
+
+    auto componentOf = [&](int startId, std::vector<int>& outComp) {
+        outComp.clear();
+        std::unordered_set<int> visited;
+        std::queue<int> queue;
+        queue.push(startId);
+        visited.insert(startId);
+        while (!queue.empty())
+        {
+            const int id = queue.front();
+            queue.pop();
+            outComp.push_back(id);
+            for (int neighborId : GetTraversableAdjacentRegions(id))
+            {
+                if (visited.insert(neighborId).second)
+                {
+                    queue.push(neighborId);
+                }
+            }
+        }
+    };
+
+    for (int pass = 0; pass < 64; ++pass)
+    {
+        std::unordered_set<int> seen;
+        std::vector<std::vector<int>> components;
+        for (int id : landIds)
+        {
+            if (seen.count(id) > 0)
+            {
+                continue;
+            }
+            std::vector<int> comp;
+            componentOf(id, comp);
+            for (int c : comp)
+            {
+                seen.insert(c);
+            }
+            components.push_back(std::move(comp));
+        }
+
+        if (components.size() <= 1)
+        {
+            return;
+        }
+
+        // Prefer opening a mountain border between component 0 and any other.
+        bool opened = false;
+        const std::unordered_set<int> primary(
+            components[0].begin(), components[0].end());
+
+        for (size_t ci = 1; ci < components.size() && !opened; ++ci)
+        {
+            for (int id : components[ci])
+            {
+                const OverworldRegionData* region = GetRegion(id);
+                if (!region)
+                {
+                    continue;
+                }
+                for (int neighborId : region->m_AdjacentRegionIds)
+                {
+                    if (primary.count(neighborId) == 0)
+                    {
+                        continue;
+                    }
+                    if (GetBorderType(id, neighborId) == RegionBorderType::Mountain)
+                    {
+                        m_BorderTypes[BorderKey(id, neighborId)] = RegionBorderType::Open;
+                        opened = true;
+                        break;
+                    }
+                }
+                if (opened)
+                {
+                    break;
+                }
+            }
+        }
+
+        if (!opened)
+        {
+            // Components not linked by any adjacency edge (physical mountain wall).
+            // Clear a mountain cell corridor is too heavy here — stop and accept.
+            return;
         }
     }
 }
@@ -1889,10 +2069,12 @@ void OverworldMap::Generate(unsigned int seed, const CampaignSetup& setup)
     ClearLandRegionInteriors();
     CarveInterRegionMountains();
     BuildAdjacency();
+    // Open spanning tree first so mountain ridges cannot cut the attack graph.
     AssignRegionBorders(rng);
     CarveInterRegionMountains();
     RecalculateRegionCellCounts();
     BuildAdjacency();
+    EnsureTraversableLandConnectivity();
     AssignRegionResources(rng, static_cast<int>(resolvedSetup.m_ResourceDistribution));
     AssignRegionCampaignState(
         rng,

@@ -1,115 +1,39 @@
- Mon Aug  3 22:41:33 2026.195 Starting Engine::Init()
- Mon Aug  3 22:41:33 2026.195 Starting StateMachine::Init
- Mon Aug  3 22:41:33 2026.195 Leaving StateMachine::Init
- Mon Aug  3 22:41:33 2026.195 Starting InputSystem::Init()
- Mon Aug  3 22:41:33 2026.195 Done With InputSystem::Init()
- Mon Aug  3 22:41:33 2026.346 Done with Engine::Init()
- Mon Aug  3 22:41:33 2026.346 CampaignSetupScreenConfig::LoadFromFile - loaded Data/campaign_setup.json
- Mon Aug  3 22:41:33 2026.347 PlayerTasksConfig::LoadFromFile - loaded Data/player_tasks.json
- Mon Aug  3 22:41:33 2026.347 Loading texture Images/terrain.png
- Mon Aug  3 22:41:33 2026.347 Texture ID: 7, Width: 64, Height: 64
- Mon Aug  3 22:41:33 2026.347 Load successful.
- Mon Aug  3 22:41:33 2026.347 Loading texture Images/littlepeople.png
- Mon Aug  3 22:41:33 2026.347 Texture ID: 8, Width: 196, Height: 176
- Mon Aug  3 22:41:33 2026.347 Load successful.
- Mon Aug  3 22:41:33 2026.347 Loading texture Images/swordsmen4-fixed.png
- Mon Aug  3 22:41:33 2026.348 Texture ID: 9, Width: 256, Height: 256
- Mon Aug  3 22:41:33 2026.348 Load successful.
- Mon Aug  3 22:41:33 2026.348 Loading texture Images/swordsmen4-fixed-mask.png
- Mon Aug  3 22:41:33 2026.348 Texture ID: 10, Width: 256, Height: 256
- Mon Aug  3 22:41:33 2026.348 Load successful.
- Mon Aug  3 22:41:33 2026.348 Loading texture Images/archers-final-shrunk.png
- Mon Aug  3 22:41:33 2026.349 Texture ID: 11, Width: 256, Height: 256
- Mon Aug  3 22:41:33 2026.349 Load successful.
- Mon Aug  3 22:41:33 2026.349 Loading texture Images/archers-final-shrunk-mask.png
- Mon Aug  3 22:41:33 2026.349 Texture ID: 12, Width: 256, Height: 256
- Mon Aug  3 22:41:33 2026.349 Load successful.
- Mon Aug  3 22:41:33 2026.349 Loading texture Images/tiles256.png
- Mon Aug  3 22:41:33 2026.350 Texture ID: 13, Width: 112, Height: 832
- Mon Aug  3 22:41:33 2026.350 Load successful.
- Mon Aug  3 22:41:33 2026.350 Loading texture Images/title_near_final_480x270.png
- Mon Aug  3 22:41:33 2026.352 Texture ID: 14, Width: 480, Height: 270
- Mon Aug  3 22:41:33 2026.352 Load successful.
- Mon Aug  3 22:41:33 2026.352 Created state TitleState with ID 0
- Mon Aug  3 22:41:33 2026.352 Created state SetupGameState with ID 5
- Mon Aug  3 22:41:33 2026.352 Created state CastleDesignState with ID 4
- Mon Aug  3 22:41:33 2026.352 Created state MainState with ID 1
- Mon Aug  3 22:41:33 2026.352 Created state CombatState with ID 3
- Mon Aug  3 22:41:33 2026.352 Created state OptionsState with ID 2
- Mon Aug  3 22:41:33 2026.352 StateMachine: Transitioning to state TitleState, ID 0
- Mon Aug  3 22:41:36 2026.963 StateMachine: Transitioning to state SetupGameState, ID 5
- Mon Aug  3 22:41:47 2026.935 AI[0] Blue assigned Turtle
- Mon Aug  3 22:41:47 2026.935 AI[1] Red assigned Expansionist
- Mon Aug  3 22:41:47 2026.935 AI[2] Gold assigned Balanced
- Mon Aug  3 22:41:47 2026.935 AI[3] Purple assigned Expansionist
- Mon Aug  3 22:41:47 2026.935 AI[4] Green assigned Turtle
- Mon Aug  3 22:41:47 2026.935 AI[5] Orange assigned Expansionist
- Mon Aug  3 22:41:47 2026.935 AI[6] Cyan assigned Turtle
- Mon Aug  3 22:41:47 2026.935 AI[7] Pink assigned Expansionist
- Mon Aug  3 22:41:47 2026.993 StateMachine: Transitioning to state MainState, ID 1
- Mon Aug  3 22:42:51 2026.572 --- Turn 0 ---
- Mon Aug  3 22:42:51 2026.572 New map generated.
- Mon Aug  3 22:42:53 2026.824 --- Turn 0 ---
- Mon Aug  3 22:42:53 2026.824 New map generated.
- Mon Aug  3 22:42:56 2026.106 --- Turn 0 ---
- Mon Aug  3 22:42:56 2026.106 New map generated.
- Mon Aug  3 22:42:58 2026.059 --- Turn 0 ---
- Mon Aug  3 22:42:58 2026.059 New map generated.
- Mon Aug  3 22:42:59 2026.600 --- Turn 0 ---
- Mon Aug  3 22:42:59 2026.600 New map generated.
- Mon Aug  3 22:43:01 2026.809 --- Turn 0 ---
- Mon Aug  3 22:43:01 2026.809 New map generated.
- Mon Aug  3 22:43:04 2026.029 --- Turn 0 ---
- Mon Aug  3 22:43:04 2026.029 New map generated.
- Mon Aug  3 22:43:05 2026.827 --- Turn 0 ---
- Mon Aug  3 22:43:05 2026.827 New map generated.
- Mon Aug  3 22:43:09 2026.805 --- Turn 0 ---
- Mon Aug  3 22:43:09 2026.805 New map generated.
- Mon Aug  3 22:43:11 2026.625 --- Turn 0 ---
- Mon Aug  3 22:43:11 2026.625 New map generated.
- Mon Aug  3 22:43:48 2026.307 --- Turn 1 ---
- Mon Aug  3 22:43:48 2026.307 AI[0] Blue: recruited 5 unit(s) (stockpiling)
- Mon Aug  3 22:43:48 2026.307 AI[1] Red: Captured county 33 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[1] Red: Captured county 73 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[1] Red: Captured county 22 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[1] Red: Captured county 96 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[1] Red: Captured county 40 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[1] Red: Captured county 32 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[1] Red: Captured county 2 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[1] Red: Captured county 43 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[1] Red: recruited 3 to cover sprawl
- Mon Aug  3 22:43:48 2026.307 AI[1] Red: expansion wave: 8 county(ies)
- Mon Aug  3 22:43:48 2026.307 AI[2] Gold: improved region 16
- Mon Aug  3 22:43:48 2026.307 AI[2] Gold: recruited 2 (balanced)
- Mon Aug  3 22:43:48 2026.307 AI[3] Purple: Captured county 1 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[3] Purple: Captured county 24 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[3] Purple: Captured county 29 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[3] Purple: Captured county 55 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[3] Purple: Captured county 61 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[3] Purple: Captured county 65 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[3] Purple: Captured county 68 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[3] Purple: Captured county 71 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[3] Purple: recruited 3 to cover sprawl
- Mon Aug  3 22:43:48 2026.307 AI[3] Purple: expansion wave: 8 county(ies)
- Mon Aug  3 22:43:48 2026.307 AI[4] Green: recruited 5 unit(s) (stockpiling)
- Mon Aug  3 22:43:48 2026.307 AI[5] Orange: Captured county 31 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[5] Orange: Captured county 54 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[5] Orange: Captured county 18 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[5] Orange: Captured county 64 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[5] Orange: Captured county 74 (unclaimed)
- Mon Aug  3 22:43:48 2026.307 AI[5] Orange: Captured county 80 (unclaimed)
- Mon Aug  3 22:43:48 2026.308 AI[5] Orange: Captured county 89 (unclaimed)
- Mon Aug  3 22:43:48 2026.308 AI[5] Orange: Captured county 69 (unclaimed)
- Mon Aug  3 22:43:48 2026.308 AI[5] Orange: recruited 3 to cover sprawl
- Mon Aug  3 22:43:48 2026.308 AI[5] Orange: expansion wave: 8 county(ies)
- Mon Aug  3 22:43:48 2026.308 AI[6] Cyan: recruited 5 unit(s) (stockpiling)
- Mon Aug  3 22:43:48 2026.308 AI[7] Pink: Captured county 12 (unclaimed)
- Mon Aug  3 22:43:48 2026.308 AI[7] Pink: Captured county 15 (unclaimed)
- Mon Aug  3 22:43:48 2026.308 AI[7] Pink: Captured county 23 (unclaimed)
- Mon Aug  3 22:43:48 2026.308 AI[7] Pink: Captured county 52 (unclaimed)
- Mon Aug  3 22:43:48 2026.308 AI[7] Pink: Captured county 79 (unclaimed)
- Mon Aug  3 22:43:48 2026.308 AI[7] Pink: Captured county 14 (unclaimed)
- Mon Aug  3 22:43:48 2026.308 AI[7] Pink: Captured county 123 (unclaimed)
- Mon Aug  3 22:43:48 2026.308 AI[7] Pink: Captured county 68 from Purple
- Mon Aug  3 22:43:48 2026.308 AI[7] Pink: recruited 3 to cover sprawl
- Mon Aug  3 22:43:48 2026.308 AI[7] Pink: expansion wave: 8 county(ies)
+ Fri Aug 14 10:56:36 2026.321 Starting Engine::Init()
+ Fri Aug 14 10:56:36 2026.321 Starting StateMachine::Init
+ Fri Aug 14 10:56:36 2026.321 Leaving StateMachine::Init
+ Fri Aug 14 10:56:36 2026.321 Starting InputSystem::Init()
+ Fri Aug 14 10:56:36 2026.321 Done With InputSystem::Init()
+ Fri Aug 14 10:56:36 2026.452 Done with Engine::Init()
+ Fri Aug 14 10:56:36 2026.453 CampaignSetupScreenConfig::LoadFromFile - loaded Data/campaign_setup.json
+ Fri Aug 14 10:56:36 2026.453 PlayerTasksConfig::LoadFromFile - loaded Data/player_tasks.json
+ Fri Aug 14 10:56:36 2026.453 Loading texture Images/terrain.png
+ Fri Aug 14 10:56:36 2026.453 Texture ID: 7, Width: 64, Height: 64
+ Fri Aug 14 10:56:36 2026.453 Load successful.
+ Fri Aug 14 10:56:36 2026.453 Loading texture Images/littlepeople.png
+ Fri Aug 14 10:56:36 2026.453 Texture ID: 8, Width: 196, Height: 176
+ Fri Aug 14 10:56:36 2026.453 Load successful.
+ Fri Aug 14 10:56:36 2026.453 Loading texture Images/swordsmen4-fixed.png
+ Fri Aug 14 10:56:36 2026.454 Texture ID: 9, Width: 256, Height: 256
+ Fri Aug 14 10:56:36 2026.454 Load successful.
+ Fri Aug 14 10:56:36 2026.454 Loading texture Images/swordsmen4-fixed-mask.png
+ Fri Aug 14 10:56:36 2026.454 Texture ID: 10, Width: 256, Height: 256
+ Fri Aug 14 10:56:36 2026.454 Load successful.
+ Fri Aug 14 10:56:36 2026.454 Loading texture Images/archers-final-shrunk.png
+ Fri Aug 14 10:56:36 2026.455 Texture ID: 11, Width: 256, Height: 256
+ Fri Aug 14 10:56:36 2026.455 Load successful.
+ Fri Aug 14 10:56:36 2026.455 Loading texture Images/archers-final-shrunk-mask.png
+ Fri Aug 14 10:56:36 2026.455 Texture ID: 12, Width: 256, Height: 256
+ Fri Aug 14 10:56:36 2026.455 Load successful.
+ Fri Aug 14 10:56:36 2026.455 Loading texture Images/tiles256.png
+ Fri Aug 14 10:56:36 2026.456 Texture ID: 13, Width: 112, Height: 832
+ Fri Aug 14 10:56:36 2026.456 Load successful.
+ Fri Aug 14 10:56:36 2026.456 Loading texture Images/title_near_final_480x270.png
+ Fri Aug 14 10:56:36 2026.458 Texture ID: 14, Width: 480, Height: 270
+ Fri Aug 14 10:56:36 2026.458 Load successful.
+ Fri Aug 14 10:56:36 2026.458 Created state TitleState with ID 0
+ Fri Aug 14 10:56:36 2026.458 Created state SetupGameState with ID 5
+ Fri Aug 14 10:56:36 2026.458 Created state CastleDesignState with ID 4
+ Fri Aug 14 10:56:36 2026.458 Created state MainState with ID 1
+ Fri Aug 14 10:56:36 2026.458 Created state CombatState with ID 3
+ Fri Aug 14 10:56:36 2026.458 Created state OptionsState with ID 2
+ Fri Aug 14 10:56:36 2026.458 StateMachine: Transitioning to state TitleState, ID 0

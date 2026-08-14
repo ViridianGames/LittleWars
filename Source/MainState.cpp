@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdio>
 #include <string>
 #include <vector>
 #include "../Geist/Source/Engine.h"
@@ -240,7 +241,8 @@ MainState::SideLayout MainState::ComputeSideLayout() const
     layout.m_TopH = kSelectionPaneHeight;
 
     const int mapBottom = kMapDrawY + MapPixelHeight();
-    layout.m_BotH = kActionPaneMinHeight;
+    // All-AI uses this pane as a faction roster (up to 8 lines + Next Turn).
+    layout.m_BotH = IsAllAiGame() ? 128 : kActionPaneMinHeight;
     layout.m_BotY = mapBottom - layout.m_BotH;
 
     layout.m_MidY = layout.m_TopY + layout.m_TopH + kPaneGap;
@@ -455,6 +457,14 @@ void MainState::HandleMapSelection()
     m_SelectedImpassable = false;
     m_SelectedRegionId = regionId;
     g_GameDatabase.SetActiveRegion(regionId);
+
+    // All-AI: pin the top-bar "watched" faction to this county's owner.
+    if (IsAllAiGame() && region->m_OwnerId >= 0
+        && region->m_OwnerId < static_cast<int>(g_GameDatabase.m_Players.size()))
+    {
+        m_WatchedPlayerId = region->m_OwnerId;
+        m_AiObserverFilter = region->m_OwnerId;
+    }
 }
 
 bool MainState::IsAllAiGame() const
@@ -467,6 +477,20 @@ const Player* MainState::GetWatchedPlayer() const
     if (const Player* human = GetHumanPlayer(g_GameDatabase.m_Players))
     {
         return human;
+    }
+
+    // All-AI observe: top bar follows the owner of the selected county so you can
+    // inspect their stockpiles and hover gain/drain breakdowns.
+    if (IsAllAiGame() && m_SelectedRegionId >= 0)
+    {
+        if (const OverworldRegionData* region = g_OverworldMap.GetRegion(m_SelectedRegionId))
+        {
+            if (region->m_OwnerId >= 0
+                && region->m_OwnerId < static_cast<int>(g_GameDatabase.m_Players.size()))
+            {
+                return &g_GameDatabase.m_Players[static_cast<size_t>(region->m_OwnerId)];
+            }
+        }
     }
 
     if (m_WatchedPlayerId >= 0
@@ -695,11 +719,15 @@ void MainState::DrawSelectionPanel(const SideLayout& layout) const
     {
         DrawVisitRegionButton(layout);
     }
+    if (CanAttackSelectedRegion())
+    {
+        DrawAttackButton(layout);
+    }
 }
 
 bool MainState::CanVisitSelectedRegion() const
 {
-    if (m_SelectedRegionId < 0)
+    if (m_SelectedRegionId < 0 || g_GameDatabase.m_Outcome != CampaignOutcome::None)
     {
         return false;
     }
@@ -707,10 +735,34 @@ bool MainState::CanVisitSelectedRegion() const
     return region && !region->m_IsWater;
 }
 
+bool MainState::CanAttackSelectedRegion() const
+{
+    if (IsAllAiGame() || g_GameDatabase.m_Outcome != CampaignOutcome::None)
+    {
+        return false;
+    }
+    const Player* human = GetHumanPlayer(g_GameDatabase.m_Players);
+    if (!human || human->m_AttacksThisTurn >= 1)
+    {
+        return false;
+    }
+    return CanPlayerAttackRegion(*human, g_OverworldMap, m_SelectedRegionId);
+}
+
 Rectangle MainState::GetVisitRegionButtonRect(const SideLayout& layout) const
 {
     return Rectangle{
         static_cast<float>(layout.m_PanelX + layout.m_PanelW - 40),
+        static_cast<float>(layout.m_TopY + layout.m_TopH - 14),
+        36.0f,
+        12.0f
+    };
+}
+
+Rectangle MainState::GetAttackButtonRect(const SideLayout& layout) const
+{
+    return Rectangle{
+        static_cast<float>(layout.m_PanelX + layout.m_PanelW - 80),
         static_cast<float>(layout.m_TopY + layout.m_TopH - 14),
         36.0f,
         12.0f
@@ -728,6 +780,17 @@ void MainState::DrawVisitRegionButton(const SideLayout& layout) const
         g_smallFontDrawSize, 1, WHITE);
 }
 
+void MainState::DrawAttackButton(const SideLayout& layout) const
+{
+    const Rectangle rect = GetAttackButtonRect(layout);
+    const bool hovered = CheckCollisionPointRec(GetScaledMousePosition(), rect);
+    DrawRectangleRec(rect, hovered ? Color{ 140, 60, 50, 255 } : Color{ 100, 40, 36, 255 });
+    DrawRectangleLinesEx(rect, 1.0f, hovered ? Color{ 255, 160, 140, 255 } : Color{ 200, 110, 100, 255 });
+    DrawOutlinedText(g_smallFont, "Attack",
+        Vector2{ rect.x + 2.0f, rect.y + 1.0f },
+        g_smallFontDrawSize, 1, WHITE);
+}
+
 void MainState::HandleVisitRegionButton(const SideLayout& layout)
 {
     if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || !CanVisitSelectedRegion())
@@ -742,6 +805,97 @@ void MainState::HandleVisitRegionButton(const SideLayout& layout)
     g_GameDatabase.SetActiveRegion(m_SelectedRegionId);
     g_GameDatabase.EnsureRegionHeightfield(m_SelectedRegionId);
     g_StateMachine->MakeStateTransition(STATE_COMBATSTATE);
+}
+
+void MainState::HandleAttackButton(const SideLayout& layout)
+{
+    if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || !CanAttackSelectedRegion())
+    {
+        return;
+    }
+    if (!CheckCollisionPointRec(GetScaledMousePosition(), GetAttackButtonRect(layout)))
+    {
+        return;
+    }
+
+    Player* human = GetHumanPlayer(g_GameDatabase.m_Players);
+    if (!human)
+    {
+        return;
+    }
+
+    // On Map: launch real-time battle. Automatic: instant auto-resolve.
+    if (g_GameDatabase.m_Setup.m_BattleMode == BattleMode::OnMap)
+    {
+        if (!g_GameDatabase.BeginPendingBattle(human->m_Id, m_SelectedRegionId, g_OverworldMap))
+        {
+            m_TaskStatusMessage = "Cannot start battle";
+            return;
+        }
+        m_TaskStatusMessage = "Battle for county " + to_string(m_SelectedRegionId);
+        g_AiObserverLog.Add(human->m_Id, m_TaskStatusMessage);
+        g_StateMachine->MakeStateTransition(STATE_COMBATSTATE);
+        return;
+    }
+
+    // Detailed multi-line report is written by ResolveRegionAttack into the turn log.
+    std::string message;
+    if (ResolveRegionAttack(*human, g_OverworldMap, g_GameDatabase.m_Players, m_SelectedRegionId, &message))
+    {
+        m_TaskStatusMessage = message;
+        g_GameDatabase.EvaluateCampaignOutcome(g_OverworldMap);
+    }
+    else
+    {
+        m_TaskStatusMessage = message.empty() ? "Attack failed" : message;
+    }
+}
+
+void MainState::DrawCampaignOutcomeOverlay() const
+{
+    if (g_GameDatabase.m_Outcome == CampaignOutcome::None)
+    {
+        return;
+    }
+
+    const int w = static_cast<int>(g_Engine->m_RenderWidth);
+    const int h = static_cast<int>(g_Engine->m_RenderHeight);
+    DrawRectangle(0, 0, w, h, Color{ 0, 0, 0, 160 });
+
+    const bool victory = g_GameDatabase.m_Outcome == CampaignOutcome::Victory;
+    const char* title = victory ? "VICTORY" : "DEFEAT";
+    const char* subtitle = victory
+        ? "Your rivals have been driven from the land."
+        : "You hold no counties. The campaign is lost.";
+    const Color titleColor = victory ? Color{ 255, 220, 90, 255 } : Color{ 255, 120, 100, 255 };
+
+    const Vector2 titleSize = MeasureTextEx(*g_font, title, g_fontDrawSize * 2.0f, 1.0f);
+    DrawOutlinedText(g_font, title,
+        Vector2{ (w - titleSize.x) * 0.5f, h * 0.35f },
+        g_fontDrawSize * 2.0f, 1, titleColor);
+
+    const Vector2 subSize = MeasureTextEx(*g_smallFont, subtitle, g_smallFontDrawSize, 1.0f);
+    DrawOutlinedText(g_smallFont, subtitle,
+        Vector2{ (w - subSize.x) * 0.5f, h * 0.35f + titleSize.y + 8.0f },
+        g_smallFontDrawSize, 1, WHITE);
+
+    const char* hint = "Enter / Esc: return to title";
+    const Vector2 hintSize = MeasureTextEx(*g_smallFont, hint, g_smallFontDrawSize, 1.0f);
+    DrawOutlinedText(g_smallFont, hint,
+        Vector2{ (w - hintSize.x) * 0.5f, h * 0.35f + titleSize.y + 24.0f },
+        g_smallFontDrawSize, 1, Color{ 180, 185, 195, 255 });
+}
+
+void MainState::HandleCampaignOutcomeInput()
+{
+    if (g_GameDatabase.m_Outcome == CampaignOutcome::None)
+    {
+        return;
+    }
+    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_SPACE))
+    {
+        g_StateMachine->MakeStateTransition(STATE_TITLESTATE);
+    }
 }
 
 float MainState::GetTurnLogLineStep() const
@@ -1059,68 +1213,131 @@ bool MainState::IsMouseOverNextTurnButton(const SideLayout& layout) const
 
 void MainState::DrawActionPanel(const SideLayout& layout) const
 {
-    DrawPanelFrame(layout.m_PanelX, layout.m_BotY, layout.m_PanelW, layout.m_BotH, "Actions");
-
-    const Player* humanPlayer = GetHumanPlayer(g_GameDatabase.m_Players);
-    const bool actionsEnabled = humanPlayer != nullptr && !IsAllAiGame();
-
-    for (int i = 0; i < kActionCount; ++i)
-    {
-        const Rectangle rect = GetActionButtonRect(layout, i);
-        const bool hovered = (i == m_HoveredActionIndex);
-        const char* taskId = GetActionTaskId(i);
-        const PlayerTaskDefinition* task = taskId ? g_PlayerTasksConfig.FindTaskById(taskId) : nullptr;
-
-        bool affordable = false;
-        if (actionsEnabled && humanPlayer && task)
-        {
-            affordable = g_PlayerTasksConfig.CanPlayerPerformTask(
-                *humanPlayer, *task, g_OverworldMap, m_SelectedRegionId);
-        }
-
-        Color fill = Color{ 44, 48, 58, 255 };
-        Color border = Color{ 90, 90, 100, 255 };
-        Color textColor = Color{ 140, 140, 150, 255 };
-        if (actionsEnabled)
-        {
-            textColor = affordable ? WHITE : Color{ 140, 140, 150, 255 };
-            fill = hovered
-                ? (affordable ? Color{ 58, 78, 108, 255 } : Color{ 52, 52, 60, 255 })
-                : (affordable ? Color{ 48, 56, 70, 255 } : Color{ 40, 42, 50, 255 });
-            border = hovered ? Color{ 140, 160, 200, 255 } : Color{ 100, 105, 120, 255 };
-        }
-
-        DrawRectangleRec(rect, fill);
-        DrawRectangleLinesEx(rect, 1.0f, border);
-
-        if (task)
-        {
-            const Vector2 iconCenter{
-                rect.x + 8.0f,
-                rect.y + rect.height * 0.5f
-            };
-            DrawPlayerTaskIcon(*task, iconCenter, textColor);
-        }
-
-        const char* label = GetActionLabel(i);
-        DrawOutlinedText(g_smallFont, label,
-            Vector2{ rect.x + 14.0f, rect.y + 4.0f },
-            g_smallFontDrawSize, 1, textColor);
-    }
-
-    // Status / help line between grid and Next Turn.
     const Rectangle nextRect = GetNextTurnButtonRect(layout);
-    const float statusY = nextRect.y - 11.0f;
-    if (!m_TaskStatusMessage.empty())
+
+    if (IsAllAiGame())
     {
-        string status = m_TaskStatusMessage;
-        if (status.size() > 36)
+        DrawPanelFrame(layout.m_PanelX, layout.m_BotY, layout.m_PanelW, layout.m_BotH, "Factions");
+
+        // Compact roster: one line per AI — resources + army + counties.
+        const float lineStep = g_smallFontDrawSize + 1.0f;
+        const float textX = static_cast<float>(layout.m_PanelX + 3);
+        float lineY = static_cast<float>(layout.m_BotY + 13);
+        const float maxY = nextRect.y - 2.0f;
+
+        for (const Player& player : g_GameDatabase.m_Players)
         {
-            status = status.substr(0, 33) + "...";
+            if (lineY + lineStep > maxY)
+            {
+                break;
+            }
+
+            // Name padded short; color tint for living factions, gray for eliminated.
+            const bool alive = player.m_TotalRegions > 0;
+            Color textColor = alive ? player.GetColor() : Color{ 110, 110, 120, 255 };
+
+            // Example: "Blue F20 W15 I10 G25  S2 A1 K0 C0  #3"
+            char line[96];
+            std::snprintf(
+                line,
+                sizeof(line),
+                "%-5s F%d W%d I%d G%d  S%d A%d K%d C%d  #%d",
+                player.GetColorName(),
+                player.m_Food,
+                player.m_Wood,
+                player.m_Iron,
+                player.m_Gold,
+                player.m_Swordsmen,
+                player.m_Archers,
+                player.m_Knights,
+                player.m_Catapults,
+                player.m_TotalRegions);
+
+            // Clip long lines to panel width (approximate: ~6px per char at small font).
+            string display = line;
+            const int maxChars = std::max(12, (layout.m_PanelW - 6) / 4);
+            if (static_cast<int>(display.size()) > maxChars)
+            {
+                display = display.substr(0, static_cast<size_t>(maxChars - 1)) + "…";
+            }
+
+            DrawOutlinedText(g_smallFont, display,
+                Vector2{ textX, lineY },
+                g_smallFontDrawSize, 1, textColor);
+            lineY += lineStep;
         }
-        DrawOutlinedText(g_smallFont, status,
-            Vector2{ static_cast<float>(layout.m_PanelX + 3), statusY },
-            g_smallFontDrawSize, 1, Color{ 180, 220, 180, 255 });
+
+        if (m_AiAutoPlay)
+        {
+            DrawOutlinedText(g_smallFont, "Auto (A)",
+                Vector2{ textX, nextRect.y - 11.0f },
+                g_smallFontDrawSize, 1, Color{ 180, 220, 180, 255 });
+        }
+    }
+    else
+    {
+        DrawPanelFrame(layout.m_PanelX, layout.m_BotY, layout.m_PanelW, layout.m_BotH, "Actions");
+
+        const Player* humanPlayer = GetHumanPlayer(g_GameDatabase.m_Players);
+        const bool actionsEnabled = humanPlayer != nullptr;
+
+        for (int i = 0; i < kActionCount; ++i)
+        {
+            const Rectangle rect = GetActionButtonRect(layout, i);
+            const bool hovered = (i == m_HoveredActionIndex);
+            const char* taskId = GetActionTaskId(i);
+            const PlayerTaskDefinition* task = taskId ? g_PlayerTasksConfig.FindTaskById(taskId) : nullptr;
+
+            bool affordable = false;
+            if (actionsEnabled && humanPlayer && task)
+            {
+                affordable = g_PlayerTasksConfig.CanPlayerPerformTask(
+                    *humanPlayer, *task, g_OverworldMap, m_SelectedRegionId);
+            }
+
+            Color fill = Color{ 44, 48, 58, 255 };
+            Color border = Color{ 90, 90, 100, 255 };
+            Color textColor = Color{ 140, 140, 150, 255 };
+            if (actionsEnabled)
+            {
+                textColor = affordable ? WHITE : Color{ 140, 140, 150, 255 };
+                fill = hovered
+                    ? (affordable ? Color{ 58, 78, 108, 255 } : Color{ 52, 52, 60, 255 })
+                    : (affordable ? Color{ 48, 56, 70, 255 } : Color{ 40, 42, 50, 255 });
+                border = hovered ? Color{ 140, 160, 200, 255 } : Color{ 100, 105, 120, 255 };
+            }
+
+            DrawRectangleRec(rect, fill);
+            DrawRectangleLinesEx(rect, 1.0f, border);
+
+            if (task)
+            {
+                const Vector2 iconCenter{
+                    rect.x + 8.0f,
+                    rect.y + rect.height * 0.5f
+                };
+                DrawPlayerTaskIcon(*task, iconCenter, textColor);
+            }
+
+            const char* label = GetActionLabel(i);
+            DrawOutlinedText(g_smallFont, label,
+                Vector2{ rect.x + 14.0f, rect.y + 4.0f },
+                g_smallFontDrawSize, 1, textColor);
+        }
+
+        // Status / help line between grid and Next Turn.
+        const float statusY = nextRect.y - 11.0f;
+        if (!m_TaskStatusMessage.empty())
+        {
+            string status = m_TaskStatusMessage;
+            if (status.size() > 36)
+            {
+                status = status.substr(0, 33) + "...";
+            }
+            DrawOutlinedText(g_smallFont, status,
+                Vector2{ static_cast<float>(layout.m_PanelX + 3), statusY },
+                g_smallFontDrawSize, 1, Color{ 180, 220, 180, 255 });
+        }
     }
 
     const bool nextHovered = IsMouseOverNextTurnButton(layout);
@@ -1174,13 +1391,6 @@ void MainState::TryPerformAction(int actionIndex)
         {
             m_TaskStatusMessage += " (+" + task->m_Maintenance.ToShortLabel() + "/t)";
         }
-        else if (task->m_Effect.m_Type == "sendDiplomat"
-            || task->m_Effect.m_Type == "sendSpy"
-            || task->m_Effect.m_Type == "merchant")
-        {
-            m_TaskStatusMessage += " (stub)";
-        }
-
         g_AiObserverLog.Add(humanPlayer->m_Id,
             string(humanPlayer->GetColorName()) + ": " + task->m_Name);
     }
@@ -1194,6 +1404,11 @@ void MainState::TryPerformAction(int actionIndex)
 void MainState::HandleActionPanelInput(const SideLayout& layout)
 {
     m_HoveredActionIndex = -1;
+    if (IsAllAiGame())
+    {
+        return; // Factions roster is display-only.
+    }
+
     const Vector2 mouse = GetScaledMousePosition();
 
     for (int i = 0; i < kActionCount; ++i)
@@ -1223,6 +1438,10 @@ void MainState::HandleNextTurnButton(const SideLayout& layout)
     {
         return;
     }
+    if (g_GameDatabase.m_Outcome != CampaignOutcome::None)
+    {
+        return;
+    }
 
     g_GameDatabase.AdvanceTurn(g_OverworldMap);
     m_TaskStatusMessage = "Turn " + to_string(g_GameDatabase.m_Turn);
@@ -1230,6 +1449,12 @@ void MainState::HandleNextTurnButton(const SideLayout& layout)
 
 void MainState::Update()
 {
+    HandleCampaignOutcomeInput();
+    if (g_GameDatabase.m_Outcome != CampaignOutcome::None)
+    {
+        return;
+    }
+
     if (IsKeyPressed(KEY_ESCAPE))
     {
         if (m_AiObserverOpen)
@@ -1240,7 +1465,20 @@ void MainState::Update()
         g_StateMachine->MakeStateTransition(STATE_TITLESTATE);
     }
 
-    if (IsKeyPressed(KEY_R))
+    if (IsKeyPressed(KEY_F5))
+    {
+        if (g_GameDatabase.SaveCampaign(kDefaultCampaignSavePath))
+        {
+            m_TaskStatusMessage = "Saved campaign";
+            g_AiObserverLog.Add(-1, "Campaign saved.");
+        }
+        else
+        {
+            m_TaskStatusMessage = "Save failed";
+        }
+    }
+
+    if (IsKeyPressed(KEY_R) && IsAllAiGame())
     {
         unsigned int seed = static_cast<unsigned int>(GetTime() * 1000.0);
         g_GameDatabase.m_Setup.m_Seed = seed;
@@ -1263,6 +1501,7 @@ void MainState::Update()
     HandleNextTurnButton(layout);
     HandleActionPanelInput(layout);
     HandleVisitRegionButton(layout);
+    HandleAttackButton(layout);
 
     const Rectangle turnLogHit = Rectangle{
         static_cast<float>(layout.m_PanelX),
@@ -1276,7 +1515,8 @@ void MainState::Update()
         && m_HoveredActionIndex < 0
         && !m_TurnLogDragging
         && !CheckCollisionPointRec(GetScaledMousePosition(), turnLogHit)
-        && !CheckCollisionPointRec(GetScaledMousePosition(), GetVisitRegionButtonRect(layout)))
+        && !CheckCollisionPointRec(GetScaledMousePosition(), GetVisitRegionButtonRect(layout))
+        && !CheckCollisionPointRec(GetScaledMousePosition(), GetAttackButtonRect(layout)))
     {
         HandleMapSelection();
     }
@@ -1297,4 +1537,5 @@ void MainState::Draw()
     DrawActionPanel(layout);
 
     DrawAiObserverPane();
+    DrawCampaignOutcomeOverlay();
 }

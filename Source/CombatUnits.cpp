@@ -1498,9 +1498,40 @@ bool IsCombatUnitAlive(const CombatUnitInstance& unit)
     return GetCombatUnitLivingSoldierCount(unit) > 0;
 }
 
+namespace
+{
+    LittlePeopleArmy g_PlayerCombatArmy = LittlePeopleArmy::Red;
+}
+
+void SetPlayerCombatArmy(LittlePeopleArmy army)
+{
+    g_PlayerCombatArmy = army;
+}
+
+LittlePeopleArmy GetPlayerCombatArmy()
+{
+    return g_PlayerCombatArmy;
+}
+
+LittlePeopleArmy LittlePeopleArmyForPlayerId(int playerId)
+{
+    // Sprite atlas only has four army tints; cycle for larger campaigns.
+    switch (playerId % 4)
+    {
+    case 0:
+        return LittlePeopleArmy::Blue;
+    case 1:
+        return LittlePeopleArmy::Red;
+    case 2:
+        return LittlePeopleArmy::White;
+    default:
+        return LittlePeopleArmy::Green;
+    }
+}
+
 bool IsCombatUnitPlayerControlled(const CombatUnitInstance& unit)
 {
-    return unit.m_Army == LittlePeopleArmy::Red;
+    return unit.m_Army == g_PlayerCombatArmy;
 }
 
 bool CanCombatUnitAttack(const CombatUnitInstance& unit)

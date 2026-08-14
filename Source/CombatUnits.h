@@ -106,6 +106,12 @@ float GetCombatUnitAttackRange(CombatUnitType type);
 float GetCombatUnitAttackCooldown(CombatUnitType type);
 bool IsCombatFigureAlive(const CombatFigure& figure);
 bool IsCombatUnitAlive(const CombatUnitInstance& unit);
+
+// Which army the human player controls in combat (demo defaults to Red).
+void SetPlayerCombatArmy(LittlePeopleArmy army);
+LittlePeopleArmy GetPlayerCombatArmy();
+LittlePeopleArmy LittlePeopleArmyForPlayerId(int playerId);
+
 bool IsCombatUnitPlayerControlled(const CombatUnitInstance& unit);
 bool CanCombatUnitAttack(const CombatUnitInstance& unit);
 bool AreCombatUnitsHostile(const CombatUnitInstance& a, const CombatUnitInstance& b);

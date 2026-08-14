@@ -5,6 +5,7 @@
 #include "../Geist/Source/ResourceManager.h"
 #include "../Geist/Source/StateMachine.h"
 
+#include "CampaignAI.h"
 #include "GameGlobals.h"
 
 using namespace std;
@@ -82,6 +83,18 @@ void TitleState::Update()
 		g_StateMachine->MakeStateTransition(STATE_MAINSTATE);
 	}
 
+	// L: continue from campaign.sav
+	if (IsKeyPressed(KEY_L))
+	{
+		if (g_GameDatabase.LoadCampaign(kDefaultCampaignSavePath))
+		{
+			g_AiObserverLog.Clear();
+			g_AiObserverLog.BeginTurn(g_GameDatabase.m_Turn);
+			g_AiObserverLog.Add(-1, "Campaign loaded.");
+			g_StateMachine->MakeStateTransition(STATE_MAINSTATE);
+		}
+	}
+
 	// Check for exit
 	if (IsKeyPressed(KEY_ESCAPE))
 	{
@@ -135,8 +148,10 @@ void TitleState::Draw()
         WHITE);
 
     const float shortcutLineHeight = g_smallFontDrawSize + SHORTCUT_LINE_SPACING;
+    const bool hasSave = g_GameDatabase.HasSaveFile(kDefaultCampaignSavePath);
     const std::string shortcuts[] = {
         "N: new campaign",
+        hasSave ? "L: continue" : "L: continue (no save)",
         "C: combat test",
         "D: castle design",
         "M: main map"

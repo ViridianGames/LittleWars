@@ -16,6 +16,9 @@ Rectangle GetTerrainSpriteSourceRect(RegionTerrainType type);
 
 void GetTerrainSpriteUV(RegionTerrainType type, float& u0, float& v0, float& u1, float& v1);
 
+// Solid base color for untextured combat/region terrain (lighting multiplies on top).
+Color GetTerrainBaseColor(RegionTerrainType type);
+
 void InitTerrainTextures();
 void ShutdownTerrainTextures();
 Texture* GetTerrainAtlasTexture();

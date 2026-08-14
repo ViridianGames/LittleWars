@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cmath>
 #include <string>
 #include "../Geist/Source/Engine.h"
 #include "../Geist/Source/Globals.h"
@@ -127,6 +129,211 @@ namespace
                 region->m_Resource);
         }
     }
+
+    int CountArmyLivingSoldiers(const std::vector<CombatUnitInstance>& units, LittlePeopleArmy army)
+    {
+        int total = 0;
+        for (const CombatUnitInstance& unit : units)
+        {
+            if (unit.m_Army == army && IsCombatUnitAlive(unit))
+            {
+                total += GetCombatUnitLivingSoldierCount(unit);
+            }
+        }
+        return total;
+    }
+
+    int CountArmyMaxSoldiers(const std::vector<CombatUnitInstance>& units, LittlePeopleArmy army)
+    {
+        int total = 0;
+        for (const CombatUnitInstance& unit : units)
+        {
+            if (unit.m_Army == army)
+            {
+                total += GetCombatUnitSoldierCount(unit.m_Type);
+            }
+        }
+        return total;
+    }
+
+    int ScaleRemaining(int startCount, float ratio)
+    {
+        if (startCount <= 0)
+        {
+            return 0;
+        }
+        return std::max(0, static_cast<int>(std::lround(static_cast<float>(startCount) * std::clamp(ratio, 0.0f, 1.0f))));
+    }
+
+    // Cap groups so battles stay readable (4–8 groups per design doc).
+    constexpr int kMaxGroupsPerType = 3;
+    constexpr int kMaxGroupsPerSide = 6;
+
+    void AppendArmyGroups(
+        std::vector<CombatUnitInstance>& units,
+        int& nextId,
+        LittlePeopleArmy army,
+        LittlePeopleDirection facing,
+        float baseX,
+        float baseZ,
+        float zStep,
+        int swordsmen,
+        int archers,
+        int knights,
+        int catapults)
+    {
+        auto spawn = [&](CombatUnitType type, int count, float xSpread) {
+            const int groups = std::min(kMaxGroupsPerType, count);
+            for (int i = 0; i < groups; ++i)
+            {
+                if (static_cast<int>(units.size()) >= kMaxGroupsPerSide * 2)
+                {
+                    return;
+                }
+                CombatUnitInstance unit;
+                unit.m_Id = nextId++;
+                unit.m_Type = type;
+                unit.m_Army = army;
+                unit.m_Facing = facing;
+                unit.m_Anchor = Vector3{
+                    baseX + (i - groups * 0.5f) * xSpread,
+                    0.0f,
+                    baseZ
+                };
+                InitCombatUnitHealth(unit);
+                units.push_back(unit);
+            }
+        };
+
+        int spawned = 0;
+        auto trySpawn = [&](CombatUnitType type, int count, float xSpread, float z) {
+            if (count <= 0 || spawned >= kMaxGroupsPerSide)
+            {
+                return;
+            }
+            const int before = static_cast<int>(units.size());
+            baseZ = z;
+            spawn(type, count, xSpread);
+            spawned += static_cast<int>(units.size()) - before;
+        };
+
+        trySpawn(CombatUnitType::Swordsmen, swordsmen, 10.0f, baseZ);
+        trySpawn(CombatUnitType::Archers, archers, 10.0f, baseZ + zStep);
+        trySpawn(CombatUnitType::Knights, knights, 12.0f, baseZ + zStep * 0.5f);
+        trySpawn(CombatUnitType::Catapult, catapults, 8.0f, baseZ + zStep * 1.5f);
+
+        // Always give each side at least one group so the battle is playable.
+        if (spawned == 0)
+        {
+            CombatUnitInstance unit;
+            unit.m_Id = nextId++;
+            unit.m_Type = CombatUnitType::Swordsmen;
+            unit.m_Army = army;
+            unit.m_Facing = facing;
+            unit.m_Anchor = Vector3{ baseX, 0.0f, baseZ };
+            InitCombatUnitHealth(unit);
+            units.push_back(unit);
+        }
+    }
+}
+
+bool CombatState::IsCampaignBattleActive() const
+{
+    return g_GameDatabase.m_PendingBattle.m_Active && !m_BattleEnded;
+}
+
+bool CombatState::IsCampaignInspectOnly() const
+{
+    return IsCampaignCombatVisit() && !g_GameDatabase.m_PendingBattle.m_Active;
+}
+
+void CombatState::InitializeCampaignBattleUnits()
+{
+    m_Units.clear();
+    const PendingBattle& battle = g_GameDatabase.m_PendingBattle;
+    if (!battle.m_Active)
+    {
+        return;
+    }
+
+    m_BattleStartAtkS = battle.m_AtkSwordsmen;
+    m_BattleStartAtkA = battle.m_AtkArchers;
+    m_BattleStartAtkK = battle.m_AtkKnights;
+    m_BattleStartAtkC = battle.m_AtkCatapults;
+    m_BattleStartDefS = battle.m_DefSwordsmen;
+    m_BattleStartDefA = battle.m_DefArchers;
+    m_BattleStartDefK = battle.m_DefKnights;
+    m_BattleStartDefC = battle.m_DefCatapults;
+
+    // Always use distinct armies so 8-player palette wrap can't make both sides friendly.
+    const LittlePeopleArmy atkArmy = LittlePeopleArmy::Blue;
+    const LittlePeopleArmy defArmy = LittlePeopleArmy::Red;
+
+    // Human always controls the attacker army in on-map conquest battles.
+    SetPlayerCombatArmy(atkArmy);
+
+    int nextId = 0;
+    // Attacker approaches from south; defender holds the north.
+    AppendArmyGroups(
+        m_Units, nextId, atkArmy, LittlePeopleDirection::North,
+        64.0f, 90.0f, -8.0f,
+        battle.m_AtkSwordsmen, battle.m_AtkArchers, battle.m_AtkKnights, battle.m_AtkCatapults);
+    AppendArmyGroups(
+        m_Units, nextId, defArmy, LittlePeopleDirection::South,
+        64.0f, 36.0f, 8.0f,
+        battle.m_DefSwordsmen, battle.m_DefArchers, battle.m_DefKnights, battle.m_DefCatapults);
+}
+
+void CombatState::ResolveCampaignBattle(bool attackerWon, bool retreated)
+{
+    if (!g_GameDatabase.m_PendingBattle.m_Active || m_BattleEnded)
+    {
+        return;
+    }
+
+    PendingBattle& battle = g_GameDatabase.m_PendingBattle;
+    const LittlePeopleArmy atkArmy = GetPlayerCombatArmy();
+    LittlePeopleArmy defArmy = LittlePeopleArmy::White;
+    for (const CombatUnitInstance& unit : m_Units)
+    {
+        if (unit.m_Army != atkArmy)
+        {
+            defArmy = unit.m_Army;
+            break;
+        }
+    }
+
+    const int atkLiving = CountArmyLivingSoldiers(m_Units, atkArmy);
+    const int atkMax = std::max(1, CountArmyMaxSoldiers(m_Units, atkArmy));
+    const int defLiving = CountArmyLivingSoldiers(m_Units, defArmy);
+    const int defMax = std::max(1, CountArmyMaxSoldiers(m_Units, defArmy));
+
+    float atkRatio = static_cast<float>(atkLiving) / static_cast<float>(atkMax);
+    float defRatio = static_cast<float>(defLiving) / static_cast<float>(defMax);
+    if (retreated)
+    {
+        atkRatio = std::min(atkRatio, 0.6f);
+        defRatio = std::max(defRatio, 0.7f);
+        attackerWon = false;
+    }
+
+    // Write remaining overworld unit counts into the pending battle for Finalize.
+    battle.m_AtkSwordsmen = ScaleRemaining(m_BattleStartAtkS, atkRatio);
+    battle.m_AtkArchers = ScaleRemaining(m_BattleStartAtkA, atkRatio);
+    battle.m_AtkKnights = ScaleRemaining(m_BattleStartAtkK, atkRatio);
+    battle.m_AtkCatapults = ScaleRemaining(m_BattleStartAtkC, atkRatio);
+    battle.m_DefSwordsmen = ScaleRemaining(m_BattleStartDefS, defRatio);
+    battle.m_DefArchers = ScaleRemaining(m_BattleStartDefA, defRatio);
+    battle.m_DefKnights = ScaleRemaining(m_BattleStartDefK, defRatio);
+    battle.m_DefCatapults = ScaleRemaining(m_BattleStartDefC, defRatio);
+
+    battle.m_AttackerWon = attackerWon && !retreated;
+    battle.m_Retreated = retreated;
+    battle.m_Resolved = true;
+    m_BattleEnded = true;
+
+    g_GameDatabase.FinalizePendingBattle(g_OverworldMap);
+    g_StateMachine->MakeStateTransition(STATE_MAINSTATE);
 }
 
 void CombatState::OnEnter()
@@ -143,6 +350,7 @@ void CombatState::OnEnter()
     }
 
     const bool campaignVisit = IsCampaignCombatVisit();
+    const bool campaignBattle = g_GameDatabase.m_PendingBattle.m_Active;
     SetupCombatSceneForActiveRegion(m_Units, !campaignVisit);
 
     m_SelectedUnitIndex = -1;
@@ -155,10 +363,21 @@ void CombatState::OnEnter()
     m_PendingQuickClick = false;
     m_HasGestureFacingTarget = false;
     m_Projectiles.clear();
+    m_BattleEnded = false;
 
-    if (!campaignVisit)
+    if (campaignBattle)
     {
+        InitializeCampaignBattleUnits();
+    }
+    else if (!campaignVisit)
+    {
+        SetPlayerCombatArmy(LittlePeopleArmy::Red);
         InitializeDemoUnits();
+    }
+    else
+    {
+        // Inspect mode — no units.
+        m_Units.clear();
     }
 }
 
@@ -438,7 +657,47 @@ void CombatState::Update()
         HandleCombatInput(*heightfield);
     }
 
-    if (IsKeyPressed(KEY_R))
+    // Campaign battle: auto-resolve when one side is wiped out.
+    if (IsCampaignBattleActive() && !m_BattleEnded)
+    {
+        const LittlePeopleArmy atkArmy = GetPlayerCombatArmy();
+        const int atkLiving = CountArmyLivingSoldiers(m_Units, atkArmy);
+        int defLiving = 0;
+        for (const CombatUnitInstance& unit : m_Units)
+        {
+            if (unit.m_Army != atkArmy && IsCombatUnitAlive(unit))
+            {
+                defLiving += GetCombatUnitLivingSoldierCount(unit);
+            }
+        }
+
+        if (defLiving <= 0 && atkLiving > 0)
+        {
+            ResolveCampaignBattle(true, false);
+            return;
+        }
+        if (atkLiving <= 0)
+        {
+            ResolveCampaignBattle(false, false);
+            return;
+        }
+
+        // Manual end: V = claim victory if any enemies left? No — only when clear.
+        // Enter = auto-resolve remaining as strength comparison.
+        if (IsKeyPressed(KEY_ENTER))
+        {
+            ResolveCampaignBattle(atkLiving >= defLiving, false);
+            return;
+        }
+        if (IsKeyPressed(KEY_R))
+        {
+            // Retreat from campaign battle.
+            ResolveCampaignBattle(false, true);
+            return;
+        }
+    }
+
+    if (IsKeyPressed(KEY_R) && !IsCampaignBattleActive())
     {
         if (RegionData* region = g_GameDatabase.GetActiveRegion())
         {
@@ -447,7 +706,16 @@ void CombatState::Update()
             SetupCombatSceneForActiveRegion(m_Units, !campaignVisit);
             if (!campaignVisit)
             {
+                SetPlayerCombatArmy(LittlePeopleArmy::Red);
                 InitializeDemoUnits();
+            }
+            else if (g_GameDatabase.m_PendingBattle.m_Active)
+            {
+                InitializeCampaignBattleUnits();
+            }
+            else
+            {
+                m_Units.clear();
             }
             m_SelectedUnitIndex = -1;
             m_HasMoveTarget = false;
@@ -459,6 +727,13 @@ void CombatState::Update()
 
     if (IsKeyPressed(KEY_ESCAPE))
     {
+        if (IsCampaignBattleActive())
+        {
+            // Esc during battle = retreat.
+            ResolveCampaignBattle(false, true);
+            return;
+        }
+
         // Return to the campaign map when one is loaded; otherwise fall back to the title screen.
         if (IsCampaignCombatVisit())
         {
@@ -578,7 +853,7 @@ void CombatState::Draw()
         m_SelectedUnitIndex);
 
     float panelY = GetRegionSidePanelTextBounds().y;
-    if (IsCampaignCombatVisit())
+    if (IsCampaignInspectOnly())
     {
         panelY = DrawRegionSidePanelOutlinedParagraph("County Map", panelY, g_fontDrawSize, WHITE);
         panelY += 2.0f;
@@ -600,18 +875,55 @@ void CombatState::Draw()
         return;
     }
 
-    panelY = DrawRegionSidePanelOutlinedParagraph("Combat", panelY, g_fontDrawSize, WHITE);
-    panelY += 2.0f;
-    panelY = DrawRegionSidePanelOutlinedParagraph(
-        "LMB: select / move. Hold LMB: face. RMB: attack (catapult: fire).",
-        panelY,
-        g_smallFontDrawSize,
-        Color{ 220, 220, 220, 255 });
-    panelY += 4.0f;
-    panelY = DrawRegionSidePanelOutlinedParagraph(
-        "WASD: pan. Wheel: zoom. Minimap: go. Esc: title. R: regen.",
-        panelY, g_smallFontDrawSize, Color{ 180, 185, 195, 255 });
-    panelY += 6.0f;
+    if (IsCampaignBattleActive())
+    {
+        panelY = DrawRegionSidePanelOutlinedParagraph("Battle!", panelY, g_fontDrawSize, WHITE);
+        panelY += 2.0f;
+        panelY = DrawRegionSidePanelOutlinedParagraph(
+            "LMB: move. Hold LMB: face. RMB: attack. Enter: resolve. Esc/R: retreat.",
+            panelY, g_smallFontDrawSize, Color{ 220, 220, 220, 255 });
+        panelY += 4.0f;
+        if (const RegionData* activeRegion = g_GameDatabase.GetActiveRegion())
+        {
+            panelY = DrawRegionSidePanelOutlinedLine(
+                string("County ") + to_string(activeRegion->m_Id),
+                panelY,
+                Color{ 255, 230, 90, 255 });
+        }
+        const LittlePeopleArmy atkArmy = GetPlayerCombatArmy();
+        panelY = DrawRegionSidePanelOutlinedLine(
+            "Your troops: " + to_string(CountArmyLivingSoldiers(m_Units, atkArmy)),
+            panelY,
+            Color{ 120, 200, 255, 255 });
+        int enemyLiving = 0;
+        for (const CombatUnitInstance& unit : m_Units)
+        {
+            if (unit.m_Army != atkArmy && IsCombatUnitAlive(unit))
+            {
+                enemyLiving += GetCombatUnitLivingSoldierCount(unit);
+            }
+        }
+        panelY = DrawRegionSidePanelOutlinedLine(
+            "Enemy troops: " + to_string(enemyLiving),
+            panelY,
+            Color{ 255, 140, 120, 255 });
+        panelY += 4.0f;
+    }
+    else
+    {
+        panelY = DrawRegionSidePanelOutlinedParagraph("Combat", panelY, g_fontDrawSize, WHITE);
+        panelY += 2.0f;
+        panelY = DrawRegionSidePanelOutlinedParagraph(
+            "LMB: select / move. Hold LMB: face. RMB: attack (catapult: fire).",
+            panelY,
+            g_smallFontDrawSize,
+            Color{ 220, 220, 220, 255 });
+        panelY += 4.0f;
+        panelY = DrawRegionSidePanelOutlinedParagraph(
+            "WASD: pan. Wheel: zoom. Minimap: go. Esc: title. R: regen.",
+            panelY, g_smallFontDrawSize, Color{ 180, 185, 195, 255 });
+        panelY += 6.0f;
+    }
 
     for (int typeIndex = 0; typeIndex < 4; ++typeIndex)
     {

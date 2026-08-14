@@ -52,6 +52,9 @@ struct Player
     int m_SiegeTowers = 0;
     int m_Happiness = 50;
 
+    // Overworld conquests: max one attack order per player per turn.
+    int m_AttacksThisTurn = 0;
+
     std::vector<int> m_Relations;
     std::vector<std::pair<std::string, int>> m_ActiveTasks;
 

@@ -75,7 +75,12 @@ public:
     const OverworldRegionData* GetRegion(int regionId) const;
     OverworldRegionData* GetRegion(int regionId);
     const std::vector<OverworldRegionData>& GetRegions() const { return m_Regions; }
-    void ApplyRegionCampaignOverlay(int regionId, int outputMultiplier, int castleBuildTurnsRemaining, bool hasCastle);
+    void ApplyRegionCampaignOverlay(
+        int regionId,
+        int outputMultiplier,
+        int castleBuildTurnsRemaining,
+        bool hasCastle,
+        int ownerId = -2); // -2 = leave ownership unchanged
 
     bool IsGenerated() const { return m_Generated; }
     unsigned int GetSeed() const { return m_Seed; }
@@ -111,6 +116,8 @@ private:
     void RecalculateRegionCellCounts();
     void BuildAdjacency();
     void AssignRegionBorders(RNG& rng);
+    // Drop mountain borders that would split land into multiple attack-components.
+    void EnsureTraversableLandConnectivity();
     void AssignRegionResources(RNG& rng, int resourceDistribution);
     void AssignRegionCampaignState(RNG& rng, int playerCount, int startingRegionsPerPlayer);
 

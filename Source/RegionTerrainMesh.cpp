@@ -141,10 +141,20 @@ namespace
         return mesh;
     }
 
-    Vertex MakeTerrainVertex(float x, float y, float z, float u, float v, int light)
+    Vertex MakeTerrainVertex(float x, float y, float z, Color baseColor, int light)
     {
+        // Baked directional lighting into vertex color (no diffuse texture — avoids swim).
         const float shade = static_cast<float>(light) / 255.0f;
-        return CreateVertex(x, y, z, shade, shade, shade, 1.0f, u, v);
+        return CreateVertex(
+            x,
+            y,
+            z,
+            (static_cast<float>(baseColor.r) / 255.0f) * shade,
+            (static_cast<float>(baseColor.g) / 255.0f) * shade,
+            (static_cast<float>(baseColor.b) / 255.0f) * shade,
+            1.0f,
+            0.0f,
+            0.0f);
     }
 
     void AppendFlatShadedTriangle(
@@ -152,17 +162,12 @@ namespace
         Vector3 p0,
         Vector3 p1,
         Vector3 p2,
-        float u0,
-        float v0,
-        float u1,
-        float v1,
-        float u2,
-        float v2)
+        Color baseColor)
     {
         const int light = GetTerrainTriangleLight(p0, p1, p2);
-        vertices.push_back(MakeTerrainVertex(p0.x, p0.y, p0.z, u0, v0, light));
-        vertices.push_back(MakeTerrainVertex(p1.x, p1.y, p1.z, u1, v1, light));
-        vertices.push_back(MakeTerrainVertex(p2.x, p2.y, p2.z, u2, v2, light));
+        vertices.push_back(MakeTerrainVertex(p0.x, p0.y, p0.z, baseColor, light));
+        vertices.push_back(MakeTerrainVertex(p1.x, p1.y, p1.z, baseColor, light));
+        vertices.push_back(MakeTerrainVertex(p2.x, p2.y, p2.z, baseColor, light));
     }
 
 }
@@ -242,11 +247,7 @@ void RegionTerrainMesh::RebuildIfNeeded()
             }
 
             const int terrainType = static_cast<int>(terrainTypeValue);
-            float u0 = 0.0f;
-            float v0 = 0.0f;
-            float u1 = 0.0f;
-            float v1 = 0.0f;
-            GetTerrainSpriteUV(static_cast<RegionTerrainType>(terrainType), u0, v0, u1, v1);
+            const Color baseColor = GetTerrainBaseColor(static_cast<RegionTerrainType>(terrainType));
 
             const float heightUL = m_Heightfield->GetHeight(cellX, cellZ);
             const float heightUR = m_Heightfield->GetHeight(cellX + 1, cellZ);
@@ -267,16 +268,16 @@ void RegionTerrainMesh::RebuildIfNeeded()
                 if (!flipDiagonal)
                 {
                     AppendFlatShadedTriangle(
-                        typeVertices[terrainType], cornerUL, cornerLR, cornerUR, u0, v0, u1, v1, u1, v0);
+                        typeVertices[terrainType], cornerUL, cornerLR, cornerUR, baseColor);
                     AppendFlatShadedTriangle(
-                        typeVertices[terrainType], cornerUL, cornerLL, cornerLR, u0, v0, u0, v1, u1, v1);
+                        typeVertices[terrainType], cornerUL, cornerLL, cornerLR, baseColor);
                 }
                 else
                 {
                     AppendFlatShadedTriangle(
-                        typeVertices[terrainType], cornerUL, cornerLL, cornerUR, u0, v0, u0, v1, u1, v0);
+                        typeVertices[terrainType], cornerUL, cornerLL, cornerUR, baseColor);
                     AppendFlatShadedTriangle(
-                        typeVertices[terrainType], cornerUR, cornerLL, cornerLR, u1, v0, u0, v1, u1, v1);
+                        typeVertices[terrainType], cornerUR, cornerLL, cornerLR, baseColor);
                 }
             }
             else
@@ -288,13 +289,13 @@ void RegionTerrainMesh::RebuildIfNeeded()
 
                 const unsigned short baseIndex = static_cast<unsigned short>(typeVertices[terrainType].size());
                 typeVertices[terrainType].push_back(MakeTerrainVertex(
-                    cornerUL.x, cornerUL.y, cornerUL.z, u0, v0, lightUL));
+                    cornerUL.x, cornerUL.y, cornerUL.z, baseColor, lightUL));
                 typeVertices[terrainType].push_back(MakeTerrainVertex(
-                    cornerUR.x, cornerUR.y, cornerUR.z, u1, v0, lightUR));
+                    cornerUR.x, cornerUR.y, cornerUR.z, baseColor, lightUR));
                 typeVertices[terrainType].push_back(MakeTerrainVertex(
-                    cornerLR.x, cornerLR.y, cornerLR.z, u1, v1, lightLR));
+                    cornerLR.x, cornerLR.y, cornerLR.z, baseColor, lightLR));
                 typeVertices[terrainType].push_back(MakeTerrainVertex(
-                    cornerLL.x, cornerLL.y, cornerLL.z, u0, v1, lightLL));
+                    cornerLL.x, cornerLL.y, cornerLL.z, baseColor, lightLL));
 
                 // Wound so both triangles face upward (+Y). Mixed winding caused polys to
                 // vanish as the camera orbited with backface culling enabled.
@@ -356,12 +357,6 @@ void RegionTerrainMesh::RebuildIfNeeded()
 
 void RegionTerrainMesh::Draw()
 {
-    Texture* terrainAtlas = GetTerrainAtlasTexture();
-    if (!terrainAtlas)
-    {
-        return;
-    }
-
     for (int terrainType = 0; terrainType < RTT_LASTTERRAINTYPE; ++terrainType)
     {
         TypeMesh& drawMesh = m_TypeMeshes[terrainType];
@@ -370,7 +365,12 @@ void RegionTerrainMesh::Draw()
             continue;
         }
 
-        SetMaterialTexture(&drawMesh.model.materials[0], MATERIAL_MAP_DIFFUSE, *terrainAtlas);
+        // Vertex colors already hold base terrain color * baked lighting.
+        // Use the default white diffuse map so color multiplies cleanly (no atlas swim).
+        if (drawMesh.model.materialCount > 0)
+        {
+            drawMesh.model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color = WHITE;
+        }
         DrawModel(drawMesh.model, Vector3{ 0.0f, 0.0f, 0.0f }, 1.0f, WHITE);
     }
 }

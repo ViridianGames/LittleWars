@@ -65,6 +65,31 @@ void GetTerrainSpriteUV(RegionTerrainType type, float& u0, float& v0, float& u1,
     v1 = (source.y + source.height) / atlasHeight;
 }
 
+Color GetTerrainBaseColor(RegionTerrainType type)
+{
+    switch (type)
+    {
+    case RTT_GRASS:
+        return Color{ 78, 140, 58, 255 };
+    case RTT_BEACH:
+        return Color{ 194, 178, 128, 255 };
+    case RTT_SWAMP:
+        return Color{ 72, 96, 52, 255 };
+    case RTT_MARKED_PATH:
+        return Color{ 148, 118, 72, 255 };
+    case RTT_WATER:
+        return Color{ 48, 98, 168, 255 };
+    case RTT_LAVA:
+        return Color{ 196, 72, 36, 255 };
+    case RTT_FARM:
+        return Color{ 132, 148, 62, 255 };
+    case RTT_STONE:
+        return Color{ 128, 128, 136, 255 };
+    default:
+        return Color{ 78, 140, 58, 255 };
+    }
+}
+
 void InitTerrainTextures()
 {
     if (g_TerrainTexturesInitialized)
