@@ -6,8 +6,10 @@
 #include "Player.h"
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <queue>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "../Geist/Source/RNG.h"
@@ -560,6 +562,314 @@ void OverworldMap::SculptCoastline(RNG& rng)
     }
 }
 
+void OverworldMap::FloodFillRegionsFromSeeds()
+{
+    m_RegionIds.assign(static_cast<size_t>(kCellCount), -1);
+
+    struct VoronoiNode
+    {
+        int x = 0;
+        int y = 0;
+        int regionId = -1;
+        int distance = 0;
+    };
+
+    std::queue<VoronoiNode> open;
+    std::vector<int> bestDistance(static_cast<size_t>(kCellCount), -1);
+
+    for (const OverworldRegionData& region : m_Regions)
+    {
+        if (region.m_SeedX < 0 || region.m_SeedY < 0
+            || !IsInBounds(region.m_SeedX, region.m_SeedY)
+            || !IsLandCell(GetCell(region.m_SeedX, region.m_SeedY)))
+        {
+            continue;
+        }
+
+        const int index = GetCellIndex(region.m_SeedX, region.m_SeedY);
+        bestDistance[static_cast<size_t>(index)] = 0;
+        m_RegionIds[static_cast<size_t>(index)] = region.m_Id;
+        open.push({ region.m_SeedX, region.m_SeedY, region.m_Id, 0 });
+    }
+
+    const int offsets[4][2] = { {1, 0}, {-1, 0}, {0, 1}, {0, -1} };
+    while (!open.empty())
+    {
+        const VoronoiNode node = open.front();
+        open.pop();
+
+        for (const auto& offset : offsets)
+        {
+            const int nextX = node.x + offset[0];
+            const int nextY = node.y + offset[1];
+            if (!IsInBounds(nextX, nextY) || !IsLandCell(GetCell(nextX, nextY)))
+            {
+                continue;
+            }
+
+            const int nextIndex = GetCellIndex(nextX, nextY);
+            const int nextDistance = node.distance + 1;
+            if (bestDistance[static_cast<size_t>(nextIndex)] >= 0
+                && bestDistance[static_cast<size_t>(nextIndex)] <= nextDistance)
+            {
+                continue;
+            }
+
+            bestDistance[static_cast<size_t>(nextIndex)] = nextDistance;
+            m_RegionIds[static_cast<size_t>(nextIndex)] = node.regionId;
+            open.push({ nextX, nextY, node.regionId, nextDistance });
+        }
+    }
+
+    RecalculateRegionCellCounts();
+}
+
+void OverworldMap::RegularizeRegionShapes(int iterations)
+{
+    // Lloyd relaxation: move each seed to the centroid of its cells and re-flood.
+    // Pulls mass away from long spurs toward more compact county shapes.
+    iterations = std::max(0, iterations);
+    const int offsets[4][2] = { {1, 0}, {-1, 0}, {0, 1}, {0, -1} };
+
+    for (int iter = 0; iter < iterations; ++iter)
+    {
+        struct Accum
+        {
+            long long sumX = 0;
+            long long sumY = 0;
+            int count = 0;
+        };
+        std::vector<Accum> accum(m_Regions.size());
+
+        for (int y = 0; y < OVERWORLD_MAP_HEIGHT; ++y)
+        {
+            for (int x = 0; x < OVERWORLD_MAP_WIDTH; ++x)
+            {
+                const int regionId = GetRegionId(x, y);
+                if (regionId < 0 || regionId >= static_cast<int>(accum.size()))
+                {
+                    continue;
+                }
+                accum[static_cast<size_t>(regionId)].sumX += x;
+                accum[static_cast<size_t>(regionId)].sumY += y;
+                ++accum[static_cast<size_t>(regionId)].count;
+            }
+        }
+
+        for (OverworldRegionData& region : m_Regions)
+        {
+            if (region.m_Id < 0 || region.m_Id >= static_cast<int>(accum.size()))
+            {
+                continue;
+            }
+            const Accum& a = accum[static_cast<size_t>(region.m_Id)];
+            if (a.count <= 0)
+            {
+                continue;
+            }
+
+            const int cx = static_cast<int>(a.sumX / a.count);
+            const int cy = static_cast<int>(a.sumY / a.count);
+
+            // Prefer a land cell that still belongs to this region near the centroid.
+            int bestX = region.m_SeedX;
+            int bestY = region.m_SeedY;
+            int bestDist = INT_MAX;
+            bool foundInRegion = false;
+
+            for (int y = 0; y < OVERWORLD_MAP_HEIGHT; ++y)
+            {
+                for (int x = 0; x < OVERWORLD_MAP_WIDTH; ++x)
+                {
+                    if (GetRegionId(x, y) != region.m_Id || !IsLandCell(GetCell(x, y)))
+                    {
+                        continue;
+                    }
+                    const int dx = x - cx;
+                    const int dy = y - cy;
+                    const int d = dx * dx + dy * dy;
+                    if (d < bestDist)
+                    {
+                        bestDist = d;
+                        bestX = x;
+                        bestY = y;
+                        foundInRegion = true;
+                    }
+                }
+            }
+
+            // Fallback: any land near centroid if region was empty (shouldn't happen).
+            if (!foundInRegion)
+            {
+                for (int radius = 0; radius < 12 && !foundInRegion; ++radius)
+                {
+                    for (int dy = -radius; dy <= radius; ++dy)
+                    {
+                        for (int dx = -radius; dx <= radius; ++dx)
+                        {
+                            const int x = cx + dx;
+                            const int y = cy + dy;
+                            if (!IsInBounds(x, y) || !IsLandCell(GetCell(x, y)))
+                            {
+                                continue;
+                            }
+                            bestX = x;
+                            bestY = y;
+                            foundInRegion = true;
+                            break;
+                        }
+                        if (foundInRegion)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            region.m_SeedX = bestX;
+            region.m_SeedY = bestY;
+            (void)offsets;
+        }
+
+        FloodFillRegionsFromSeeds();
+    }
+}
+
+void OverworldMap::UpdateRegionLabelCenters()
+{
+    // Place label/icon anchors on the "visual center": cell farthest from the
+    // region boundary (pole of inaccessibility). Bounding-box centers pull out
+    // along spurs and often sit outside the painted county.
+    const int offsets[4][2] = { {1, 0}, {-1, 0}, {0, 1}, {0, -1} };
+
+    for (OverworldRegionData& region : m_Regions)
+    {
+        if (region.m_IsWater)
+        {
+            continue;
+        }
+
+        std::vector<std::pair<int, int>> cells;
+        cells.reserve(static_cast<size_t>(std::max(0, region.m_CellCount)));
+
+        long long sumX = 0;
+        long long sumY = 0;
+        for (int y = 0; y < OVERWORLD_MAP_HEIGHT; ++y)
+        {
+            for (int x = 0; x < OVERWORLD_MAP_WIDTH; ++x)
+            {
+                if (GetRegionId(x, y) != region.m_Id)
+                {
+                    continue;
+                }
+                // After mountain carve, only non-mountain cells remain as the county body.
+                if (GetCell(x, y) == OW_MOUNTAIN || GetCell(x, y) == OW_WATER)
+                {
+                    continue;
+                }
+                cells.emplace_back(x, y);
+                sumX += x;
+                sumY += y;
+            }
+        }
+
+        if (cells.empty())
+        {
+            continue;
+        }
+
+        const int centroidX = static_cast<int>(sumX / static_cast<long long>(cells.size()));
+        const int centroidY = static_cast<int>(sumY / static_cast<long long>(cells.size()));
+
+        // Distance-to-boundary via multi-source BFS from border cells.
+        std::unordered_map<int, int> dist;
+        dist.reserve(cells.size() * 2);
+        std::queue<std::pair<int, int>> open;
+
+        auto cellKey = [](int x, int y) { return y * OVERWORLD_MAP_WIDTH + x; };
+
+        for (const auto& cell : cells)
+        {
+            const int x = cell.first;
+            const int y = cell.second;
+            bool border = false;
+            for (const auto& offset : offsets)
+            {
+                const int nx = x + offset[0];
+                const int ny = y + offset[1];
+                if (!IsInBounds(nx, ny)
+                    || GetRegionId(nx, ny) != region.m_Id
+                    || GetCell(nx, ny) == OW_MOUNTAIN
+                    || GetCell(nx, ny) == OW_WATER)
+                {
+                    border = true;
+                    break;
+                }
+            }
+            if (border)
+            {
+                dist[cellKey(x, y)] = 0;
+                open.push({ x, y });
+            }
+        }
+
+        if (open.empty())
+        {
+            // Tiny 1-cell region.
+            region.m_SeedX = cells.front().first;
+            region.m_SeedY = cells.front().second;
+            continue;
+        }
+
+        int bestX = cells.front().first;
+        int bestY = cells.front().second;
+        int bestDist = -1;
+        int bestCentroidDist = INT_MAX;
+
+        while (!open.empty())
+        {
+            const auto [x, y] = open.front();
+            open.pop();
+            const int d = dist[cellKey(x, y)];
+
+            const int cdx = x - centroidX;
+            const int cdy = y - centroidY;
+            const int cDist = cdx * cdx + cdy * cdy;
+            if (d > bestDist || (d == bestDist && cDist < bestCentroidDist))
+            {
+                bestDist = d;
+                bestCentroidDist = cDist;
+                bestX = x;
+                bestY = y;
+            }
+
+            for (const auto& offset : offsets)
+            {
+                const int nx = x + offset[0];
+                const int ny = y + offset[1];
+                if (!IsInBounds(nx, ny) || GetRegionId(nx, ny) != region.m_Id)
+                {
+                    continue;
+                }
+                if (GetCell(nx, ny) == OW_MOUNTAIN || GetCell(nx, ny) == OW_WATER)
+                {
+                    continue;
+                }
+                const int key = cellKey(nx, ny);
+                if (dist.find(key) != dist.end())
+                {
+                    continue;
+                }
+                dist[key] = d + 1;
+                open.push({ nx, ny });
+            }
+        }
+
+        region.m_SeedX = bestX;
+        region.m_SeedY = bestY;
+    }
+}
+
 void OverworldMap::PartitionIntoRegions(RNG& rng, int targetRegionCount, int minKeptRegions)
 {
     m_RegionIds.assign(static_cast<size_t>(kCellCount), -1);
@@ -583,9 +893,10 @@ void OverworldMap::PartitionIntoRegions(RNG& rng, int targetRegionCount, int min
     };
 
     std::vector<SeedPoint> seeds;
+    // Slightly wider spacing → fewer snake-like voronoi cells.
     const float distanceScale = std::sqrt(35.0f / static_cast<float>(targetRegions));
-    int minSeedDistance = static_cast<int>(10.0f * distanceScale);
-    minSeedDistance = std::clamp(minSeedDistance, 4, 18);
+    int minSeedDistance = static_cast<int>(12.0f * distanceScale);
+    minSeedDistance = std::clamp(minSeedDistance, 5, 22);
 
     while (static_cast<int>(seeds.size()) < targetRegions && minSeedDistance >= 3)
     {
@@ -628,17 +939,6 @@ void OverworldMap::PartitionIntoRegions(RNG& rng, int targetRegionCount, int min
         --minSeedDistance;
     }
 
-    struct VoronoiNode
-    {
-        int x;
-        int y;
-        int regionId;
-        int distance;
-    };
-
-    std::queue<VoronoiNode> open;
-    std::vector<int> bestDistance(static_cast<size_t>(kCellCount), -1);
-
     for (size_t seedIndex = 0; seedIndex < seeds.size(); ++seedIndex)
     {
         OverworldRegionData region;
@@ -646,64 +946,16 @@ void OverworldMap::PartitionIntoRegions(RNG& rng, int targetRegionCount, int min
         region.m_SeedX = seeds[seedIndex].x;
         region.m_SeedY = seeds[seedIndex].y;
         m_Regions.push_back(region);
-
-        const int index = GetCellIndex(seeds[seedIndex].x, seeds[seedIndex].y);
-        bestDistance[static_cast<size_t>(index)] = 0;
-        m_RegionIds[static_cast<size_t>(index)] = region.m_Id;
-        open.push({ seeds[seedIndex].x, seeds[seedIndex].y, region.m_Id, 0 });
     }
 
-    const int offsets[4][2] = { {1, 0}, {-1, 0}, {0, 1}, {0, -1} };
-    while (!open.empty())
-    {
-        const VoronoiNode node = open.front();
-        open.pop();
-
-        for (const auto& offset : offsets)
-        {
-            const int nextX = node.x + offset[0];
-            const int nextY = node.y + offset[1];
-            if (!IsInBounds(nextX, nextY) || !IsLandCell(GetCell(nextX, nextY)))
-            {
-                continue;
-            }
-
-            const int nextIndex = GetCellIndex(nextX, nextY);
-            const int nextDistance = node.distance + 1;
-            if (bestDistance[static_cast<size_t>(nextIndex)] >= 0
-                && bestDistance[static_cast<size_t>(nextIndex)] <= nextDistance)
-            {
-                continue;
-            }
-
-            bestDistance[static_cast<size_t>(nextIndex)] = nextDistance;
-            m_RegionIds[static_cast<size_t>(nextIndex)] = node.regionId;
-            open.push({ nextX, nextY, node.regionId, nextDistance });
-        }
-    }
-
-    for (OverworldRegionData& region : m_Regions)
-    {
-        region.m_CellCount = 0;
-    }
-
-    for (int regionId : m_RegionIds)
-    {
-        if (regionId < 0)
-        {
-            continue;
-        }
-
-        if (OverworldRegionData* region = GetRegion(regionId))
-        {
-            ++region->m_CellCount;
-        }
-    }
+    FloodFillRegionsFromSeeds();
+    // Two Lloyd passes keep counties chunkier without over-smoothing coasts.
+    RegularizeRegionShapes(2);
 
     const std::vector<OverworldRegionData> voronoiRegions = m_Regions;
     const int requiredKeptRegions = std::max(minKeptRegions, 1);
 
-    int minCellsPerRegion = std::max(6, landCells / std::max(requiredKeptRegions * 5, 1));
+    int minCellsPerRegion = std::max(8, landCells / std::max(requiredKeptRegions * 4, 1));
     std::vector<int> oldToNewId(voronoiRegions.size(), -1);
     int keptRegionCount = 0;
 
@@ -723,7 +975,7 @@ void OverworldMap::PartitionIntoRegions(RNG& rng, int targetRegionCount, int min
             ++keptRegionCount;
         }
 
-        if (keptRegionCount >= requiredKeptRegions || minCellsPerRegion <= 4)
+        if (keptRegionCount >= requiredKeptRegions || minCellsPerRegion <= 5)
         {
             break;
         }
@@ -760,10 +1012,14 @@ void OverworldMap::PartitionIntoRegions(RNG& rng, int targetRegionCount, int min
         }
 
         regionId = oldToNewId[static_cast<size_t>(regionId)];
-        if (regionId < 0)
-        {
-            continue;
-        }
+    }
+
+    // Dropped (too-small) regions leave holes; re-seed from survivors and flood so
+    // land is filled by kept counties only (fewer orphan spurs).
+    if (!m_Regions.empty())
+    {
+        FloodFillRegionsFromSeeds();
+        RegularizeRegionShapes(1);
     }
 }
 
@@ -2075,6 +2331,8 @@ void OverworldMap::Generate(unsigned int seed, const CampaignSetup& setup)
     RecalculateRegionCellCounts();
     BuildAdjacency();
     EnsureTraversableLandConnectivity();
+    // After mountain carve, place seeds on deep interior cells so icons stay inside.
+    UpdateRegionLabelCenters();
     AssignRegionResources(rng, static_cast<int>(resolvedSetup.m_ResourceDistribution));
     AssignRegionCampaignState(
         rng,
@@ -2082,6 +2340,8 @@ void OverworldMap::Generate(unsigned int seed, const CampaignSetup& setup)
         MapSizeStartingRegions(resolvedSetup.m_MapSize));
     // After regions and ownership are locked: paint forests/meadows for the campaign map look.
     DecorateLandTerrain(rng);
+    // Decorate does not move region ids; refresh interiors once more for safety.
+    UpdateRegionLabelCenters();
 
     m_Generated = true;
 }
@@ -2447,60 +2707,35 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
         DrawRegionHighlight(x, y, pixelsPerCell, selectedRegionId);
     }
 
-    struct RegionCellBounds
-    {
-        int m_MinX = OVERWORLD_MAP_WIDTH;
-        int m_MinY = OVERWORLD_MAP_HEIGHT;
-        int m_MaxX = -1;
-        int m_MaxY = -1;
-
-        bool IsValid() const
-        {
-            return m_MaxX >= m_MinX && m_MaxY >= m_MinY;
-        }
-    };
-
-    std::vector<RegionCellBounds> regionCellBounds(m_Regions.size());
-    for (int cellY = 0; cellY < OVERWORLD_MAP_HEIGHT; ++cellY)
-    {
-        for (int cellX = 0; cellX < OVERWORLD_MAP_WIDTH; ++cellX)
-        {
-            const int regionId = GetRegionId(cellX, cellY);
-            if (regionId < 0 || regionId >= static_cast<int>(regionCellBounds.size()))
-            {
-                continue;
-            }
-
-            const OverworldRegionData* region = GetRegion(regionId);
-            if (!region || region->m_IsWater)
-            {
-                continue;
-            }
-
-            RegionCellBounds& bounds = regionCellBounds[static_cast<size_t>(regionId)];
-            bounds.m_MinX = std::min(bounds.m_MinX, cellX);
-            bounds.m_MinY = std::min(bounds.m_MinY, cellY);
-            bounds.m_MaxX = std::max(bounds.m_MaxX, cellX);
-            bounds.m_MaxY = std::max(bounds.m_MaxY, cellY);
-        }
-    }
-
+    // Icons use m_SeedX/Y (visual interior after UpdateRegionLabelCenters), not AABB centers.
     auto RegionCenterPixels = [&](const OverworldRegionData& region) -> Vector2
     {
-        if (region.m_Id >= 0 && region.m_Id < static_cast<int>(regionCellBounds.size()))
+        int seedX = region.m_SeedX;
+        int seedY = region.m_SeedY;
+        // Guard: if seed drifted off the region (old saves / mid-gen), snap to any owned cell.
+        if (!IsInBounds(seedX, seedY) || GetRegionId(seedX, seedY) != region.m_Id)
         {
-            const RegionCellBounds& bounds = regionCellBounds[static_cast<size_t>(region.m_Id)];
-            if (bounds.IsValid())
+            bool found = false;
+            for (int cy = 0; cy < OVERWORLD_MAP_HEIGHT && !found; ++cy)
             {
-                const int centerPixelX = x + (((bounds.m_MinX + bounds.m_MaxX + 1) * pixelsPerCell) / 2);
-                const int centerPixelY = y + (((bounds.m_MinY + bounds.m_MaxY + 1) * pixelsPerCell) / 2);
-                return Vector2{ static_cast<float>(centerPixelX), static_cast<float>(centerPixelY) };
+                for (int cx = 0; cx < OVERWORLD_MAP_WIDTH; ++cx)
+                {
+                    if (GetRegionId(cx, cy) == region.m_Id
+                        && GetCell(cx, cy) != OW_WATER
+                        && GetCell(cx, cy) != OW_MOUNTAIN)
+                    {
+                        seedX = cx;
+                        seedY = cy;
+                        found = true;
+                        break;
+                    }
+                }
             }
         }
 
         return Vector2{
-            static_cast<float>(x + (region.m_SeedX * pixelsPerCell) + (pixelsPerCell / 2)),
-            static_cast<float>(y + (region.m_SeedY * pixelsPerCell) + (pixelsPerCell / 2))
+            static_cast<float>(x + (seedX * pixelsPerCell) + (pixelsPerCell / 2)),
+            static_cast<float>(y + (seedY * pixelsPerCell) + (pixelsPerCell / 2))
         };
     };
 

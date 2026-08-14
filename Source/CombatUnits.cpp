@@ -2682,7 +2682,8 @@ Vector3 GetCombatFigureDrawPosition(const CombatUnitInstance& unit, const Combat
 
     void DrawCombatUnitMarker(const CombatUnitInstance& unit, Vector2 center, bool selected)
     {
-        constexpr float kLetterFontSize = 11.0f;
+        // Match UI small-font draw size (baked larger, drawn scaled).
+        const float kLetterFontSize = g_smallFontDrawSize > 0.0f ? g_smallFontDrawSize : 8.0f;
 
         const Rectangle markerRect = CombatUnitMarkerRectFromCenter(center);
         const Color fillColor = GetLittlePeopleArmyColor(unit.m_Army);

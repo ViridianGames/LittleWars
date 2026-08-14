@@ -16,6 +16,64 @@ unique_ptr<ScriptingSystem>  g_ScriptingSystem;
 unique_ptr<SoundSystem>      g_SoundSystem;
 unique_ptr<InputSystem>      g_InputSystem;
 
+Font LoadPixelFont(const char* path, int pixelHeight)
+{
+	// Same recipe as CivilizationRevisited / GeistStarter:
+	// LoadFontEx anti-aliases and at 7–9px often yields empty "white square" tofu.
+	// FONT_BITMAP at the *on-screen* pixel height + POINT filter + draw at baseSize (1:1).
+	if (pixelHeight < 1)
+	{
+		pixelHeight = 1;
+	}
+
+	int codepoints[95];
+	for (int i = 0; i < 95; ++i)
+	{
+		codepoints[i] = 32 + i; // ' ' .. '~'
+	}
+
+	Font font = { 0 };
+	int dataSize = 0;
+	unsigned char* fileData = LoadFileData(path, &dataSize);
+	if (fileData == nullptr || dataSize <= 0)
+	{
+		TraceLog(LOG_WARNING, "LoadPixelFont: failed to read %s", path);
+		return GetFontDefault();
+	}
+
+	font.baseSize = pixelHeight;
+	font.glyphPadding = 1;
+	// Newer raylib: LoadFontData writes actual glyph count through out-param.
+	int glyphCount = 0;
+	font.glyphs = LoadFontData(fileData, dataSize, pixelHeight, codepoints, 95, FONT_BITMAP, &glyphCount);
+	UnloadFileData(fileData);
+
+	if (font.glyphs == nullptr || glyphCount <= 0)
+	{
+		TraceLog(LOG_WARNING, "LoadPixelFont: LoadFontData failed for %s", path);
+		return GetFontDefault();
+	}
+
+	font.glyphCount = glyphCount;
+	Image atlas = GenImageFontAtlas(
+		font.glyphs,
+		&font.recs,
+		font.glyphCount,
+		font.baseSize,
+		font.glyphPadding,
+		0);
+	font.texture = LoadTextureFromImage(atlas);
+	UnloadImage(atlas);
+
+	if (font.texture.id != 0)
+	{
+		SetTextureFilter(font.texture, TEXTURE_FILTER_POINT);
+		SetTextureWrap(font.texture, TEXTURE_WRAP_CLAMP);
+	}
+
+	return font;
+}
+
 void DrawStringCentered(Font* font, float fontsize, std::string text, float centerx, float centery, Color color)
 {
 	DrawStringCentered(font, fontsize, text, Vector2{centerx, centery}, color);

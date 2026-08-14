@@ -31,4 +31,8 @@ void DrawStringRight(Font* font, float fontsize, std::string text, float rightx,
 void DrawStringRight(Font* font, float fontsize, char* text, float rightx, float y, Color color = WHITE);
 void DebugPrint(std::string msg);
 
+// Pixel / retro TTF fonts (Civ / GeistStarter recipe): FONT_BITMAP at the
+// on-screen pixel height, POINT filter, draw at font.baseSize (no scale).
+Font LoadPixelFont(const char* path, int pixelHeight);
+
 #endif

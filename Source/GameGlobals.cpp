@@ -286,10 +286,15 @@ namespace
         }
 
         SetTextureFilter(font.texture, TEXTURE_FILTER_POINT);
+        SetTextureWrap(font.texture, TEXTURE_WRAP_CLAMP);
     }
 
     void DrawGameText(Font& font, const char* text, Vector2 position, float fontSize, int spacing, Color color)
     {
+        // Snap to whole pixels so scaled pixel-font glyphs stay clean.
+        position.x = std::floor(position.x + 0.5f);
+        position.y = std::floor(position.y + 0.5f);
+
         rlDrawRenderBatchActive();
         SetTextureFilter(font.texture, TEXTURE_FILTER_POINT);
         DrawTextEx(font, text, position, fontSize, spacing, color);
@@ -298,11 +303,23 @@ namespace
 
 void InitGameFonts()
 {
-    g_font = make_shared<Font>(LoadFontEx("Fonts/softsquare.ttf", FONT_TEXTURE_LOAD_SIZE, nullptr, 0));
+    // Match CivilizationRevisited / GeistStarter exactly:
+    //   LoadPixelFont(..., 9) / LoadPixelFont(..., 7)
+    //   draw with baseSize (g_*FontDrawSize kept equal to bake height).
+    g_font = make_shared<Font>(LoadPixelFont("Fonts/softsquare.ttf", FONT_TEXTURE_LOAD_SIZE));
     PreparePixelFont(*g_font);
 
-    g_smallFont = make_shared<Font>(LoadFontEx("Fonts/littleleague.ttf", SMALL_FONT_TEXTURE_LOAD_SIZE, nullptr, 0));
+    g_smallFont = make_shared<Font>(LoadPixelFont("Fonts/littleleague.ttf", SMALL_FONT_TEXTURE_LOAD_SIZE));
     PreparePixelFont(*g_smallFont);
+
+    if (g_font && g_font->baseSize > 0)
+    {
+        g_fontDrawSize = static_cast<float>(g_font->baseSize);
+    }
+    if (g_smallFont && g_smallFont->baseSize > 0)
+    {
+        g_smallFontDrawSize = static_cast<float>(g_smallFont->baseSize);
+    }
 }
 
 void ShutdownGameFonts()
@@ -1456,7 +1473,7 @@ void GameDatabase::EvaluateCampaignOutcome(const OverworldMap& map)
     if (human->m_TotalRegions <= 0)
     {
         m_Outcome = CampaignOutcome::Defeat;
-        g_AiObserverLog.Add(human->m_Id, "DEFEAT — you hold no counties.");
+        g_AiObserverLog.Add(human->m_Id, "DEFEAT - you hold no counties.");
         return;
     }
 
@@ -1477,7 +1494,7 @@ void GameDatabase::EvaluateCampaignOutcome(const OverworldMap& map)
     if (!rivalHoldsLand)
     {
         m_Outcome = CampaignOutcome::Victory;
-        g_AiObserverLog.Add(human->m_Id, "VICTORY — all rivals have been driven from the map!");
+        g_AiObserverLog.Add(human->m_Id, "VICTORY - all rivals have been driven from the map!");
     }
 }
 

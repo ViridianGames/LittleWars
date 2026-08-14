@@ -1258,7 +1258,7 @@ void MainState::DrawActionPanel(const SideLayout& layout) const
             const int maxChars = std::max(12, (layout.m_PanelW - 6) / 4);
             if (static_cast<int>(display.size()) > maxChars)
             {
-                display = display.substr(0, static_cast<size_t>(maxChars - 1)) + "…";
+                display = display.substr(0, static_cast<size_t>(maxChars - 1)) + "...";
             }
 
             DrawOutlinedText(g_smallFont, display,
@@ -1357,7 +1357,7 @@ void MainState::TryPerformAction(int actionIndex)
 {
     if (IsAllAiGame())
     {
-        m_TaskStatusMessage = "Observe mode — no player orders";
+        m_TaskStatusMessage = "Observe mode - no player orders";
         return;
     }
 

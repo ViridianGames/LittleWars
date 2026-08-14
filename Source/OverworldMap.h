@@ -108,6 +108,12 @@ private:
     void GenerateTerrain(RNG& rng);
     void SculptCoastline(RNG& rng);
     void PartitionIntoRegions(RNG& rng, int targetRegionCount, int minKeptRegions);
+    // Multi-source BFS flood from current region seeds over land cells.
+    void FloodFillRegionsFromSeeds();
+    // Lloyd-style seed recenter + re-flood so counties are less spindly.
+    void RegularizeRegionShapes(int iterations);
+    // Place m_SeedX/Y on a deep interior cell (for resource icons / labels).
+    void UpdateRegionLabelCenters();
     void DesignateWaterRegions(RNG& rng, int minConquerableRegions);
     void ClearLandRegionInteriors();
     void CarveInterRegionMountains();

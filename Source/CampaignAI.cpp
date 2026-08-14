@@ -904,8 +904,8 @@ bool ResolveRegionAttack(
             "  " + defenderName + " force: " + FormatArmyCounts(defBefore));
         g_AiObserverLog.Add(attacker.m_Id,
             attackerWins
-                ? ("  Result: " + std::string(attacker.GetColorName()) + " WINS — county captured")
-                : ("  Result: " + defenderName + " HOLDS — attack fails"));
+                ? ("  Result: " + std::string(attacker.GetColorName()) + " WINS - county captured")
+                : ("  Result: " + defenderName + " HOLDS - attack fails"));
         g_AiObserverLog.Add(attacker.m_Id,
             "  " + std::string(attacker.GetColorName()) + " left: " + FormatArmyCounts(atkAfter));
         g_AiObserverLog.Add(attacker.m_Id,
@@ -919,13 +919,13 @@ bool ResolveRegionAttack(
         {
             oss << "Captured county " << targetRegionId
                 << " (" << FormatArmyCounts(atkBefore) << " vs " << FormatArmyCounts(defBefore)
-                << " → left " << FormatArmyCounts(atkAfter) << ")";
+                << " -> left " << FormatArmyCounts(atkAfter) << ")";
         }
         else
         {
             oss << "Failed attack on county " << targetRegionId
                 << " (" << FormatArmyCounts(atkBefore) << " vs " << FormatArmyCounts(defBefore)
-                << " → left " << FormatArmyCounts(atkAfter) << ")";
+                << " -> left " << FormatArmyCounts(atkAfter) << ")";
         }
         *outMessage = oss.str();
     }

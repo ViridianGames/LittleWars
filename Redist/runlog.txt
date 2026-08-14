@@ -1,39 +1,39 @@
- Fri Aug 14 10:56:36 2026.321 Starting Engine::Init()
- Fri Aug 14 10:56:36 2026.321 Starting StateMachine::Init
- Fri Aug 14 10:56:36 2026.321 Leaving StateMachine::Init
- Fri Aug 14 10:56:36 2026.321 Starting InputSystem::Init()
- Fri Aug 14 10:56:36 2026.321 Done With InputSystem::Init()
- Fri Aug 14 10:56:36 2026.452 Done with Engine::Init()
- Fri Aug 14 10:56:36 2026.453 CampaignSetupScreenConfig::LoadFromFile - loaded Data/campaign_setup.json
- Fri Aug 14 10:56:36 2026.453 PlayerTasksConfig::LoadFromFile - loaded Data/player_tasks.json
- Fri Aug 14 10:56:36 2026.453 Loading texture Images/terrain.png
- Fri Aug 14 10:56:36 2026.453 Texture ID: 7, Width: 64, Height: 64
- Fri Aug 14 10:56:36 2026.453 Load successful.
- Fri Aug 14 10:56:36 2026.453 Loading texture Images/littlepeople.png
- Fri Aug 14 10:56:36 2026.453 Texture ID: 8, Width: 196, Height: 176
- Fri Aug 14 10:56:36 2026.453 Load successful.
- Fri Aug 14 10:56:36 2026.453 Loading texture Images/swordsmen4-fixed.png
- Fri Aug 14 10:56:36 2026.454 Texture ID: 9, Width: 256, Height: 256
- Fri Aug 14 10:56:36 2026.454 Load successful.
- Fri Aug 14 10:56:36 2026.454 Loading texture Images/swordsmen4-fixed-mask.png
- Fri Aug 14 10:56:36 2026.454 Texture ID: 10, Width: 256, Height: 256
- Fri Aug 14 10:56:36 2026.454 Load successful.
- Fri Aug 14 10:56:36 2026.454 Loading texture Images/archers-final-shrunk.png
- Fri Aug 14 10:56:36 2026.455 Texture ID: 11, Width: 256, Height: 256
- Fri Aug 14 10:56:36 2026.455 Load successful.
- Fri Aug 14 10:56:36 2026.455 Loading texture Images/archers-final-shrunk-mask.png
- Fri Aug 14 10:56:36 2026.455 Texture ID: 12, Width: 256, Height: 256
- Fri Aug 14 10:56:36 2026.455 Load successful.
- Fri Aug 14 10:56:36 2026.455 Loading texture Images/tiles256.png
- Fri Aug 14 10:56:36 2026.456 Texture ID: 13, Width: 112, Height: 832
- Fri Aug 14 10:56:36 2026.456 Load successful.
- Fri Aug 14 10:56:36 2026.456 Loading texture Images/title_near_final_480x270.png
- Fri Aug 14 10:56:36 2026.458 Texture ID: 14, Width: 480, Height: 270
- Fri Aug 14 10:56:36 2026.458 Load successful.
- Fri Aug 14 10:56:36 2026.458 Created state TitleState with ID 0
- Fri Aug 14 10:56:36 2026.458 Created state SetupGameState with ID 5
- Fri Aug 14 10:56:36 2026.458 Created state CastleDesignState with ID 4
- Fri Aug 14 10:56:36 2026.458 Created state MainState with ID 1
- Fri Aug 14 10:56:36 2026.458 Created state CombatState with ID 3
- Fri Aug 14 10:56:36 2026.458 Created state OptionsState with ID 2
- Fri Aug 14 10:56:36 2026.458 StateMachine: Transitioning to state TitleState, ID 0
+ Fri Aug 14 11:30:07 2026.631 Starting Engine::Init()
+ Fri Aug 14 11:30:07 2026.631 Starting StateMachine::Init
+ Fri Aug 14 11:30:07 2026.631 Leaving StateMachine::Init
+ Fri Aug 14 11:30:07 2026.631 Starting InputSystem::Init()
+ Fri Aug 14 11:30:07 2026.631 Done With InputSystem::Init()
+ Fri Aug 14 11:30:07 2026.772 Done with Engine::Init()
+ Fri Aug 14 11:30:07 2026.773 CampaignSetupScreenConfig::LoadFromFile - loaded Data/campaign_setup.json
+ Fri Aug 14 11:30:07 2026.773 PlayerTasksConfig::LoadFromFile - loaded Data/player_tasks.json
+ Fri Aug 14 11:30:07 2026.773 Loading texture Images/terrain.png
+ Fri Aug 14 11:30:07 2026.773 Texture ID: 7, Width: 64, Height: 64
+ Fri Aug 14 11:30:07 2026.773 Load successful.
+ Fri Aug 14 11:30:07 2026.773 Loading texture Images/littlepeople.png
+ Fri Aug 14 11:30:07 2026.773 Texture ID: 8, Width: 196, Height: 176
+ Fri Aug 14 11:30:07 2026.773 Load successful.
+ Fri Aug 14 11:30:07 2026.773 Loading texture Images/swordsmen4-fixed.png
+ Fri Aug 14 11:30:07 2026.774 Texture ID: 9, Width: 256, Height: 256
+ Fri Aug 14 11:30:07 2026.774 Load successful.
+ Fri Aug 14 11:30:07 2026.774 Loading texture Images/swordsmen4-fixed-mask.png
+ Fri Aug 14 11:30:07 2026.774 Texture ID: 10, Width: 256, Height: 256
+ Fri Aug 14 11:30:07 2026.774 Load successful.
+ Fri Aug 14 11:30:07 2026.774 Loading texture Images/archers-final-shrunk.png
+ Fri Aug 14 11:30:07 2026.775 Texture ID: 11, Width: 256, Height: 256
+ Fri Aug 14 11:30:07 2026.775 Load successful.
+ Fri Aug 14 11:30:07 2026.775 Loading texture Images/archers-final-shrunk-mask.png
+ Fri Aug 14 11:30:07 2026.775 Texture ID: 12, Width: 256, Height: 256
+ Fri Aug 14 11:30:07 2026.775 Load successful.
+ Fri Aug 14 11:30:07 2026.775 Loading texture Images/tiles256.png
+ Fri Aug 14 11:30:07 2026.775 Texture ID: 13, Width: 112, Height: 832
+ Fri Aug 14 11:30:07 2026.775 Load successful.
+ Fri Aug 14 11:30:07 2026.775 Loading texture Images/title_near_final_480x270.png
+ Fri Aug 14 11:30:07 2026.778 Texture ID: 14, Width: 480, Height: 270
+ Fri Aug 14 11:30:07 2026.778 Load successful.
+ Fri Aug 14 11:30:07 2026.778 Created state TitleState with ID 0
+ Fri Aug 14 11:30:07 2026.778 Created state SetupGameState with ID 5
+ Fri Aug 14 11:30:07 2026.778 Created state CastleDesignState with ID 4
+ Fri Aug 14 11:30:07 2026.778 Created state MainState with ID 1
+ Fri Aug 14 11:30:07 2026.778 Created state CombatState with ID 3
+ Fri Aug 14 11:30:07 2026.778 Created state OptionsState with ID 2
+ Fri Aug 14 11:30:07 2026.778 StateMachine: Transitioning to state TitleState, ID 0

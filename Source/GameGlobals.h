@@ -40,11 +40,12 @@ inline std::unique_ptr<RNG> g_nonVitalRNG;
 inline std::shared_ptr<Font> g_font;
 inline std::shared_ptr<Font> g_smallFont;
 
-// Load fonts at an integer multiple of the draw size so downscaling stays crisp.
+// Draw sizes — must match LoadPixelFont bake heights (Civ / GeistStarter recipe:
+// FONT_BITMAP at 9 and 7, always DrawTextEx at font->baseSize, never scale).
 inline float g_fontDrawSize = 9.0f;
 inline float g_smallFontDrawSize = 7.0f;
-constexpr int FONT_TEXTURE_LOAD_SIZE = 36;       // g_fontDrawSize * 4
-constexpr int SMALL_FONT_TEXTURE_LOAD_SIZE = 28; // g_smallFontDrawSize * 4
+constexpr int FONT_TEXTURE_LOAD_SIZE = 9;
+constexpr int SMALL_FONT_TEXTURE_LOAD_SIZE = 7;
 
 void InitGameFonts();
 void ShutdownGameFonts();
