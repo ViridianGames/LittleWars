@@ -51,6 +51,23 @@
       ]
     },
     {
+      "id": "playerColor",
+      "label": "Your Color",
+      "type": "enum",
+      "field": "playerColor",
+      "defaultValue": "blue",
+      "values": [
+        { "id": "blue", "label": "Blue" },
+        { "id": "red", "label": "Red" },
+        { "id": "gold", "label": "Gold" },
+        { "id": "purple", "label": "Purple" },
+        { "id": "green", "label": "Green" },
+        { "id": "orange", "label": "Orange" },
+        { "id": "cyan", "label": "Cyan" },
+        { "id": "pink", "label": "Pink" }
+      ]
+    },
+    {
       "id": "opponents",
       "label": "Opponents",
       "type": "range",

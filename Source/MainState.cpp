@@ -161,7 +161,7 @@ namespace
         DrawRectangleLines(x, y, w, h, Color{ 90, 90, 100, 255 });
         if (title && g_font)
         {
-            DrawOutlinedText(g_font, title,
+            DrawUiText(g_font, title,
                 Vector2{ static_cast<float>(x + 3), static_cast<float>(y + 2) },
                 g_fontDrawSize, 1, Color{ 255, 230, 90, 255 });
         }
@@ -194,8 +194,18 @@ void MainState::OnEnter()
     if (g_GameDatabase.m_Players.empty())
     {
         const int playerCount = GetCampaignPlayerCount(g_GameDatabase.m_Setup);
-        InitializeCampaignPlayers(g_GameDatabase.m_Players, playerCount, !g_GameDatabase.m_Setup.m_AllAi);
+        InitializeCampaignPlayers(
+            g_GameDatabase.m_Players,
+            playerCount,
+            !g_GameDatabase.m_Setup.m_AllAi,
+            g_GameDatabase.m_Setup.m_HumanColorIndex);
         AssignCampaignAiPersonalities(g_GameDatabase.m_Players, g_GameDatabase.m_Setup);
+    }
+    else if (!g_GameDatabase.m_Setup.m_AllAi && GetHumanPlayer(g_GameDatabase.m_Players) == nullptr
+        && !g_GameDatabase.m_Players.empty())
+    {
+        // Recover human seat if a prior bug left it unset.
+        g_GameDatabase.m_Players.front().m_IsHuman = true;
     }
 
     g_GameDatabase.SyncPlayersFromOverworld(g_OverworldMap, false);
@@ -469,7 +479,9 @@ void MainState::HandleMapSelection()
 
 bool MainState::IsAllAiGame() const
 {
-    return g_GameDatabase.m_Setup.m_AllAi || GetHumanPlayer(g_GameDatabase.m_Players) == nullptr;
+    // Trust the setup flag only. (Previously ORing GetHumanPlayer==null forced
+    // observer UI whenever the human seat flag was missing.)
+    return g_GameDatabase.m_Setup.m_AllAi;
 }
 
 const Player* MainState::GetWatchedPlayer() const
@@ -597,8 +609,17 @@ void MainState::DrawAiObserverPane() const
         Vector2{ static_cast<float>(paneX + 4), static_cast<float>(paneY + 14) },
         g_smallFontDrawSize, 1, Color{ 200, 200, 210, 255 });
 
+    int relevantPlayerId = -1;
+    if (!IsAllAiGame())
+    {
+        if (const Player* human = GetHumanPlayer(g_GameDatabase.m_Players))
+        {
+            relevantPlayerId = human->m_Id;
+        }
+    }
+
     std::vector<const AiLogEntry*> lines;
-    g_AiObserverLog.CollectFiltered(m_AiObserverFilter, 22, lines);
+    g_AiObserverLog.CollectFiltered(m_AiObserverFilter, 22, lines, relevantPlayerId);
 
     float lineY = static_cast<float>(paneY + 28);
     if (lines.empty())
@@ -623,8 +644,7 @@ void MainState::DrawAiObserverPane() const
                 color = g_GameDatabase.m_Players[static_cast<size_t>(entry->m_PlayerId)].GetColor();
             }
 
-            const string row = "T" + to_string(entry->m_Turn) + " " + entry->m_Message;
-            DrawOutlinedText(g_smallFont, row,
+            DrawOutlinedText(g_smallFont, entry->m_Message,
                 Vector2{ static_cast<float>(paneX + 4), lineY },
                 g_smallFontDrawSize, 1, color);
             lineY += g_smallFontDrawSize + 1.0f;
@@ -647,20 +667,20 @@ void MainState::DrawSelectionPanel(const SideLayout& layout) const
     {
         if (m_SelectedImpassable && m_SelectedImpassableCellType == static_cast<unsigned char>(OW_MOUNTAIN))
         {
-            DrawOutlinedText(g_smallFont, "Mountains (impassable)",
+            DrawUiText(g_smallFont, "Mountains (impassable)",
                 Vector2{ static_cast<float>(textX), static_cast<float>(textY) },
                 g_smallFontDrawSize, 1, Color{ 180, 180, 180, 255 });
             return;
         }
         if (m_SelectedImpassable && m_SelectedImpassableCellType == static_cast<unsigned char>(OW_WATER))
         {
-            DrawOutlinedText(g_smallFont, "Water (impassable)",
+            DrawUiText(g_smallFont, "Water (impassable)",
                 Vector2{ static_cast<float>(textX), static_cast<float>(textY) },
                 g_smallFontDrawSize, 1, Color{ 140, 200, 255, 255 });
             return;
         }
 
-        DrawOutlinedText(g_smallFont, "Click a county on the map",
+        DrawUiText(g_smallFont, "Click a county on the map",
             Vector2{ static_cast<float>(textX), static_cast<float>(textY) },
             g_smallFontDrawSize, 1, Color{ 180, 180, 190, 255 });
         return;
@@ -672,21 +692,42 @@ void MainState::DrawSelectionPanel(const SideLayout& layout) const
         return;
     }
 
+    // Fog of war: hide intel on unexplored counties.
+    int visionPlayerId = -1;
+    if (!IsAllAiGame())
+    {
+        if (const Player* human = GetHumanPlayer(g_GameDatabase.m_Players))
+        {
+            visionPlayerId = human->m_Id;
+        }
+    }
+    if (visionPlayerId >= 0 && !g_OverworldMap.IsRegionVisibleToPlayer(visionPlayerId, region->m_Id))
+    {
+        DrawUiText(g_smallFont, "Unknown territory",
+            Vector2{ static_cast<float>(textX), static_cast<float>(textY) },
+            g_smallFontDrawSize, 1, Color{ 160, 160, 170, 255 });
+        textY += 10;
+        DrawUiText(g_smallFont, "(unexplored)",
+            Vector2{ static_cast<float>(textX), static_cast<float>(textY) },
+            g_smallFontDrawSize, 1, Color{ 120, 120, 130, 255 });
+        return;
+    }
+
     const string title = "County " + to_string(region->m_Id);
-    DrawOutlinedText(g_smallFont, title,
+    DrawUiText(g_smallFont, title,
         Vector2{ static_cast<float>(textX), static_cast<float>(textY) },
         g_smallFontDrawSize, 1, WHITE);
     textY += 10;
 
     string ownerText = string("Owner: ") + PlayerOwnerName(region->m_OwnerId);
-    DrawOutlinedText(g_smallFont, ownerText,
+    DrawUiText(g_smallFont, ownerText,
         Vector2{ static_cast<float>(textX), static_cast<float>(textY) },
         g_smallFontDrawSize, 1, WHITE);
     textY += 10;
 
     const string resText = string(CountyResourceName(region->m_Resource))
         + "  +" + to_string(GetRegionTurnIncome(g_OverworldMap, *region)) + "/t";
-    DrawOutlinedText(g_smallFont, resText,
+    DrawUiText(g_smallFont, resText,
         Vector2{ static_cast<float>(textX), static_cast<float>(textY) },
         g_smallFontDrawSize, 1, Color{ 180, 220, 180, 255 });
     textY += 10;
@@ -708,7 +749,7 @@ void MainState::DrawSelectionPanel(const SideLayout& layout) const
     {
         status = "Open";
     }
-    DrawOutlinedText(g_smallFont, status,
+    DrawUiText(g_smallFont, status,
         Vector2{ static_cast<float>(textX), static_cast<float>(textY) },
         g_smallFontDrawSize, 1,
         g_OverworldMap.IsRegionFortified(region->m_Id)
@@ -775,7 +816,7 @@ void MainState::DrawVisitRegionButton(const SideLayout& layout) const
     const bool hovered = CheckCollisionPointRec(GetScaledMousePosition(), rect);
     DrawRectangleRec(rect, hovered ? Color{ 70, 110, 70, 255 } : Color{ 50, 80, 50, 255 });
     DrawRectangleLinesEx(rect, 1.0f, hovered ? Color{ 160, 220, 160, 255 } : Color{ 110, 160, 110, 255 });
-    DrawOutlinedText(g_smallFont, "Visit",
+    DrawUiText(g_smallFont, "Visit",
         Vector2{ rect.x + 4.0f, rect.y + 1.0f },
         g_smallFontDrawSize, 1, WHITE);
 }
@@ -786,7 +827,7 @@ void MainState::DrawAttackButton(const SideLayout& layout) const
     const bool hovered = CheckCollisionPointRec(GetScaledMousePosition(), rect);
     DrawRectangleRec(rect, hovered ? Color{ 140, 60, 50, 255 } : Color{ 100, 40, 36, 255 });
     DrawRectangleLinesEx(rect, 1.0f, hovered ? Color{ 255, 160, 140, 255 } : Color{ 200, 110, 100, 255 });
-    DrawOutlinedText(g_smallFont, "Attack",
+    DrawUiText(g_smallFont, "Attack",
         Vector2{ rect.x + 2.0f, rect.y + 1.0f },
         g_smallFontDrawSize, 1, WHITE);
 }
@@ -934,8 +975,19 @@ void MainState::BuildTurnLogDisplayLines(
     const Rectangle content = GetTurnLogContentRect(layout);
     const float maxTextWidth = std::max(8.0f, content.width - 2.0f);
 
+    // Single-player: only system lines + anything involving the human (their
+    // orders, battles they fight or are attacked in). All-AI observe: full log.
+    int relevantPlayerId = -1;
+    if (!IsAllAiGame())
+    {
+        if (const Player* human = GetHumanPlayer(g_GameDatabase.m_Players))
+        {
+            relevantPlayerId = human->m_Id;
+        }
+    }
+
     std::vector<const AiLogEntry*> entries;
-    g_AiObserverLog.CollectFiltered(-1, AiObserverLog::kMaxEntries, entries);
+    g_AiObserverLog.CollectFiltered(-1, AiObserverLog::kMaxEntries, entries, relevantPlayerId);
     // CollectFiltered is newest-first; reverse so oldest is at the top of the scroll view.
     std::reverse(entries.begin(), entries.end());
 
@@ -1020,8 +1072,7 @@ void MainState::BuildTurnLogDisplayLines(
             color = g_GameDatabase.m_Players[static_cast<size_t>(entry->m_PlayerId)].GetColor();
         }
 
-        const string row = "T" + to_string(entry->m_Turn) + " " + entry->m_Message;
-        WrapLogLine(row, wrapped);
+        WrapLogLine(entry->m_Message, wrapped);
         for (const string& piece : wrapped)
         {
             outLines.emplace_back(piece, color);
@@ -1117,7 +1168,7 @@ void MainState::DrawTurnConsole(const SideLayout& layout) const
 
     if (displayLines.empty())
     {
-        DrawOutlinedText(g_smallFont, "No events yet.",
+        DrawUiText(g_smallFont, "No events yet.",
             Vector2{ textX, content.y },
             g_smallFontDrawSize, 1, GRAY);
         return;
@@ -1149,7 +1200,7 @@ void MainState::DrawTurnConsole(const SideLayout& layout) const
             break;
         }
 
-        DrawOutlinedText(g_smallFont, line.first,
+        DrawUiText(g_smallFont, line.first,
             Vector2{ textX, lineY },
             g_smallFontDrawSize, 1, line.second);
         lineY += lineStep;
@@ -1261,7 +1312,7 @@ void MainState::DrawActionPanel(const SideLayout& layout) const
                 display = display.substr(0, static_cast<size_t>(maxChars - 1)) + "...";
             }
 
-            DrawOutlinedText(g_smallFont, display,
+            DrawUiText(g_smallFont, display,
                 Vector2{ textX, lineY },
                 g_smallFontDrawSize, 1, textColor);
             lineY += lineStep;
@@ -1269,7 +1320,7 @@ void MainState::DrawActionPanel(const SideLayout& layout) const
 
         if (m_AiAutoPlay)
         {
-            DrawOutlinedText(g_smallFont, "Auto (A)",
+            DrawUiText(g_smallFont, "Auto (A)",
                 Vector2{ textX, nextRect.y - 11.0f },
                 g_smallFontDrawSize, 1, Color{ 180, 220, 180, 255 });
         }
@@ -1320,7 +1371,7 @@ void MainState::DrawActionPanel(const SideLayout& layout) const
             }
 
             const char* label = GetActionLabel(i);
-            DrawOutlinedText(g_smallFont, label,
+            DrawUiText(g_smallFont, label,
                 Vector2{ rect.x + 14.0f, rect.y + 4.0f },
                 g_smallFontDrawSize, 1, textColor);
         }
@@ -1334,7 +1385,7 @@ void MainState::DrawActionPanel(const SideLayout& layout) const
             {
                 status = status.substr(0, 33) + "...";
             }
-            DrawOutlinedText(g_smallFont, status,
+            DrawUiText(g_smallFont, status,
                 Vector2{ static_cast<float>(layout.m_PanelX + 3), statusY },
                 g_smallFontDrawSize, 1, Color{ 180, 220, 180, 255 });
         }
@@ -1345,7 +1396,7 @@ void MainState::DrawActionPanel(const SideLayout& layout) const
     DrawRectangleLinesEx(nextRect, 1.0f, nextHovered ? Color{ 140, 220, 140, 255 } : Color{ 100, 160, 100, 255 });
     const string nextLabel = "Next Turn";
     const Vector2 nextSize = MeasureTextEx(*g_font, nextLabel.c_str(), g_fontDrawSize, 1.0f);
-    DrawOutlinedText(g_font, nextLabel,
+    DrawUiText(g_font, nextLabel,
         Vector2{
             nextRect.x + (nextRect.width - nextSize.x) * 0.5f,
             nextRect.y + (nextRect.height - nextSize.y) * 0.5f - 1.0f
@@ -1528,7 +1579,18 @@ void MainState::Draw()
         Color{ 24, 28, 36, 255 });
 
     DrawTopBar();
-    g_OverworldMap.Draw(kMapDrawX, kMapDrawY, kMapPixelsPerCell, m_SelectedRegionId);
+    {
+        // Human games: fog of war for the human seat. All-AI observe: full map.
+        int visionPlayerId = -1;
+        if (!IsAllAiGame())
+        {
+            if (const Player* human = GetHumanPlayer(g_GameDatabase.m_Players))
+            {
+                visionPlayerId = human->m_Id;
+            }
+        }
+        g_OverworldMap.Draw(kMapDrawX, kMapDrawY, kMapPixelsPerCell, m_SelectedRegionId, visionPlayerId);
+    }
     DrawTopBarTooltip();
 
     const SideLayout layout = ComputeSideLayout();

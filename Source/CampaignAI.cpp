@@ -28,12 +28,17 @@ void AiObserverLog::BeginTurn(int turn)
 
 void AiObserverLog::Add(int playerId, const std::string& message)
 {
+    Add(playerId, -1, message);
+}
+
+void AiObserverLog::Add(int playerId, int otherPlayerId, const std::string& message)
+{
     if (message.empty())
     {
         return;
     }
 
-    m_Entries.push_back(AiLogEntry{ m_CurrentTurn, playerId, message });
+    m_Entries.push_back(AiLogEntry{ m_CurrentTurn, playerId, otherPlayerId, message });
     while (static_cast<int>(m_Entries.size()) > kMaxEntries)
     {
         m_Entries.erase(m_Entries.begin());
@@ -49,7 +54,11 @@ void AiObserverLog::Add(int playerId, const std::string& message)
     }
 }
 
-void AiObserverLog::CollectFiltered(int filterPlayerId, int maxCount, std::vector<const AiLogEntry*>& out) const
+void AiObserverLog::CollectFiltered(
+    int filterPlayerId,
+    int maxCount,
+    std::vector<const AiLogEntry*>& out,
+    int relevantPlayerId) const
 {
     out.clear();
     for (int i = static_cast<int>(m_Entries.size()) - 1; i >= 0 && static_cast<int>(out.size()) < maxCount; --i)
@@ -58,6 +67,18 @@ void AiObserverLog::CollectFiltered(int filterPlayerId, int maxCount, std::vecto
         if (filterPlayerId >= 0 && entry.m_PlayerId != filterPlayerId && entry.m_PlayerId >= 0)
         {
             continue;
+        }
+        if (relevantPlayerId >= 0)
+        {
+            // Keep system lines; keep anything where this seat is primary or other party.
+            const bool involves =
+                entry.m_PlayerId < 0
+                || entry.m_PlayerId == relevantPlayerId
+                || entry.m_OtherPlayerId == relevantPlayerId;
+            if (!involves)
+            {
+                continue;
+            }
         }
         out.push_back(&entry);
     }
@@ -897,18 +918,20 @@ bool ResolveRegionAttack(
                << " (" << defenderName
                << (fortified ? ", fortified" : "")
                << ")";
-        g_AiObserverLog.Add(attacker.m_Id, header.str());
-        g_AiObserverLog.Add(attacker.m_Id,
+        // Tag defender so single-player turn log can keep AI attacks on the human.
+        const int otherId = wasNeutral ? -1 : defenderId;
+        g_AiObserverLog.Add(attacker.m_Id, otherId, header.str());
+        g_AiObserverLog.Add(attacker.m_Id, otherId,
             "  " + std::string(attacker.GetColorName()) + " force: " + FormatArmyCounts(atkBefore));
-        g_AiObserverLog.Add(attacker.m_Id,
+        g_AiObserverLog.Add(attacker.m_Id, otherId,
             "  " + defenderName + " force: " + FormatArmyCounts(defBefore));
-        g_AiObserverLog.Add(attacker.m_Id,
+        g_AiObserverLog.Add(attacker.m_Id, otherId,
             attackerWins
                 ? ("  Result: " + std::string(attacker.GetColorName()) + " WINS - county captured")
                 : ("  Result: " + defenderName + " HOLDS - attack fails"));
-        g_AiObserverLog.Add(attacker.m_Id,
+        g_AiObserverLog.Add(attacker.m_Id, otherId,
             "  " + std::string(attacker.GetColorName()) + " left: " + FormatArmyCounts(atkAfter));
-        g_AiObserverLog.Add(attacker.m_Id,
+        g_AiObserverLog.Add(attacker.m_Id, otherId,
             "  " + defenderName + " left: " + FormatArmyCounts(defAfter));
     }
 

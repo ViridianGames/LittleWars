@@ -151,17 +151,17 @@ void DrawRegionSidePanelBackground()
         Color{ 48, 52, 62, 255 });
 }
 
-float DrawRegionSidePanelOutlinedParagraph(const std::string& text, float y, float fontSize, Color color)
+float DrawRegionSidePanelParagraph(const std::string& text, float y, float fontSize, Color color)
 {
     const Rectangle textBounds = GetRegionSidePanelTextBounds();
     const std::vector<std::string> lines = WrapParagraphLines(g_smallFont, text, textBounds.width, fontSize, 1);
-    DrawParagraph(g_smallFont, text, Vector2{ textBounds.x, y }, textBounds.width, fontSize, 1, color, true);
+    DrawParagraph(g_smallFont, text, Vector2{ textBounds.x, y }, textBounds.width, fontSize, 1, color, false);
     return y + GetParagraphHeight(lines, fontSize);
 }
 
-float DrawRegionSidePanelOutlinedLine(const std::string& text, float y, Color color)
+float DrawRegionSidePanelLine(const std::string& text, float y, Color color)
 {
     const Rectangle textBounds = GetRegionSidePanelTextBounds();
-    DrawOutlinedText(g_smallFont, text, Vector2{ textBounds.x, y }, g_smallFontDrawSize, 1, color);
+    DrawUiText(g_smallFont, text, Vector2{ textBounds.x, y }, g_smallFontDrawSize, 1, color);
     return y + g_smallFontDrawSize + 2.0f;
 }

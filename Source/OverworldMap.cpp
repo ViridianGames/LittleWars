@@ -72,11 +72,16 @@ namespace
         };
     }
 
-    Color ShadeCellColor(OverworldCellType type, int cellX, int cellY, unsigned int mapSeed)
+    Color ShadeCellColor(
+        OverworldCellType type,
+        int cellX,
+        int cellY,
+        unsigned int mapSeed,
+        unsigned char waterDistToLand = 0)
     {
         Color base = CellColor(type);
         const unsigned int h = CellHash(cellX, cellY, mapSeed);
-        const float n = static_cast<float>(h & 0xFFu) / 255.0f; // 0..1
+        const float n = static_cast<float>(h & 0xFFu) / 255.0f; // 0..1 (land texture only)
 
         switch (type)
         {
@@ -113,9 +118,47 @@ namespace
         }
         case OW_WATER:
         {
-            const Color deep = Color{ 30, 70, 150, 255 };
-            const Color shallow = Color{ 55, 120, 195, 255 };
-            return BlendColor(deep, shallow, n * 0.4f);
+            // Smooth ping-pong color cycle:
+            // deep → mid → shallow → glint → shallow → mid → deep → …
+            // Shore distance scales brightness (coast bright, offshore dark).
+            // No random per-cell noise — depth is deterministic from the map.
+            const Color palette[4] = {
+                Color{ 28, 64, 140, 255 },   // deep
+                Color{ 40, 96, 175, 255 },   // mid
+                Color{ 58, 128, 200, 255 },  // shallow
+                Color{ 78, 150, 215, 255 },  // glint
+            };
+            constexpr int kPaletteLen = 4;
+            constexpr int kPingPongLen = (kPaletteLen - 1) * 2; // period 6 along 0..3..0
+
+            // Continuous phase; tiny local offset only (avoid a map-wide wave front).
+            const float speed = 1.6f;
+            const float spatial = static_cast<float>((cellX * 3 + cellY * 5) & 7) * 0.15f;
+            float phase = GetTime() * speed + spatial;
+            phase = phase - static_cast<float>(kPingPongLen)
+                * std::floor(phase / static_cast<float>(kPingPongLen));
+            float along = phase;
+            if (along > static_cast<float>(kPaletteLen - 1))
+            {
+                along = static_cast<float>(kPingPongLen) - along; // 3→2→1→0
+            }
+
+            const int i0 = std::clamp(static_cast<int>(std::floor(along)), 0, kPaletteLen - 1);
+            const int i1 = std::min(i0 + 1, kPaletteLen - 1);
+            const float t = along - static_cast<float>(i0);
+            Color c = BlendColor(palette[i0], palette[i1], t);
+
+            // shoreT: 1 at coast, falls off quickly — only a thin bright rim.
+            // Dist 1–2 cells = coastal; by ~4 cells already deep.
+            constexpr float kMaxShoreDist = 4.0f;
+            const float shoreLinear = 1.0f - std::clamp(
+                static_cast<float>(waterDistToLand) / kMaxShoreDist, 0.0f, 1.0f);
+            // Square falloff so the bright band hugs the shoreline.
+            const float shoreT = shoreLinear * shoreLinear;
+
+            // Dark abyss offshore; animated color mostly near land.
+            const Color abyss = Color{ 18, 44, 102, 255 };
+            return BlendColor(abyss, c, 0.12f + shoreT * 0.88f);
         }
         default:
             return base;
@@ -270,6 +313,7 @@ void OverworldMap::Clear()
     m_RegionIds.clear();
     m_Regions.clear();
     m_BorderTypes.clear();
+    m_WaterDistToLand.clear();
 }
 
 int OverworldMap::GetConquerableRegionCount() const
@@ -1295,6 +1339,64 @@ void OverworldMap::DecorateLandTerrain(RNG& rng)
         }
     }
     m_Cells.swap(next);
+}
+
+void OverworldMap::BuildWaterDistanceField()
+{
+    // Multi-source BFS from every non-water cell into water.
+    // Result: 0 on land, 1 on water next to land, rising farther offshore.
+    m_WaterDistToLand.assign(static_cast<size_t>(kCellCount), 255);
+
+    if (m_Cells.size() != static_cast<size_t>(kCellCount))
+    {
+        return;
+    }
+
+    std::queue<std::pair<int, int>> open;
+    const int offsets[4][2] = { {1, 0}, {-1, 0}, {0, 1}, {0, -1} };
+
+    for (int y = 0; y < OVERWORLD_MAP_HEIGHT; ++y)
+    {
+        for (int x = 0; x < OVERWORLD_MAP_WIDTH; ++x)
+        {
+            if (GetCell(x, y) == OW_WATER)
+            {
+                continue;
+            }
+            const int index = GetCellIndex(x, y);
+            m_WaterDistToLand[static_cast<size_t>(index)] = 0;
+            open.push({ x, y });
+        }
+    }
+
+    while (!open.empty())
+    {
+        const auto [x, y] = open.front();
+        open.pop();
+        const unsigned char dist = m_WaterDistToLand[static_cast<size_t>(GetCellIndex(x, y))];
+        if (dist >= 254)
+        {
+            continue;
+        }
+
+        for (const auto& offset : offsets)
+        {
+            const int nx = x + offset[0];
+            const int ny = y + offset[1];
+            if (!IsInBounds(nx, ny) || GetCell(nx, ny) != OW_WATER)
+            {
+                continue;
+            }
+
+            const int nIndex = GetCellIndex(nx, ny);
+            const unsigned char candidate = static_cast<unsigned char>(dist + 1);
+            if (candidate < m_WaterDistToLand[static_cast<size_t>(nIndex)])
+            {
+                m_WaterDistToLand[static_cast<size_t>(nIndex)] = candidate;
+                open.push({ nx, ny });
+            }
+        }
+    }
 }
 
 RegionBorderType OverworldMap::GetBorderType(int regionA, int regionB) const
@@ -2342,11 +2444,89 @@ void OverworldMap::Generate(unsigned int seed, const CampaignSetup& setup)
     DecorateLandTerrain(rng);
     // Decorate does not move region ids; refresh interiors once more for safety.
     UpdateRegionLabelCenters();
+    BuildWaterDistanceField();
 
     m_Generated = true;
 }
 
-void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) const
+void OverworldMap::BuildVisibilityMask(int viewerPlayerId, std::vector<char>& outVisible) const
+{
+    outVisible.assign(m_Regions.size(), 0);
+    if (viewerPlayerId < 0)
+    {
+        std::fill(outVisible.begin(), outVisible.end(), 1);
+        return;
+    }
+
+    // Pass 1: all water is always explored (map contours), plus owned land.
+    for (const OverworldRegionData& region : m_Regions)
+    {
+        if (region.m_Id < 0 || region.m_Id >= static_cast<int>(outVisible.size()))
+        {
+            continue;
+        }
+        if (region.m_IsWater || region.m_OwnerId == viewerPlayerId)
+        {
+            outVisible[static_cast<size_t>(region.m_Id)] = 1;
+        }
+    }
+
+    // Pass 2: any region sharing a border with owned land.
+    for (const OverworldRegionData& region : m_Regions)
+    {
+        if (region.m_OwnerId != viewerPlayerId || region.m_IsWater)
+        {
+            continue;
+        }
+        for (int neighborId : region.m_AdjacentRegionIds)
+        {
+            if (neighborId >= 0 && neighborId < static_cast<int>(outVisible.size()))
+            {
+                outVisible[static_cast<size_t>(neighborId)] = 1;
+            }
+        }
+    }
+}
+
+bool OverworldMap::IsRegionVisibleToPlayer(int viewerPlayerId, int regionId) const
+{
+    if (viewerPlayerId < 0)
+    {
+        return true;
+    }
+    if (regionId < 0 || regionId >= static_cast<int>(m_Regions.size()))
+    {
+        return false;
+    }
+
+    const OverworldRegionData* region = GetRegion(regionId);
+    if (!region)
+    {
+        return false;
+    }
+    // Seas / lakes are always known.
+    if (region->m_IsWater)
+    {
+        return true;
+    }
+    if (region->m_OwnerId == viewerPlayerId)
+    {
+        return true;
+    }
+
+    // Visible if any adjacent owned (by viewer) land region borders this one.
+    for (int neighborId : region->m_AdjacentRegionIds)
+    {
+        const OverworldRegionData* neighbor = GetRegion(neighborId);
+        if (neighbor && !neighbor->m_IsWater && neighbor->m_OwnerId == viewerPlayerId)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId, int visionPlayerId) const
 {
     if (!m_Generated || pixelsPerCell <= 0)
     {
@@ -2358,13 +2538,54 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
     constexpr int kRegionBorderWidth = 1;
     constexpr int kMountainBorderWidth = 1;
     const Color unownedRegionBorderColor = WHITE;
+    // Fogged land-land borders: mid gray — not pure white, not mountain-dark.
+    const Color foggedRegionBorderColor = Color{ 150, 152, 162, 255 };
     // Darker than mountain fill so 1px ridges still read clearly.
     const Color mountainBorderColor = Color{ 48, 48, 56, 255 };
+
+    std::vector<char> regionVisible;
+    BuildVisibilityMask(visionPlayerId, regionVisible);
+    const bool useFog = visionPlayerId >= 0;
+
+    auto IsRegionRevealed = [&](int regionId) -> bool
+    {
+        if (!useFog)
+        {
+            return true;
+        }
+        if (regionId < 0 || regionId >= static_cast<int>(regionVisible.size()))
+        {
+            return false;
+        }
+        return regionVisible[static_cast<size_t>(regionId)] != 0;
+    };
 
     auto RegionTint = [](int regionId) -> Color
     {
         const unsigned char shade = static_cast<unsigned char>(90 + ((regionId * 47) % 70));
         return Color{ shade, shade, static_cast<unsigned char>(shade + 20), 50 };
+    };
+
+    // Full terrain always draws. Fog only darkens unrevealed land counties —
+    // water (and unassigned mountain corridors) stay at full brightness so the
+    // coastline / ridges remain readable everywhere.
+    auto IsFogDarkenedCell = [&](int regionId, OverworldCellType cellType) -> bool
+    {
+        if (!useFog || cellType == OW_WATER)
+        {
+            return false;
+        }
+        // No region (mountain corridors, voids): not a fogged county.
+        if (regionId < 0 || regionId >= static_cast<int>(regionVisible.size()))
+        {
+            return false;
+        }
+        const OverworldRegionData* region = GetRegion(regionId);
+        if (!region || region->m_IsWater)
+        {
+            return false;
+        }
+        return regionVisible[static_cast<size_t>(regionId)] == 0;
     };
 
     for (int cellY = 0; cellY < OVERWORLD_MAP_HEIGHT; ++cellY)
@@ -2374,11 +2595,19 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
             const int pixelX = x + (cellX * pixelsPerCell);
             const int pixelY = y + (cellY * pixelsPerCell);
             const OverworldCellType cellType = GetCell(cellX, cellY);
-            Color color = ShadeCellColor(cellType, cellX, cellY, m_Seed);
-
-            // Soft owner/region tint on all land cover (not only bare clear cells).
             const int regionId = GetRegionId(cellX, cellY);
-            if (regionId >= 0 && cellType != OW_WATER && cellType != OW_MOUNTAIN)
+            const bool revealed = IsRegionRevealed(regionId);
+            const bool fogDark = IsFogDarkenedCell(regionId, cellType);
+
+            unsigned char waterDist = 0;
+            if (cellType == OW_WATER && !m_WaterDistToLand.empty())
+            {
+                waterDist = m_WaterDistToLand[static_cast<size_t>(GetCellIndex(cellX, cellY))];
+            }
+            Color color = ShadeCellColor(cellType, cellX, cellY, m_Seed, waterDist);
+
+            // Soft owner/region tint only on revealed land (hide ownership intel in fog).
+            if (revealed && regionId >= 0 && cellType != OW_WATER && cellType != OW_MOUNTAIN)
             {
                 const OverworldRegionData* region = GetRegion(regionId);
                 if (region && !region->m_IsWater)
@@ -2392,9 +2621,14 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
             // Fortified land (castle + same-owner neighbors): slight lighten so the
             // secure core of a kingdom reads against vulnerable counties.
             // No player hue — borders still carry ownership color.
-            if (regionId >= 0 && IsRegionFortified(regionId))
+            if (revealed && regionId >= 0 && IsRegionFortified(regionId))
             {
                 color = BlendColor(color, WHITE, 0.14f);
+            }
+
+            if (fogDark)
+            {
+                color = BlendColor(color, Color{ 12, 14, 18, 255 }, 0.58f);
             }
 
             DrawRectangle(pixelX, pixelY, pixelsPerCell, pixelsPerCell, color);
@@ -2407,22 +2641,37 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
                 const int ox = pixelX + static_cast<int>(h % static_cast<unsigned int>(maxOffset));
                 const int oy = pixelY + static_cast<int>((h >> 4) % static_cast<unsigned int>(maxOffset));
 
+                Color detail = color;
                 if (cellType == OW_TREES && (h & 3u) == 0u)
                 {
                     const int dot = std::max(1, pixelsPerCell / 3);
-                    DrawRectangle(ox, oy, dot, dot, Color{ 20, 55, 24, 255 });
+                    detail = Color{ 20, 55, 24, 255 };
+                    if (fogDark)
+                    {
+                        detail = BlendColor(detail, Color{ 12, 14, 18, 255 }, 0.58f);
+                    }
+                    DrawRectangle(ox, oy, dot, dot, detail);
                 }
                 else if (cellType == OW_CLEAR && (h % 11u) == 0u)
                 {
                     // Sparse wildflower / sunlit grass flecks on meadows.
-                    const Color fleck = ((h >> 8) & 1u)
+                    detail = ((h >> 8) & 1u)
                         ? Color{ 190, 175, 70, 255 }
                         : Color{ 95, 170, 55, 255 };
-                    DrawRectangle(ox, oy, 1, 1, fleck);
+                    if (fogDark)
+                    {
+                        detail = BlendColor(detail, Color{ 12, 14, 18, 255 }, 0.58f);
+                    }
+                    DrawRectangle(ox, oy, 1, 1, detail);
                 }
                 else if (cellType == OW_MARSH && (h & 7u) == 0u)
                 {
-                    DrawRectangle(ox, oy, 1, 1, Color{ 55, 85, 70, 255 });
+                    detail = Color{ 55, 85, 70, 255 };
+                    if (fogDark)
+                    {
+                        detail = BlendColor(detail, Color{ 12, 14, 18, 255 }, 0.58f);
+                    }
+                    DrawRectangle(ox, oy, 1, 1, detail);
                 }
             }
         }
@@ -2496,6 +2745,12 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
         return kRegionBorderWidth;
     };
 
+    // County borders only between land regions — never along coasts / lakes.
+    auto IsLandLandBoundary = [&](int regionA, int regionB) -> bool
+    {
+        return IsLandRegion(regionA) && IsLandRegion(regionB) && regionA != regionB;
+    };
+
     auto ResolveRegionEdgeBorderColor = [&](int landRegionId, int otherRegionId, bool& outShouldDraw) -> Color
     {
         outShouldDraw = false;
@@ -2505,7 +2760,7 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
             return unownedRegionBorderColor;
         }
 
-        if (!IsLandRegion(otherRegionId) || landRegionId != otherRegionId)
+        if (IsLandLandBoundary(landRegionId, otherRegionId))
         {
             outShouldDraw = true;
             return PlayerOwnerColor(landRegion->m_OwnerId);
@@ -2517,6 +2772,22 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
     auto ResolveHorizontalBorderColor = [&](int leftRegionId, int rightRegionId, bool& outShouldDraw) -> Color
     {
         outShouldDraw = false;
+
+        // FOW: land-land edges touching unrevealed land use neutral gray 1px only
+        // (no ownership / fortify width — those leak the next ring of control).
+        if (useFog)
+        {
+            const bool leftLandFogged = IsLandRegion(leftRegionId) && !IsRegionRevealed(leftRegionId);
+            const bool rightLandFogged = IsLandRegion(rightRegionId) && !IsRegionRevealed(rightRegionId);
+            if (leftLandFogged || rightLandFogged)
+            {
+                if (IsLandLandBoundary(leftRegionId, rightRegionId))
+                {
+                    outShouldDraw = true;
+                }
+                return foggedRegionBorderColor;
+            }
+        }
 
         if (IsLandRegion(leftRegionId))
         {
@@ -2540,7 +2811,7 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
             }
         }
 
-        if (IsLandRegion(leftRegionId) && IsLandRegion(rightRegionId) && leftRegionId != rightRegionId)
+        if (IsLandLandBoundary(leftRegionId, rightRegionId))
         {
             outShouldDraw = true;
             return unownedRegionBorderColor;
@@ -2555,8 +2826,15 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
     };
 
     auto DrawOwnedMapEdgeBorder = [&](int pixelX, int pixelY, int drawWidth, int drawHeight,
-        const OverworldRegionData& region)
+        const OverworldRegionData& region, bool fogged)
     {
+        if (fogged)
+        {
+            // Neutral gray map-edge outline only — no owner color.
+            DrawRectangle(pixelX, pixelY, drawWidth, drawHeight, foggedRegionBorderColor);
+            return;
+        }
+
         if (region.m_OwnerId < 0)
         {
             return;
@@ -2580,6 +2858,7 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
                 continue;
             }
 
+            const bool fogged = useFog && !IsRegionRevealed(regionId);
             const int pixelX = x + (cellX * pixelsPerCell);
             const int pixelY = y + (cellY * pixelsPerCell);
             const OverworldRegionData* region = GetRegion(regionId);
@@ -2588,7 +2867,10 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
                 continue;
             }
 
-            const int edgeBorderWidth = IsFortifiedRegion(regionId) ? kFortifiedBorderWidth : kRegionBorderWidth;
+            // Fogged counties: always 1px white. Revealed: fortify can thicken.
+            const int edgeBorderWidth = (!fogged && IsFortifiedRegion(regionId))
+                ? kFortifiedBorderWidth
+                : kRegionBorderWidth;
 
             if (cellX == 0)
             {
@@ -2597,7 +2879,8 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
                     pixelY,
                     edgeBorderWidth,
                     pixelsPerCell,
-                    *region);
+                    *region,
+                    fogged);
             }
 
             if (cellY == 0)
@@ -2607,7 +2890,8 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
                     pixelY,
                     pixelsPerCell,
                     edgeBorderWidth,
-                    *region);
+                    *region,
+                    fogged);
             }
 
             if (cellX + 1 < OVERWORLD_MAP_WIDTH)
@@ -2639,7 +2923,10 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
                     const Color borderColor = ResolveHorizontalBorderColor(regionId, rightRegionId, shouldDrawBorder);
                     if (shouldDrawBorder)
                     {
-                        const int borderWidth = ResolveBorderWidth(regionId, rightRegionId);
+                        // Any fog-touched edge stays 1px white (color already forced above).
+                        const int borderWidth = (fogged || (useFog && IsLandRegion(rightRegionId) && !IsRegionRevealed(rightRegionId)))
+                            ? kRegionBorderWidth
+                            : ResolveBorderWidth(regionId, rightRegionId);
                         DrawRectangle(boundaryX - borderWidth, pixelY, borderWidth, pixelsPerCell, borderColor);
                     }
                 }
@@ -2652,7 +2939,8 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
                     pixelY,
                     edgeBorderWidth,
                     pixelsPerCell,
-                    *region);
+                    *region,
+                    fogged);
             }
 
             if (cellY + 1 < OVERWORLD_MAP_HEIGHT)
@@ -2684,7 +2972,9 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
                     const Color borderColor = ResolveVerticalBorderColor(regionId, downRegionId, shouldDrawBorder);
                     if (shouldDrawBorder)
                     {
-                        const int borderWidth = ResolveBorderWidth(regionId, downRegionId);
+                        const int borderWidth = (fogged || (useFog && IsLandRegion(downRegionId) && !IsRegionRevealed(downRegionId)))
+                            ? kRegionBorderWidth
+                            : ResolveBorderWidth(regionId, downRegionId);
                         DrawRectangle(pixelX, boundaryY - borderWidth, pixelsPerCell, borderWidth, borderColor);
                     }
                 }
@@ -2697,12 +2987,13 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
                     boundaryY - edgeBorderWidth,
                     pixelsPerCell,
                     edgeBorderWidth,
-                    *region);
+                    *region,
+                    fogged);
             }
         }
     }
 
-    if (selectedRegionId >= 0)
+    if (selectedRegionId >= 0 && IsRegionRevealed(selectedRegionId))
     {
         DrawRegionHighlight(x, y, pixelsPerCell, selectedRegionId);
     }
@@ -2742,7 +3033,7 @@ void OverworldMap::Draw(int x, int y, int pixelsPerCell, int selectedRegionId) c
     constexpr int kResourceIconUpOffset = 1;
     for (const OverworldRegionData& region : m_Regions)
     {
-        if (region.m_IsWater)
+        if (region.m_IsWater || !IsRegionRevealed(region.m_Id))
         {
             continue;
         }

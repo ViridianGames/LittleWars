@@ -22,7 +22,18 @@ bool IsPointInRegionSidePanel(Vector2 point);
 
 void DrawRegionSidePanelBackground();
 
-float DrawRegionSidePanelOutlinedParagraph(const std::string& text, float y, float fontSize, Color color);
-float DrawRegionSidePanelOutlinedLine(const std::string& text, float y, Color color);
+// Solid panel text — no outline (pinch reads better plain on dark fill).
+float DrawRegionSidePanelParagraph(const std::string& text, float y, float fontSize, Color color);
+float DrawRegionSidePanelLine(const std::string& text, float y, Color color);
+
+// Back-compat aliases (same plain draw path).
+inline float DrawRegionSidePanelOutlinedParagraph(const std::string& text, float y, float fontSize, Color color)
+{
+    return DrawRegionSidePanelParagraph(text, y, fontSize, color);
+}
+inline float DrawRegionSidePanelOutlinedLine(const std::string& text, float y, Color color)
+{
+    return DrawRegionSidePanelLine(text, y, color);
+}
 
 #endif

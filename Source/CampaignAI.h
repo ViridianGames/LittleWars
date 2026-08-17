@@ -47,7 +47,8 @@ void RunCampaignAiTurn(Player& player, OverworldMap& map, std::vector<Player>& p
 struct AiLogEntry
 {
     int m_Turn = 0;
-    int m_PlayerId = -1;
+    int m_PlayerId = -1;       // Primary actor (-1 = system)
+    int m_OtherPlayerId = -1;  // Secondary party (e.g. battle defender); -1 = none
     std::string m_Message;
 };
 
@@ -59,11 +60,19 @@ public:
     void Clear();
     void BeginTurn(int turn);
     void Add(int playerId, const std::string& message);
+    // otherPlayerId marks a second involved seat (defender, spy target, etc.).
+    void Add(int playerId, int otherPlayerId, const std::string& message);
     int GetCurrentTurn() const { return m_CurrentTurn; }
     const std::vector<AiLogEntry>& GetEntries() const { return m_Entries; }
 
     // Newest-first filtered view. filterPlayerId < 0 means all players.
-    void CollectFiltered(int filterPlayerId, int maxCount, std::vector<const AiLogEntry*>& out) const;
+    // relevantPlayerId >= 0: only system lines + entries involving that seat
+    // (primary or other). Used in single-player to hide AI-vs-AI chatter.
+    void CollectFiltered(
+        int filterPlayerId,
+        int maxCount,
+        std::vector<const AiLogEntry*>& out,
+        int relevantPlayerId = -1) const;
 
 private:
     std::vector<AiLogEntry> m_Entries;

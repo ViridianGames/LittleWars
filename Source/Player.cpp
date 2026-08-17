@@ -1,14 +1,15 @@
 #include "Player.h"
 
 #include "CampaignAI.h"
+#include "GameGlobals.h"
 #include "OverworldMap.h"
 #include "PlayerTasksConfig.h"
 
 #include <algorithm>
 
-Color PlayerOwnerColor(int ownerId)
+Color ColorFromPlayerIndex(int colorIndex)
 {
-    switch (ownerId)
+    switch (colorIndex)
     {
     case 0:
         return Color{ 80, 140, 255, 255 };
@@ -31,9 +32,9 @@ Color PlayerOwnerColor(int ownerId)
     }
 }
 
-const char* PlayerOwnerName(int ownerId)
+const char* ColorNameFromPlayerIndex(int colorIndex)
 {
-    switch (ownerId)
+    switch (colorIndex)
     {
     case 0:
         return "Blue";
@@ -54,6 +55,24 @@ const char* PlayerOwnerName(int ownerId)
     default:
         return "Unclaimed";
     }
+}
+
+Color PlayerOwnerColor(int ownerId)
+{
+    if (ownerId >= 0 && ownerId < static_cast<int>(g_GameDatabase.m_Players.size()))
+    {
+        return ColorFromPlayerIndex(g_GameDatabase.m_Players[static_cast<size_t>(ownerId)].m_ColorIndex);
+    }
+    return ColorFromPlayerIndex(ownerId);
+}
+
+const char* PlayerOwnerName(int ownerId)
+{
+    if (ownerId >= 0 && ownerId < static_cast<int>(g_GameDatabase.m_Players.size()))
+    {
+        return ColorNameFromPlayerIndex(g_GameDatabase.m_Players[static_cast<size_t>(ownerId)].m_ColorIndex);
+    }
+    return ColorNameFromPlayerIndex(ownerId);
 }
 
 const char* DiplomaticRelationName(DiplomaticRelation relation)
@@ -77,12 +96,12 @@ const char* DiplomaticRelationName(DiplomaticRelation relation)
 
 Color Player::GetColor() const
 {
-    return PlayerOwnerColor(m_Id);
+    return ColorFromPlayerIndex(m_ColorIndex);
 }
 
 const char* Player::GetColorName() const
 {
-    return PlayerOwnerName(m_Id);
+    return ColorNameFromPlayerIndex(m_ColorIndex);
 }
 
 std::string Player::GetRelationLabel(int otherPlayerId) const
@@ -101,17 +120,39 @@ std::string Player::GetRelationLabel(int otherPlayerId) const
     return std::string(PlayerOwnerName(otherPlayerId)) + ": " + DiplomaticRelationName(relation);
 }
 
-void InitializeCampaignPlayers(std::vector<Player>& players, int playerCount, bool hasHumanPlayer)
+void InitializeCampaignPlayers(
+    std::vector<Player>& players,
+    int playerCount,
+    bool hasHumanPlayer,
+    int humanColorIndex)
 {
     playerCount = std::clamp(playerCount, 1, kMaxCampaignPlayers);
+    humanColorIndex = std::clamp(humanColorIndex, 0, kMaxCampaignPlayers - 1);
     players.clear();
     players.resize(static_cast<size_t>(playerCount));
+
+    // Assign unique palette slots: human gets preferred color, AIs take the rest in order.
+    std::vector<int> colorPool;
+    colorPool.reserve(static_cast<size_t>(kMaxCampaignPlayers));
+    if (hasHumanPlayer)
+    {
+        colorPool.push_back(humanColorIndex);
+    }
+    for (int c = 0; c < kMaxCampaignPlayers; ++c)
+    {
+        if (hasHumanPlayer && c == humanColorIndex)
+        {
+            continue;
+        }
+        colorPool.push_back(c);
+    }
 
     for (int id = 0; id < playerCount; ++id)
     {
         Player& player = players[static_cast<size_t>(id)];
         player.m_Id = id;
         player.m_IsHuman = hasHumanPlayer && (id == 0);
+        player.m_ColorIndex = colorPool[static_cast<size_t>(id)];
         player.m_AiPersonality = AiPersonality::Balanced;
         player.m_Relations.assign(static_cast<size_t>(playerCount), static_cast<int>(DiplomaticRelation::Neutral));
 
@@ -130,6 +171,16 @@ void InitializeCampaignPlayers(std::vector<Player>& players, int playerCount, bo
                 player.m_Relations[static_cast<size_t>(otherId)] =
                     static_cast<int>((id + otherId) % 2 == 0 ? DiplomaticRelation::Hostile : DiplomaticRelation::Neutral);
             }
+        }
+    }
+
+    // Belt-and-suspenders: human games always have seat 0 as human.
+    if (hasHumanPlayer && !players.empty())
+    {
+        players.front().m_IsHuman = true;
+        for (size_t i = 1; i < players.size(); ++i)
+        {
+            players[i].m_IsHuman = false;
         }
     }
 }

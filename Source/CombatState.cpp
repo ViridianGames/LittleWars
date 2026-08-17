@@ -143,17 +143,66 @@ namespace
         return total;
     }
 
-    int CountArmyMaxSoldiers(const std::vector<CombatUnitInstance>& units, LittlePeopleArmy army)
+    // Overworld casualties are per combat *group* (1 group == 1 overworld unit), not per figure HP.
+    // Spawn may cap groups (kMaxGroupsPerType / kMaxGroupsPerSide); unspawned reserves return intact.
+    struct ArmyGroupCounts
     {
-        int total = 0;
+        int swordsmen = 0;
+        int archers = 0;
+        int knights = 0;
+        int catapults = 0;
+    };
+
+    void CountArmyGroupsByType(
+        const std::vector<CombatUnitInstance>& units,
+        LittlePeopleArmy army,
+        ArmyGroupCounts& living,
+        ArmyGroupCounts& spawned)
+    {
+        living = {};
+        spawned = {};
         for (const CombatUnitInstance& unit : units)
         {
-            if (unit.m_Army == army)
+            if (unit.m_Army != army)
             {
-                total += GetCombatUnitSoldierCount(unit.m_Type);
+                continue;
+            }
+            int* livePtr = nullptr;
+            int* spawnPtr = nullptr;
+            switch (unit.m_Type)
+            {
+            case CombatUnitType::Swordsmen:
+                livePtr = &living.swordsmen;
+                spawnPtr = &spawned.swordsmen;
+                break;
+            case CombatUnitType::Archers:
+                livePtr = &living.archers;
+                spawnPtr = &spawned.archers;
+                break;
+            case CombatUnitType::Knights:
+                livePtr = &living.knights;
+                spawnPtr = &spawned.knights;
+                break;
+            case CombatUnitType::Catapult:
+                livePtr = &living.catapults;
+                spawnPtr = &spawned.catapults;
+                break;
+            }
+            if (spawnPtr != nullptr)
+            {
+                ++(*spawnPtr);
+                if (IsCombatUnitAlive(unit) && livePtr != nullptr)
+                {
+                    ++(*livePtr);
+                }
             }
         }
-        return total;
+    }
+
+    // start - spawned + living = reserves that never deployed + surviving deployed groups.
+    int RemainingOverworldUnits(int startCount, int spawnedGroups, int livingGroups)
+    {
+        return std::max(0, startCount - spawnedGroups + livingGroups);
     }
 
     int ScaleRemaining(int startCount, float ratio)
@@ -303,29 +352,37 @@ void CombatState::ResolveCampaignBattle(bool attackerWon, bool retreated)
         }
     }
 
-    const int atkLiving = CountArmyLivingSoldiers(m_Units, atkArmy);
-    const int atkMax = std::max(1, CountArmyMaxSoldiers(m_Units, atkArmy));
-    const int defLiving = CountArmyLivingSoldiers(m_Units, defArmy);
-    const int defMax = std::max(1, CountArmyMaxSoldiers(m_Units, defArmy));
+    ArmyGroupCounts atkLivingGroups{};
+    ArmyGroupCounts atkSpawnedGroups{};
+    ArmyGroupCounts defLivingGroups{};
+    ArmyGroupCounts defSpawnedGroups{};
+    CountArmyGroupsByType(m_Units, atkArmy, atkLivingGroups, atkSpawnedGroups);
+    CountArmyGroupsByType(m_Units, defArmy, defLivingGroups, defSpawnedGroups);
 
-    float atkRatio = static_cast<float>(atkLiving) / static_cast<float>(atkMax);
-    float defRatio = static_cast<float>(defLiving) / static_cast<float>(defMax);
+    // Remaining overworld units = unspawned reserves + living combat groups of that type.
+    // Do NOT scale by figure HP ratio — that wrongly taxes every type when any figures die.
+    battle.m_AtkSwordsmen = RemainingOverworldUnits(m_BattleStartAtkS, atkSpawnedGroups.swordsmen, atkLivingGroups.swordsmen);
+    battle.m_AtkArchers = RemainingOverworldUnits(m_BattleStartAtkA, atkSpawnedGroups.archers, atkLivingGroups.archers);
+    battle.m_AtkKnights = RemainingOverworldUnits(m_BattleStartAtkK, atkSpawnedGroups.knights, atkLivingGroups.knights);
+    battle.m_AtkCatapults = RemainingOverworldUnits(m_BattleStartAtkC, atkSpawnedGroups.catapults, atkLivingGroups.catapults);
+    battle.m_DefSwordsmen = RemainingOverworldUnits(m_BattleStartDefS, defSpawnedGroups.swordsmen, defLivingGroups.swordsmen);
+    battle.m_DefArchers = RemainingOverworldUnits(m_BattleStartDefA, defSpawnedGroups.archers, defLivingGroups.archers);
+    battle.m_DefKnights = RemainingOverworldUnits(m_BattleStartDefK, defSpawnedGroups.knights, defLivingGroups.knights);
+    battle.m_DefCatapults = RemainingOverworldUnits(m_BattleStartDefC, defSpawnedGroups.catapults, defLivingGroups.catapults);
+
     if (retreated)
     {
-        atkRatio = std::min(atkRatio, 0.6f);
-        defRatio = std::max(defRatio, 0.7f);
+        // Desertion / disorder on retreat: attacker keeps at most 60% of remaining, defender at least 70% of start.
+        battle.m_AtkSwordsmen = std::min(battle.m_AtkSwordsmen, ScaleRemaining(m_BattleStartAtkS, 0.6f));
+        battle.m_AtkArchers = std::min(battle.m_AtkArchers, ScaleRemaining(m_BattleStartAtkA, 0.6f));
+        battle.m_AtkKnights = std::min(battle.m_AtkKnights, ScaleRemaining(m_BattleStartAtkK, 0.6f));
+        battle.m_AtkCatapults = std::min(battle.m_AtkCatapults, ScaleRemaining(m_BattleStartAtkC, 0.6f));
+        battle.m_DefSwordsmen = std::max(battle.m_DefSwordsmen, ScaleRemaining(m_BattleStartDefS, 0.7f));
+        battle.m_DefArchers = std::max(battle.m_DefArchers, ScaleRemaining(m_BattleStartDefA, 0.7f));
+        battle.m_DefKnights = std::max(battle.m_DefKnights, ScaleRemaining(m_BattleStartDefK, 0.7f));
+        battle.m_DefCatapults = std::max(battle.m_DefCatapults, ScaleRemaining(m_BattleStartDefC, 0.7f));
         attackerWon = false;
     }
-
-    // Write remaining overworld unit counts into the pending battle for Finalize.
-    battle.m_AtkSwordsmen = ScaleRemaining(m_BattleStartAtkS, atkRatio);
-    battle.m_AtkArchers = ScaleRemaining(m_BattleStartAtkA, atkRatio);
-    battle.m_AtkKnights = ScaleRemaining(m_BattleStartAtkK, atkRatio);
-    battle.m_AtkCatapults = ScaleRemaining(m_BattleStartAtkC, atkRatio);
-    battle.m_DefSwordsmen = ScaleRemaining(m_BattleStartDefS, defRatio);
-    battle.m_DefArchers = ScaleRemaining(m_BattleStartDefA, defRatio);
-    battle.m_DefKnights = ScaleRemaining(m_BattleStartDefK, defRatio);
-    battle.m_DefCatapults = ScaleRemaining(m_BattleStartDefC, defRatio);
 
     battle.m_AttackerWon = attackerWon && !retreated;
     battle.m_Retreated = retreated;

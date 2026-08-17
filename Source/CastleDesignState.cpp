@@ -221,7 +221,7 @@ namespace
         const Vector2 textSize = MeasureTextEx(*g_smallFont, label, fontSize, 1.0f);
         const float textX = rect.x + (rect.width - textSize.x) * 0.5f;
         const float textY = rect.y + (rect.height - textSize.y) * 0.5f;
-        DrawOutlinedText(g_smallFont, label, Vector2{ textX, textY }, fontSize, 1, WHITE);
+        DrawUiText(g_smallFont, label, Vector2{ textX, textY }, fontSize, 1, WHITE);
     }
 
     int PickCastlePartAtTerrainHit(const std::vector<CastlePartPlacement>& placements, Vector3 terrainHit)

@@ -88,7 +88,11 @@ public:
     int GetConquerableRegionCount() const;
     int GetLakeRegionCount() const;
 
-    void Draw(int x, int y, int pixelsPerCell, int selectedRegionId = -1) const;
+    // visionPlayerId < 0: full map (all-AI observe / debug).
+    // Otherwise: fog-of-war for that seat — owned + adjacent regions are bright;
+    // other land is drawn darkened. Water and mountain corridors stay full-bright
+    // so map contours remain visible.
+    void Draw(int x, int y, int pixelsPerCell, int selectedRegionId = -1, int visionPlayerId = -1) const;
     void DrawRegionHighlight(int x, int y, int pixelsPerCell, int regionId) const;
     void DrawAdjacencyGraph(int x, int y, int width, int height, int selectedRegionId = -1) const;
     void DrawAccessibilityGrid(int x, int y, int width, int height, int selectedRegionId = -1) const;
@@ -99,6 +103,12 @@ public:
     // Owned land with a castle, or owned land bordering a same-owner castled region.
     // Fortified counties get double income and easier defense.
     bool IsRegionFortified(int regionId) const;
+
+    // Fog of war: water always explored; land if owned by viewer or adjacent to
+    // owned land. viewerPlayerId < 0 → everything visible.
+    bool IsRegionVisibleToPlayer(int viewerPlayerId, int regionId) const;
+    // Fills visible[regionId] for all regions. Safe if size mismatches (resizes).
+    void BuildVisibilityMask(int viewerPlayerId, std::vector<char>& outVisible) const;
 
 private:
     bool IsInBounds(int x, int y) const;
@@ -119,6 +129,8 @@ private:
     void CarveInterRegionMountains();
     // Visual-only land cover (forests/meadows). Does not change regions or ownership.
     void DecorateLandTerrain(RNG& rng);
+    // Steps from each water cell to nearest land (coastal brightness).
+    void BuildWaterDistanceField();
     void RecalculateRegionCellCounts();
     void BuildAdjacency();
     void AssignRegionBorders(RNG& rng);
@@ -134,6 +146,8 @@ private:
     std::vector<int> m_RegionIds;
     std::vector<OverworldRegionData> m_Regions;
     std::unordered_map<unsigned long long, RegionBorderType> m_BorderTypes;
+    // Per-cell steps to land; 0 on land / shore edge; higher = farther offshore.
+    std::vector<unsigned char> m_WaterDistToLand;
 };
 
 extern OverworldMap g_OverworldMap;

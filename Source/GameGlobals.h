@@ -40,8 +40,9 @@ inline std::unique_ptr<RNG> g_nonVitalRNG;
 inline std::shared_ptr<Font> g_font;
 inline std::shared_ptr<Font> g_smallFont;
 
-// Draw sizes — must match LoadPixelFont bake heights (Civ / GeistStarter recipe:
-// FONT_BITMAP at 9 and 7, always DrawTextEx at font->baseSize, never scale).
+// Draw sizes — must match LoadPixelFont bake heights (FONT_BITMAP at on-screen
+// size, always DrawTextEx at font->baseSize, never scale).
+// ChevyRay sizes: Softsquare 9pt, Pinch 7pt (Birdseed 10, Little League 5 all-caps).
 inline float g_fontDrawSize = 9.0f;
 inline float g_smallFontDrawSize = 7.0f;
 constexpr int FONT_TEXTURE_LOAD_SIZE = 9;
@@ -51,6 +52,9 @@ void InitGameFonts();
 void ShutdownGameFonts();
 
 void DrawOutlinedText(std::shared_ptr<Font> font, const std::string& text, Vector2 position, float fontSize, int spacing, Color color);
+
+// Plain pixel-snapped text (no outline) — preferred on solid UI panels / infoboxes.
+void DrawUiText(std::shared_ptr<Font> font, const std::string& text, Vector2 position, float fontSize, int spacing, Color color);
 
 void DrawParagraph(std::shared_ptr<Font> font, const std::string& text, Vector2 position, float maxwidth, float fontSize, int spacing, Color color, bool outlined = false);
 
@@ -171,6 +175,8 @@ struct CampaignSetup
     RulerGender m_RulerGender = RulerGender::Male;
     // When true, no human seat — every player is AI (observer mode).
     bool m_AllAi = false;
+    // Human seat palette index (0=Blue … 7=Pink). Ignored in all-AI mode.
+    int m_HumanColorIndex = 0;
     int m_EnemyCount = 4;
     BattleMode m_BattleMode = BattleMode::OnMap;
     ResourceDistribution m_ResourceDistribution = ResourceDistribution::Balanced;
@@ -215,7 +221,7 @@ class GameDatabase
 {
 public:
     static constexpr const char* SAVE_MAGIC = "LWAR";
-    static constexpr int SAVE_VERSION = 12;
+    static constexpr int SAVE_VERSION = 13;
 
     CampaignSetup m_Setup;
     int m_Turn = 0;

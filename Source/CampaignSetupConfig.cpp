@@ -214,6 +214,20 @@ void CampaignSetupScreenConfig::LoadDefaults()
             },
             0, 0, 0, "human", ""
         });
+    m_Options.push_back(SetupOptionDefinition{
+            "playerColor", "Your Color", "playerColor", SetupOptionType::Enum,
+            {
+                { "blue", "Blue", 0 },
+                { "red", "Red", 0 },
+                { "gold", "Gold", 0 },
+                { "purple", "Purple", 0 },
+                { "green", "Green", 0 },
+                { "orange", "Orange", 0 },
+                { "cyan", "Cyan", 0 },
+                { "pink", "Pink", 0 }
+            },
+            0, 0, 0, "blue", ""
+        });
         m_Options.push_back(SetupOptionDefinition{
             "opponents", "Opponents", "enemyCount", SetupOptionType::Range,
             {}, 3, 7, 4, "", ""
@@ -363,6 +377,11 @@ int CampaignSetupScreenConfig::GetEnumIndex(const SetupOptionDefinition& option,
         return setup.m_AllAi ? 1 : 0;
     }
 
+    if (option.m_Field == "playerColor")
+    {
+        return std::clamp(setup.m_HumanColorIndex, 0, kMaxCampaignPlayers - 1);
+    }
+
     if (option.m_Field == "mapSize")
     {
         return static_cast<int>(setup.m_MapSize);
@@ -413,6 +432,12 @@ void CampaignSetupScreenConfig::SetEnumIndex(const SetupOptionDefinition& option
             setup.m_EnemyCount = std::clamp(
                 setup.m_EnemyCount - 1, kMinOpponents, kMaxOpponents);
         }
+        return;
+    }
+
+    if (option.m_Field == "playerColor")
+    {
+        setup.m_HumanColorIndex = std::clamp(index, 0, kMaxCampaignPlayers - 1);
         return;
     }
 
@@ -490,6 +515,10 @@ std::string CampaignSetupScreenConfig::GetOptionLabel(int optionIndex, const Cam
     {
         return "Players";
     }
+    if (option.m_Field == "playerColor" && setup.m_AllAi)
+    {
+        return "Your Color"; // still shown but N/A in all-AI
+    }
 
     return option.m_Label;
 }
@@ -518,6 +547,11 @@ std::string CampaignSetupScreenConfig::GetValueLabel(int optionIndex, const Camp
         return DifficultyName(setup.m_Difficulty, setup.m_RulerGender);
     }
 
+    if (option.m_Field == "playerColor" && setup.m_AllAi)
+    {
+        return "(n/a)";
+    }
+
     return FormatEnumValueLabel(option, GetEnumIndex(option, setup));
 }
 
@@ -525,6 +559,12 @@ void CampaignSetupScreenConfig::AdjustOption(int optionIndex, int delta, Campaig
 {
     const SetupOptionDefinition& option = GetOption(optionIndex);
     if (option.m_Type == SetupOptionType::Action)
+    {
+        return;
+    }
+
+    // Color is only meaningful when a human is playing.
+    if (option.m_Field == "playerColor" && setup.m_AllAi)
     {
         return;
     }

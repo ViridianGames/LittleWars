@@ -10,6 +10,7 @@
 #include "GameGlobals.h"
 #include "OverworldMap.h"
 #include "Player.h"
+#include "PlayerTasksConfig.h"
 
 using namespace std;
 
@@ -115,12 +116,37 @@ void SetupGameState::StartCampaign()
 
     g_AiObserverLog.Clear();
     const int playerCount = GetCampaignPlayerCount(g_GameDatabase.m_Setup);
-    InitializeCampaignPlayers(g_GameDatabase.m_Players, playerCount, !g_GameDatabase.m_Setup.m_AllAi);
+    const bool hasHuman = !g_GameDatabase.m_Setup.m_AllAi;
+    InitializeCampaignPlayers(
+        g_GameDatabase.m_Players,
+        playerCount,
+        hasHuman,
+        g_GameDatabase.m_Setup.m_HumanColorIndex);
+    // Guarantee human seat when "You play" is selected.
+    if (hasHuman && !g_GameDatabase.m_Players.empty())
+    {
+        g_GameDatabase.m_Players.front().m_IsHuman = true;
+        for (size_t i = 1; i < g_GameDatabase.m_Players.size(); ++i)
+        {
+            g_GameDatabase.m_Players[i].m_IsHuman = false;
+        }
+    }
     AssignCampaignAiPersonalities(g_GameDatabase.m_Players, g_GameDatabase.m_Setup);
     SyncPlayersFromOverworld(g_OverworldMap, g_GameDatabase.m_Players, true);
     g_GameDatabase.m_Turn = 0;
+    g_GameDatabase.m_Outcome = CampaignOutcome::None;
     g_GameDatabase.BuildRegionsFromOverworld(g_OverworldMap);
     g_GameDatabase.GenerateAllRegionHeightfields();
+
+    if (hasHuman)
+    {
+        if (const Player* human = GetHumanPlayer(g_GameDatabase.m_Players))
+        {
+            g_AiObserverLog.BeginTurn(0);
+            g_AiObserverLog.Add(human->m_Id,
+                std::string("You rule as ") + human->GetColorName() + ".");
+        }
+    }
 
     g_StateMachine->MakeStateTransition(STATE_MAINSTATE);
 }

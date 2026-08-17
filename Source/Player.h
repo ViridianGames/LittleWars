@@ -31,6 +31,8 @@ struct Player
 {
     int m_Id = -1;
     bool m_IsHuman = false;
+    // Display / map color (0..kMaxCampaignPlayers-1). Independent of seat m_Id.
+    int m_ColorIndex = 0;
     AiPersonality m_AiPersonality = AiPersonality::Turtle;
 
     int m_Food = 0;
@@ -63,12 +65,22 @@ struct Player
     std::string GetRelationLabel(int otherPlayerId) const;
 };
 
+// Palette entry by color index (0=Blue … 7=Pink).
+Color ColorFromPlayerIndex(int colorIndex);
+const char* ColorNameFromPlayerIndex(int colorIndex);
+
+// Seat/owner id → display color/name (uses Player::m_ColorIndex when roster is live).
 Color PlayerOwnerColor(int ownerId);
 const char* PlayerOwnerName(int ownerId);
 const char* DiplomaticRelationName(DiplomaticRelation relation);
 
 // hasHumanPlayer: when false, every seat is AI (observer / all-AI games).
-void InitializeCampaignPlayers(std::vector<Player>& players, int playerCount, bool hasHumanPlayer = true);
+// humanColorIndex: preferred palette slot for the human seat (ignored if all-AI).
+void InitializeCampaignPlayers(
+    std::vector<Player>& players,
+    int playerCount,
+    bool hasHumanPlayer = true,
+    int humanColorIndex = 0);
 void SyncPlayersFromOverworld(const class OverworldMap& map, std::vector<Player>& players, bool resetAssets);
 void CollectTurnIncomeFromRegions(const class OverworldMap& map, std::vector<Player>& players);
 void ProcessCastleConstruction(class OverworldMap& map, std::vector<Player>& players);

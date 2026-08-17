@@ -177,6 +177,8 @@ void ClampCampaignSetup(CampaignSetup& setup)
         setup.m_RulerGender = RulerGender::Male;
     }
 
+    setup.m_HumanColorIndex = std::clamp(setup.m_HumanColorIndex, 0, kMaxCampaignPlayers - 1);
+
     if (setup.m_AllAi)
     {
         setup.m_EnemyCount = std::clamp(setup.m_EnemyCount, kMinAiObservePlayers, kMaxAiObservePlayers);
@@ -199,6 +201,7 @@ namespace
     {
         IO::Serialize(stream, player.m_Id);
         IO::Serialize(stream, player.m_IsHuman);
+        IO::Serialize(stream, player.m_ColorIndex);
         IO::Serialize(stream, player.m_Food);
         IO::Serialize(stream, player.m_Iron);
         IO::Serialize(stream, player.m_Gold);
@@ -232,10 +235,18 @@ namespace
         }
     }
 
-    void DeserializePlayer(istream& stream, Player& player)
+    void DeserializePlayer(istream& stream, Player& player, int saveVersion)
     {
         IO::Serialize(stream, player.m_Id);
         IO::Serialize(stream, player.m_IsHuman);
+        if (saveVersion >= 13)
+        {
+            IO::Serialize(stream, player.m_ColorIndex);
+        }
+        else
+        {
+            player.m_ColorIndex = player.m_Id;
+        }
         IO::Serialize(stream, player.m_Food);
         IO::Serialize(stream, player.m_Iron);
         IO::Serialize(stream, player.m_Gold);
@@ -303,13 +314,11 @@ namespace
 
 void InitGameFonts()
 {
-    // Match CivilizationRevisited / GeistStarter exactly:
-    //   LoadPixelFont(..., 9) / LoadPixelFont(..., 7)
-    //   draw with baseSize (g_*FontDrawSize kept equal to bake height).
+    // FONT_BITMAP bake at on-screen height; draw at baseSize (no scale).
     g_font = make_shared<Font>(LoadPixelFont("Fonts/softsquare.ttf", FONT_TEXTURE_LOAD_SIZE));
     PreparePixelFont(*g_font);
 
-    g_smallFont = make_shared<Font>(LoadPixelFont("Fonts/littleleague.ttf", SMALL_FONT_TEXTURE_LOAD_SIZE));
+    g_smallFont = make_shared<Font>(LoadPixelFont("Fonts/pinch.ttf", SMALL_FONT_TEXTURE_LOAD_SIZE));
     PreparePixelFont(*g_smallFont);
 
     if (g_font && g_font->baseSize > 0)
@@ -865,6 +874,16 @@ void DrawOutlinedText(std::shared_ptr<Font> font, const std::string& text, Vecto
 	DrawGameText(*font, text.c_str(), Vector2{ static_cast<float>(x), static_cast<float>(y) }, fontSize, spacing, color);
 }
 
+void DrawUiText(std::shared_ptr<Font> font, const std::string& text, Vector2 position, float fontSize, int spacing, Color color)
+{
+	if (!font)
+	{
+		return;
+	}
+
+	DrawGameText(*font, text.c_str(), position, fontSize, spacing, color);
+}
+
 void DrawParagraph(std::shared_ptr<Font> font, const std::string& text, Vector2 position, float maxwidth, float fontSize, int spacing, Color color, bool outlined)
 {
 	std::istringstream iss(text);
@@ -907,7 +926,7 @@ void DrawParagraph(std::shared_ptr<Font> font, const std::string& text, Vector2 
 		}
 		else
 		{
-			DrawTextEx(*font, (*it).c_str(), Vector2{ position.x, y }, fontSize, spacing, color);
+			DrawUiText(font, (*it).c_str(), Vector2{ position.x, y }, fontSize, spacing, color);
 		}
 		y += fontSize * 1.2f;
 		++it;
@@ -1122,7 +1141,7 @@ void GameDatabase::GenerateOverworldRegions()
     rng.SeedRNG(m_Setup.m_Seed);
 
     const int playerCount = GetCampaignPlayerCount(m_Setup);
-    InitializeCampaignPlayers(m_Players, playerCount, !m_Setup.m_AllAi);
+    InitializeCampaignPlayers(m_Players, playerCount, !m_Setup.m_AllAi, m_Setup.m_HumanColorIndex);
 
     int regionId = 0;
     for (int mapY = 0; mapY < m_Setup.m_RegionRows; ++mapY)
@@ -1397,7 +1416,7 @@ void GameDatabase::SyncPlayersFromOverworld(const OverworldMap& map, bool resetA
     if (m_Players.empty())
     {
         const int playerCount = GetCampaignPlayerCount(m_Setup);
-        InitializeCampaignPlayers(m_Players, playerCount, !m_Setup.m_AllAi);
+        InitializeCampaignPlayers(m_Players, playerCount, !m_Setup.m_AllAi, m_Setup.m_HumanColorIndex);
     }
 
     ::SyncPlayersFromOverworld(map, m_Players, resetAssets);
@@ -1413,7 +1432,7 @@ void GameDatabase::AdvanceTurn(OverworldMap& map)
     if (m_Players.empty())
     {
         const int playerCount = GetCampaignPlayerCount(m_Setup);
-        InitializeCampaignPlayers(m_Players, playerCount, !m_Setup.m_AllAi);
+        InitializeCampaignPlayers(m_Players, playerCount, !m_Setup.m_AllAi, m_Setup.m_HumanColorIndex);
         AssignCampaignAiPersonalities(m_Players, m_Setup);
     }
 
@@ -1648,18 +1667,18 @@ void GameDatabase::FinalizePendingBattle(OverworldMap& map)
             dbRegion->m_HasCastle = target->m_HasCastle;
         }
 
-        g_AiObserverLog.Add(attacker.m_Id,
+        g_AiObserverLog.Add(attacker.m_Id, battle.m_DefenderId,
             string(attacker.GetColorName()) + " captured county "
             + to_string(battle.m_RegionId) + " in battle");
     }
     else if (battle.m_Retreated)
     {
-        g_AiObserverLog.Add(attacker.m_Id,
+        g_AiObserverLog.Add(attacker.m_Id, battle.m_DefenderId,
             string(attacker.GetColorName()) + " retreated from county " + to_string(battle.m_RegionId));
     }
     else
     {
-        g_AiObserverLog.Add(attacker.m_Id,
+        g_AiObserverLog.Add(attacker.m_Id, battle.m_DefenderId,
             string(attacker.GetColorName()) + " lost the battle for county " + to_string(battle.m_RegionId));
     }
 
@@ -1807,7 +1826,7 @@ bool GameDatabase::LoadCampaign(const std::string& path)
     m_Players.resize(playerCount);
     for (Player& player : m_Players)
     {
-        DeserializePlayer(stream, player);
+        DeserializePlayer(stream, player, version);
     }
 
     unsigned int regionCount = 0;
